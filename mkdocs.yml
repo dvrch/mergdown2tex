@@ -33,7 +33,7 @@ theme:
     - content.tabs.link
   icon:
     repo: fontawesome/brands/github
-  logo: assets/logo.png
+  logo: assets/logo-icon.png
 
 markdown_extensions:
   - pymdownx.highlight:

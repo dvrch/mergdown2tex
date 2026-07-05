@@ -1,6 +1,6 @@
 <div align="center">
 
-![MergDown2TeX Logo](docs/assets/logo.png)
+![MergDown2TeX Logo](docs/assets/logo-horizontal.png)
 
 # MergDown2TeX
 

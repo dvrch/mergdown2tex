@@ -1,16 +1,28 @@
 # MergDown2TeX Logo Usage Guidelines
 
-## Primary Logo
+## Logo Variants
 
-![MergDown2TeX Logo](logo.png)
+### Square Icon (`logo-icon.png`)
 
-## Logo Files
+![Square Icon](logo-icon.png)
 
-| File | Format | Usage |
-|---|---|---|
-| `logo.png` | PNG | General use, documentation |
-| `logo.svg` | SVG | Web, scalable |
-| `logo-icon.png` | PNG | Favicon, small sizes |
+**Usage:**
+- Favicon
+- Plugin icon
+- Small sizes (32x32, 64x64, 128x128)
+- Social media profile pictures
+- App icons
+
+### Horizontal Text (`logo-horizontal.png`)
+
+![Horizontal Text](logo-horizontal.png)
+
+**Usage:**
+- README header
+- Documentation header
+- Website banners
+- Social media headers
+- Print materials
 
 ## Color Palette
 
@@ -22,8 +34,10 @@
 
 ## Minimum Size
 
-- **Print:** 25mm width
-- **Screen:** 80px width
+| Variant | Print | Screen |
+|---|---|---|
+| Square icon | 15mm | 32px |
+| Horizontal | 50mm | 200px |
 
 ## Clear Space
 
@@ -35,3 +49,12 @@ Maintain minimum clear space around the logo equal to the height of the "M" in "
 - Don't change the colors
 - Don't add effects (shadows, glows)
 - Don't place on busy backgrounds without contrast
+- Don't rotate the logo
+
+## File Naming
+
+| File | Format | Size |
+|---|---|---|
+| `logo-icon.png` | PNG | 128x128 |
+| `logo-horizontal.png` | PNG | 800x200 |
+| `favicon.ico` | ICO | 32x32 |
