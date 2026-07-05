@@ -1,6 +1,6 @@
 {
   "id": "mergdown2tex",
-  "name": "MergDown2TeX",
+  "name": "mergdown2teX",
   "version": "1.0.0",
   "minAppVersion": "1.0.0",
   "description": "Merge everything — embeds, Zotero/Pandoc citations, Mermaid, equations, cross-refs — into a unique .tex file. Compile to PDF, DOCX, or InDesign. WASM engine, zero build step.",
