@@ -1,8 +1,8 @@
 <div align="center">
 
-![MergDown2TeX Logo](docs/assets/logo-horizontal.png)
+![mergdown2tex Logo](docs/assets/logo-horizontal.png)
 
-# MergDown2TeX
+# mergdown2tex
 
 > **Merge everything. Convert anywhere.**  
 > WASM engine runs inside Obsidian. No build step required.
@@ -17,7 +17,7 @@
 
 ## What it does
 
-MergDown2TeX takes your Obsidian note and transforms it into a **publication-ready** LaTeX document. Everything is merged automatically:
+mergdown2tex takes your Obsidian note and transforms it into a **publication-ready** LaTeX document. Everything is merged automatically:
 
 | Input | Output |
 |---|---|
@@ -125,9 +125,9 @@ The container includes:
 
 | Command | Action |
 |---|---|
-| `MergDown2TeX: Convert to LaTeX` | Generate `.tex` file |
-| `MergDown2TeX: Compile to PDF` | Generate PDF |
-| `MergDown2TeX: Compile to DOCX` | Generate Word document |
+| `mergdown2tex: Convert to LaTeX` | Generate `.tex` file |
+| `mergdown2tex: Compile to PDF` | Generate PDF |
+| `mergdown2tex: Compile to DOCX` | Generate Word document |
 
 ---
 
@@ -145,9 +145,9 @@ The container includes:
 
 ---
 
-## Why MergDown2TeX?
+## Why mergdown2tex?
 
-| | Pandoc Plugin | Pandoc CLI | **MergDown2TeX** |
+| | Pandoc Plugin | Pandoc CLI | **mergdown2tex** |
 |---|---|---|---|
 | Install required | Pandoc + TeX Live | Pandoc + TeX Live | **WASM only** |
 | Wikilink resolution | ❌ | ❌ | ✅ |
@@ -155,7 +155,6 @@ The container includes:
 | Citation arrows (↑↓) | ❌ | ❌ | ✅ |
 | Mermaid → PNG | ❌ | ❌ | ✅ |
 | Custom preamble | Partial | Manual | ✅ |
-| InDesign output | ❌ | ❌ | ✅ |
 
 ---
 
@@ -190,8 +189,7 @@ Dockerfile        1 KB  ← LaTeX compilation environment
 
 ## License
 
-Free for personal, academic, community use.  
-Commercial: [contact author](https://github.com/dvrch).
+MIT
 
 ---
 
