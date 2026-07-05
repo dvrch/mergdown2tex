@@ -2,7 +2,7 @@
 
 ![mergdown2tex Logo](docs/assets/logo-horizontal.png)
 
-# mergdown2tex
+# mergdowntotex
 
 > **Merge everything. Convert anywhere.**  
 > WASM engine runs inside Obsidian. No build step required.
