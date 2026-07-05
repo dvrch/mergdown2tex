@@ -1,0 +1,38 @@
+FROM ubuntu:24.04
+
+# Éviter les prompts interactifs lors de l'installation
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Mettre à jour et installer les dépendances de base
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    curl \
+    unzip \
+    # Moteur LaTeX de base
+    texlive-latex-base \
+    texlive-latex-recommended \
+    texlive-latex-extra \
+    # Polices et encodages
+    texlive-fonts-recommended \
+    # soul.sty et ulem.sty sont ici !
+    texlive-plain-generic \
+    # Maths (amsmath, amssymb, etc.)
+    texlive-science \
+    # Graphiques et couleurs (xcolor, tcolorbox, graphicx, etc.)
+    texlive-pictures \
+    # tabularray est dans texlive-latex-extra
+    # Gestion de la bibliographie
+    texlive-bibtex-extra \
+    biber \
+    # Coloration syntaxique (minted)
+    python3-pygments \
+    # Pandoc (conversion docx)
+    pandoc \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# (Optionnel) Installer Node.js et Mermaid CLI si vous voulez 
+# aussi rendre les diagrammes mermaid directement dans le conteneur :
+# RUN apt-get update && apt-get install -y npm \
+#     && npm install -g @mermaid-js/mermaid-cli
+
+WORKDIR /vault

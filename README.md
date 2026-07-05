@@ -1,7 +1,7 @@
 # LaTeXify
 
 > **Merge everything. Compile anywhere.**  
-> Zero dependencies. Runs inside Obsidian via WASM.
+> WASM engine runs inside Obsidian. TeX Live + Podman for compilation.
 
 [![Obsidian](https://img.shields.io/badge/Obsidian-Plugin-blue)](https://obsidian.md)
 
@@ -29,11 +29,26 @@ One click. Your Obsidian note becomes a **publication-ready** LaTeX document.
 
 ---
 
+## Dependencies
+
+| Step | What you need | Status |
+|---|---|---|
+| Markdown → LaTeX | WASM engine | **None** (runs in Obsidian) |
+| LaTeX → PDF | TeX Live + Podman | Required |
+| LaTeX → DOCX | Pandoc | Required |
+
+**For PDF/DOCX compilation**, use the included `Dockerfile.vlatex`:
+```bash
+podman build -t vlatex-env -f Dockerfile.vlatex .
+```
+
+---
+
 ## Why LaTeXify?
 
 | | Pandoc Plugin | Pandoc CLI | **LaTeXify** |
 |---|---|---|---|
-| Install required | Pandoc + TeX Live | Pandoc + TeX Live | **None** (WASM) |
+| Install required | Pandoc + TeX Live | Pandoc + TeX Live | **WASM only** |
 | Wikilink resolution | ❌ | ❌ | ✅ |
 | Embed expansion | ❌ | ❌ | ✅ |
 | Citation arrows (↑↓) | ❌ | ❌ | ✅ |
@@ -73,9 +88,10 @@ One click. Your Obsidian note becomes a **publication-ready** LaTeX document.
 main.js          56 KB   ← plugin + WASM bindings (merged)
 manifest.json   351 B   ← metadata
 vlatex_bg.wasm  2.1 MB  ← Rust converter engine
+Dockerfile      1 KB    ← LaTeX compilation environment
 ```
 
-**3 files. 2.2 MB total. Zero build step.**
+**4 files. 2.2 MB total. Zero build step.**
 
 ---
 
