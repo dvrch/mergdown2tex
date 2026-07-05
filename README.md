@@ -1,3 +1,7 @@
+<div align="center">
+
+![MergDown2TeX Logo](docs/assets/logo.png)
+
 # MergDown2TeX
 
 > **Merge everything. Convert anywhere.**  
@@ -5,6 +9,9 @@
 
 [![Obsidian](https://img.shields.io/badge/Obsidian-Plugin-blue)](https://obsidian.md)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
+[![Documentation](https://img.shields.io/badge/docs-github.io-blue)](https://dvrch.github.io/mergdown2tex/)
+
+</div>
 
 ---
 

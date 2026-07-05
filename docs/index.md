@@ -1,3 +1,9 @@
+<div align="center">
+
+![MergDown2TeX Logo](assets/logo.png)
+
+</div>
+
 # MergDown2TeX
 
 <div class="hero" markdown>
