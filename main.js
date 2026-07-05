@@ -1,8 +1,548 @@
+// === WASM ENGINE ===
+// All memory management functions, raw bindings, and high-level wrappers
+// from vlatex_bg.js and vlatex.js merged here
+
 const { Plugin, Notice, PluginSettingTab, Setting, requestUrl } = require("obsidian");
 const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 const { exec } = require("child_process");
+
+// --- WASM Memory Management (from vlatex_bg.js) ---
+
+let WASM_VECTOR_LEN = 0;
+
+let wasm;
+
+let cachedUint8ArrayMemory0 = null;
+function getUint8ArrayMemory0() {
+    if (cachedUint8ArrayMemory0 === null || cachedUint8ArrayMemory0.byteLength === 0) {
+        cachedUint8ArrayMemory0 = new Uint8Array(wasm.memory.buffer);
+    }
+    return cachedUint8ArrayMemory0;
+}
+
+function getStringFromWasm0(ptr, len) {
+    return decodeText(ptr >>> 0, len);
+}
+
+function passStringToWasm0(arg, malloc, realloc) {
+    if (realloc === undefined) {
+        const buf = cachedTextEncoder.encode(arg);
+        const ptr = malloc(buf.length, 1) >>> 0;
+        getUint8ArrayMemory0().subarray(ptr, ptr + buf.length).set(buf);
+        WASM_VECTOR_LEN = buf.length;
+        return ptr;
+    }
+
+    let len = arg.length;
+    let ptr = malloc(len, 1) >>> 0;
+
+    const mem = getUint8ArrayMemory0();
+
+    let offset = 0;
+
+    for (; offset < len; offset++) {
+        const code = arg.charCodeAt(offset);
+        if (code > 0x7F) break;
+        mem[ptr + offset] = code;
+    }
+    if (offset !== len) {
+        if (offset !== 0) {
+            arg = arg.slice(offset);
+        }
+        ptr = realloc(ptr, len, len = offset + arg.length * 3, 1) >>> 0;
+        const view = getUint8ArrayMemory0().subarray(ptr + offset, ptr + len);
+        const ret = cachedTextEncoder.encodeInto(arg, view);
+
+        offset += ret.written;
+        ptr = realloc(ptr, len, offset, 1) >>> 0;
+    }
+
+    WASM_VECTOR_LEN = offset;
+    return ptr;
+}
+
+function passArray8ToWasm0(arg, malloc) {
+    const ptr = malloc(arg.length * 1, 1) >>> 0;
+    getUint8ArrayMemory0().set(arg, ptr / 1);
+    WASM_VECTOR_LEN = arg.length;
+    return ptr;
+}
+
+function getArrayU8FromWasm0(ptr, len) {
+    ptr = ptr >>> 0;
+    return getUint8ArrayMemory0().subarray(ptr / 1, ptr / 1 + len);
+}
+
+function takeFromExternrefTable0(idx) {
+    const value = wasm.__wbindgen_externrefs.get(idx);
+    wasm.__externref_table_dealloc(idx);
+    return value;
+}
+
+const cachedTextEncoder = new TextEncoder();
+
+if (!('encodeInto' in cachedTextEncoder)) {
+    cachedTextEncoder.encodeInto = function (arg, view) {
+        const buf = cachedTextEncoder.encode(arg);
+        view.set(buf);
+        return {
+            read: arg.length,
+            written: buf.length
+        };
+    };
+}
+
+let cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true });
+cachedTextDecoder.decode();
+const MAX_SAFARI_DECODE_BYTES = 2146435072;
+let numBytesDecoded = 0;
+function decodeText(ptr, len) {
+    numBytesDecoded += len;
+    if (numBytesDecoded >= MAX_SAFARI_DECODE_BYTES) {
+        cachedTextDecoder = new TextDecoder('utf-8', { ignoreBOM: true, fatal: true });
+        cachedTextDecoder.decode();
+        numBytesDecoded = len;
+    }
+    return cachedTextDecoder.decode(getUint8ArrayMemory0().subarray(ptr, ptr + len));
+}
+
+// --- Raw WASM Bindings (from vlatex_bg.js) ---
+
+function expand_wikilinks_bg(content, vault_root, md_path) {
+    let deferred5_0;
+    let deferred5_1;
+    try {
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(vault_root, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(md_path, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.expand_wikilinks(ptr0, len0, ptr1, len1, ptr2, len2);
+        var ptr4 = ret[0];
+        var len4 = ret[1];
+        if (ret[3]) {
+            ptr4 = 0; len4 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred5_0 = ptr4;
+        deferred5_1 = len4;
+        return getStringFromWasm0(ptr4, len4);
+    } finally {
+        wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
+    }
+}
+
+function expand_wikilinks_with_index_bg(content, vault_root, md_path, _path_index_json) {
+    let deferred6_0;
+    let deferred6_1;
+    try {
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(vault_root, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(md_path, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ptr3 = passStringToWasm0(_path_index_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len3 = WASM_VECTOR_LEN;
+        const ret = wasm.expand_wikilinks_with_index(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
+        var ptr5 = ret[0];
+        var len5 = ret[1];
+        if (ret[3]) {
+            ptr5 = 0; len5 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred6_0 = ptr5;
+        deferred6_1 = len5;
+        return getStringFromWasm0(ptr5, len5);
+    } finally {
+        wasm.__wbindgen_free(deferred6_0, deferred6_1, 1);
+    }
+}
+
+function expand_wikilinks_with_vfs_bg(content, vault_root, md_path, vfs_json) {
+    let deferred6_0;
+    let deferred6_1;
+    try {
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(vault_root, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(md_path, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ptr3 = passStringToWasm0(vfs_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len3 = WASM_VECTOR_LEN;
+        const ret = wasm.expand_wikilinks_with_vfs(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
+        var ptr5 = ret[0];
+        var len5 = ret[1];
+        if (ret[3]) {
+            ptr5 = 0; len5 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred6_0 = ptr5;
+        deferred6_1 = len5;
+        return getStringFromWasm0(ptr5, len5);
+    } finally {
+        wasm.__wbindgen_free(deferred6_0, deferred6_1, 1);
+    }
+}
+
+function extract_bibliography_paths_bg(markdown_content) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ptr0 = passStringToWasm0(markdown_content, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.extract_bibliography_paths(ptr0, len0);
+        deferred2_0 = ret[0];
+        deferred2_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
+}
+
+function extract_citations_bg(latex_body) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ptr0 = passStringToWasm0(latex_body, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.extract_citations(ptr0, len0);
+        deferred2_0 = ret[0];
+        deferred2_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
+}
+
+function generate_full_bibliography_bg(citations_json, bib_paths_json, style) {
+    let deferred4_0;
+    let deferred4_1;
+    try {
+        const ptr0 = passStringToWasm0(citations_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(bib_paths_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(style, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.generate_full_bibliography(ptr0, len0, ptr1, len1, ptr2, len2);
+        deferred4_0 = ret[0];
+        deferred4_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+    }
+}
+
+function generate_tex_footer_bg() {
+    let deferred1_0;
+    let deferred1_1;
+    try {
+        const ret = wasm.generate_tex_footer();
+        deferred1_0 = ret[0];
+        deferred1_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred1_0, deferred1_1, 1);
+    }
+}
+
+function generate_tex_header_bg(profile_name, markdown_content, title_override, author_override, include_toc, include_lot, include_lof) {
+    let deferred5_0;
+    let deferred5_1;
+    try {
+        const ptr0 = passStringToWasm0(profile_name, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(markdown_content, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(title_override, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ptr3 = passStringToWasm0(author_override, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len3 = WASM_VECTOR_LEN;
+        const ret = wasm.generate_tex_header(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3, include_toc, include_lot, include_lof);
+        deferred5_0 = ret[0];
+        deferred5_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
+    }
+}
+
+function init_panic_hook_bg() {
+    wasm.init_panic_hook();
+}
+
+function markdown_to_latex_bg(content, profile) {
+    let deferred4_0;
+    let deferred4_1;
+    try {
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(profile, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.markdown_to_latex(ptr0, len0, ptr1, len1);
+        var ptr3 = ret[0];
+        var len3 = ret[1];
+        if (ret[3]) {
+            ptr3 = 0; len3 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred4_0 = ptr3;
+        deferred4_1 = len3;
+        return getStringFromWasm0(ptr3, len3);
+    } finally {
+        wasm.__wbindgen_free(deferred4_0, deferred4_1, 1);
+    }
+}
+
+function markdown_to_latex_with_vfs_bg(content, profile, vfs_json) {
+    let deferred5_0;
+    let deferred5_1;
+    try {
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(profile, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(vfs_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ret = wasm.markdown_to_latex_with_vfs(ptr0, len0, ptr1, len1, ptr2, len2);
+        var ptr4 = ret[0];
+        var len4 = ret[1];
+        if (ret[3]) {
+            ptr4 = 0; len4 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred5_0 = ptr4;
+        deferred5_1 = len4;
+        return getStringFromWasm0(ptr4, len4);
+    } finally {
+        wasm.__wbindgen_free(deferred5_0, deferred5_1, 1);
+    }
+}
+
+function prepare_latex_for_docx_bg(tex_content) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ptr0 = passStringToWasm0(tex_content, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.prepare_latex_for_docx(ptr0, len0);
+        deferred2_0 = ret[0];
+        deferred2_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
+}
+
+function __wbindgen_cast_0000000000000001(arg0, arg1) {
+    const ret = getStringFromWasm0(arg0, arg1);
+    return ret;
+}
+
+function __wbindgen_init_externref_table() {
+    const table = wasm.__wbindgen_externrefs;
+    const offset = table.grow(4);
+    table.set(0, undefined);
+    table.set(offset + 0, undefined);
+    table.set(offset + 1, null);
+    table.set(offset + 2, true);
+    table.set(offset + 3, false);
+}
+
+// --- High-level Wrappers (from vlatex.js) ---
+
+function add_citation_arrows_to_bbl(bbl_content, tex_content) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(bbl_content, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(tex_content, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.add_citation_arrows_to_bbl(ptr0, len0, ptr1, len1);
+        deferred3_0 = ret[0];
+        deferred3_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+function add_citation_navigation(tex_content) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ptr0 = passStringToWasm0(tex_content, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.add_citation_navigation(ptr0, len0);
+        deferred2_0 = ret[0];
+        deferred2_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
+}
+
+function add_docx_header_footer(docx_bytes, header_text, footer_text, enable_header, enable_footer) {
+    const ptr0 = passArray8ToWasm0(docx_bytes, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(header_text, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ptr2 = passStringToWasm0(footer_text, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len2 = WASM_VECTOR_LEN;
+    const ret = wasm.add_docx_header_footer(ptr0, len0, ptr1, len1, ptr2, len2, enable_header, enable_footer);
+    var v4 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v4;
+}
+
+function add_docx_table_colors(docx_bytes, tex_content) {
+    const ptr0 = passArray8ToWasm0(docx_bytes, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(tex_content, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.add_docx_table_colors(ptr0, len0, ptr1, len1);
+    var v3 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v3;
+}
+
+function expand_wikilinks(content, vault_root, md_path) {
+    return expand_wikilinks_bg(content, vault_root, md_path);
+}
+
+function expand_wikilinks_with_index(content, vault_root, md_path, _path_index_json) {
+    return expand_wikilinks_with_index_bg(content, vault_root, md_path, _path_index_json);
+}
+
+function expand_wikilinks_with_vfs(content, vault_root, md_path, vfs_json) {
+    return expand_wikilinks_with_vfs_bg(content, vault_root, md_path, vfs_json);
+}
+
+function extract_bibliography_paths(markdown_content) {
+    return extract_bibliography_paths_bg(markdown_content);
+}
+
+function extract_citations(latex_body) {
+    return extract_citations_bg(latex_body);
+}
+
+function generate_full_bibliography(citations_json, bib_paths_json, style) {
+    return generate_full_bibliography_bg(citations_json, bib_paths_json, style);
+}
+
+function generate_tex_footer() {
+    return generate_tex_footer_bg();
+}
+
+function generate_tex_header(profile_name, markdown_content, title_override, author_override, include_toc, include_lot, include_lof) {
+    return generate_tex_header_bg(profile_name, markdown_content, title_override, author_override, include_toc, include_lot, include_lof);
+}
+
+function init_panic_hook() {
+    init_panic_hook_bg();
+}
+
+function markdown_to_latex(content, profile) {
+    return markdown_to_latex_bg(content, profile);
+}
+
+function markdown_to_latex_with_vfs(content, profile, vfs_json) {
+    return markdown_to_latex_with_vfs_bg(content, profile, vfs_json);
+}
+
+function modify_docx_arrows(docx_bytes, tex_content) {
+    const ptr0 = passArray8ToWasm0(docx_bytes, wasm.__wbindgen_malloc);
+    const len0 = WASM_VECTOR_LEN;
+    const ptr1 = passStringToWasm0(tex_content, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+    const len1 = WASM_VECTOR_LEN;
+    const ret = wasm.modify_docx_arrows(ptr0, len0, ptr1, len1);
+    var v3 = getArrayU8FromWasm0(ret[0], ret[1]).slice();
+    wasm.__wbindgen_free(ret[0], ret[1] * 1, 1);
+    return v3;
+}
+
+function prepare_latex_for_docx(tex_content) {
+    return prepare_latex_for_docx_bg(tex_content);
+}
+
+function prepare_latex_for_docx_full(tex_content, keep_nav_arrows, default_table_width) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(tex_content, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(default_table_width, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ret = wasm.prepare_latex_for_docx_full(ptr0, len0, keep_nav_arrows, ptr1, len1);
+        deferred3_0 = ret[0];
+        deferred3_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+function prepare_latex_for_docx_with_options(tex_content, keep_nav_arrows) {
+    let deferred2_0;
+    let deferred2_1;
+    try {
+        const ptr0 = passStringToWasm0(tex_content, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.prepare_latex_for_docx_with_options(ptr0, len0, keep_nav_arrows);
+        deferred2_0 = ret[0];
+        deferred2_1 = ret[1];
+        return getStringFromWasm0(ret[0], ret[1]);
+    } finally {
+        wasm.__wbindgen_free(deferred2_0, deferred2_1, 1);
+    }
+}
+
+// --- WASM Imports ---
+
+function __wbg_get_imports() {
+    const import0 = {
+        __proto__: null,
+        __wbindgen_cast_0000000000000001: function(arg0, arg1) {
+            const ret = getStringFromWasm0(arg0, arg1);
+            return ret;
+        },
+        __wbindgen_init_externref_table: function() {
+            const table = wasm.__wbindgen_externrefs;
+            const offset = table.grow(4);
+            table.set(0, undefined);
+            table.set(offset + 0, undefined);
+            table.set(offset + 1, null);
+            table.set(offset + 2, true);
+            table.set(offset + 3, false);
+        },
+    };
+    return {
+        __proto__: null,
+        "./vlatex_bg.js": import0,
+    };
+}
+
+function __wbg_set_wasm(val) {
+    wasm = val;
+}
+
+// --- WASM Initialization ---
+
+async function initWasm(wasmPath) {
+    if (wasm) return;
+    const wasmBytes = require('fs').readFileSync(wasmPath);
+    const { instance } = await WebAssembly.instantiate(wasmBytes, __wbg_get_imports());
+    __wbg_set_wasm(instance.exports);
+    if (wasm.__wbindgen_start) wasm.__wbindgen_start();
+}
+
+// === PLUGIN CODE ===
 
 const WEB_IMG_EXTS = [".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"];
 
@@ -42,7 +582,6 @@ async function ensureWebImages(mdContent, cacheDir) {
         if (resp.arrayBuffer) {
           buf = Buffer.from(resp.arrayBuffer);
         } else {
-          // Fallback: encode text bytes manually for binary safety
           const raw = resp.text || "";
           buf = Buffer.alloc(raw.length);
           for (let i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i) & 0xff;
@@ -76,7 +615,7 @@ const DEFAULT_SETTINGS = {
   enableFooter: false,
 };
 
-class VLatexSettingTab extends PluginSettingTab {
+class Markdown2TexSettingTab extends PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
     this.plugin = plugin;
@@ -267,10 +806,10 @@ class VLatexSettingTab extends PluginSettingTab {
   }
 }
 
-module.exports = class VLatexRustPlugin extends Plugin {
+class Markdown2TexPlugin extends Plugin {
   async onload() {
     await this.loadSettings();
-    this.addSettingTab(new VLatexSettingTab(this.app, this));
+    this.addSettingTab(new Markdown2TexSettingTab(this.app, this));
 
     try {
       let pluginDir;
@@ -295,24 +834,29 @@ module.exports = class VLatexRustPlugin extends Plugin {
         throw new Error(`vlatex_bg.wasm introuvable: ${wasmPath}`);
       }
 
-      const vlatexPath = path.join(pluginDir, "vlatex.js");
-      const vlatexCode = fs.readFileSync(vlatexPath, "utf8");
+      this.vlatex = {
+        add_citation_arrows_to_bbl,
+        add_citation_navigation,
+        add_docx_header_footer,
+        add_docx_table_colors,
+        expand_wikilinks,
+        expand_wikilinks_with_index,
+        expand_wikilinks_with_vfs,
+        extract_bibliography_paths,
+        extract_citations,
+        generate_full_bibliography,
+        generate_tex_footer,
+        generate_tex_header,
+        init_panic_hook,
+        markdown_to_latex,
+        markdown_to_latex_with_vfs,
+        modify_docx_arrows,
+        prepare_latex_for_docx,
+        prepare_latex_for_docx_full,
+        prepare_latex_for_docx_with_options,
+      };
 
-      // Bypass Obsidian/Electron require() ESM bug
-      const vlatexModule = { exports: {} };
-      const fn = new Function(
-        "module",
-        "exports",
-        "require",
-        "__dirname",
-        "__filename",
-        vlatexCode,
-      );
-      fn(vlatexModule, vlatexModule.exports, require, pluginDir, vlatexPath);
-      const vlatex = vlatexModule.exports;
-
-      this.vlatex = vlatex;
-      await vlatex.initWasm(wasmPath); // Re-enabled: vlatex.js is patched to use initWasm
+      await initWasm(wasmPath);
       new Notice("vLaTeX Rust (WASM) chargé avec succès !");
     } catch (e) {
       console.error("[vlatex] FATAL:", e);
@@ -371,8 +915,6 @@ module.exports = class VLatexRustPlugin extends Plugin {
     return { vaultRoot, mdPath, parentDir, fileStem, content, activeFile };
   }
 
-  /// Resolve Dataview inline queries (`=expression`) using the Dataview API if available.
-  /// Falls back to stripping the raw inline code if Dataview is not available.
   processDataviewInline(content, sourceFile) {
     const dvApi = this.app.plugins?.plugins?.dataview?.api;
     return content.replace(/`=([^`]+)`/g, (full, expr) => {
@@ -380,20 +922,17 @@ module.exports = class VLatexRustPlugin extends Plugin {
       let resolved = "";
       if (dvApi && dvApi.evaluateInline) {
         try {
-          // evaluateInline expects the full inline span (`` `=choice(...)` ``) not just the inner expression
           resolved = dvApi.evaluateInline(full, sourceFile)?.value?.toString() || "";
         } catch (e) {
           console.log("[vlatex] Dataview evalInline failed:", full, e.message);
         }
       } else if (dvApi && dvApi.tryEvaluate) {
         try {
-          // tryEvaluate expects the expression without the leading =
           resolved = dvApi.tryEvaluate(trimmed, {})?.toString() || "";
         } catch (e) {
           console.log("[vlatex] Dataview tryEvaluate failed:", trimmed, e.message);
         }
       }
-      // If both fail, keep the original expression so the user can see it wasn't resolved
       if (!resolved) resolved = full;
       return resolved;
     });
@@ -404,7 +943,6 @@ module.exports = class VLatexRustPlugin extends Plugin {
     const vfs = {};
     let processed = content;
 
-    // 1. Process mermaid blocks first
     const mermaidRegex = /```mermaid\s*\n([\s\S]+?)```/g;
     let mermaidMatch;
     let mermaidIndex = 0;
@@ -413,7 +951,6 @@ module.exports = class VLatexRustPlugin extends Plugin {
       fs.mkdirSync(cacheDir, { recursive: true });
     }
 
-    // Use an array to store replacements so we can replace them asynchronously
     const mermaidReplacements = [];
     while ((mermaidMatch = mermaidRegex.exec(content)) !== null) {
       const def = mermaidMatch[1];
@@ -442,7 +979,6 @@ module.exports = class VLatexRustPlugin extends Plugin {
             else resolve();
           });
         });
-        // Use simple relative path: mermaid_diagrams/xxx.png (from parentDir)
         const captionText = (def.trim().split('\n')[0] || 'Diagramme')
           .replace(/[&%$#_{}~^\\<>|]/g, (c) => '\\' + c)
           .slice(0, 60);
@@ -456,7 +992,6 @@ module.exports = class VLatexRustPlugin extends Plugin {
       }
     }
 
-    // 2. Process regular Obsidian embeds ![[...]]
     const pattern = /!\[\[([^\]|#]+)(?:#([^\]|]+))?(?:\|([^\]\n]+))?\]\]/g;
     const matches = [];
     let m;
@@ -473,7 +1008,6 @@ module.exports = class VLatexRustPlugin extends Plugin {
       let extension = "";
 
       if (!resolved) {
-        // It might be an absolute path (like our generated mermaid pngs)
         if (path.isAbsolute(fileRef) && fs.existsSync(fileRef)) {
           absPath = fileRef;
           extension = path.extname(fileRef).slice(1);
@@ -501,7 +1035,6 @@ module.exports = class VLatexRustPlugin extends Plugin {
       } else if (
         ["png", "jpg", "jpeg", "gif", "svg", "webp"].includes(extension)
       ) {
-        // Use relative path for portability and Podman compatibility
         const relPath = path.relative(parentDir, absPath);
         processed = processed.replaceAll(
           full,
@@ -540,7 +1073,6 @@ module.exports = class VLatexRustPlugin extends Plugin {
     }
 
     if (bibPaths.length === 0 && cites.length > 0) {
-      // Auto-detect .bib files in parentDir
       try {
         const files = fs.readdirSync(parentDir);
         for (const file of files) {
@@ -556,7 +1088,6 @@ module.exports = class VLatexRustPlugin extends Plugin {
     let bibSection = "";
     if (cites.length > 0 || bibPaths.length > 0) {
       const bibStyle = cites.length === 0 ? "" : "References";
-      // Convert bibPaths to be relative to parentDir for LaTeX
       const relBibPaths = bibPaths.map((p) => path.relative(parentDir, p));
       bibSection =
         this.vlatex.generate_full_bibliography(
@@ -580,7 +1111,6 @@ module.exports = class VLatexRustPlugin extends Plugin {
     );
     const footer = this.vlatex.generate_tex_footer();
 
-    // Manual injection of bib resources if WASM is not updated
     if (bibPaths.length > 0 && !header.includes("\\addbibresource")) {
       bibPaths.forEach((p) => {
         const rel = path.relative(parentDir, p);
@@ -591,7 +1121,6 @@ module.exports = class VLatexRustPlugin extends Plugin {
       });
     }
 
-    // Extract title to return it for DOCX
     let title = titleOverride;
     if (!title) {
       const titleMatch = /^title:\s*(.*)$/m.exec(content);
@@ -604,14 +1133,12 @@ module.exports = class VLatexRustPlugin extends Plugin {
 
     let finalTex = header + "\n" + body + "\n" + bibSection + footer;
 
-    // Custom preamble override
     if (this.settings.preamblePath) {
       const preambleAbs = path.isAbsolute(this.settings.preamblePath)
         ? this.settings.preamblePath
         : path.join(vaultRoot, this.settings.preamblePath);
       try {
         const customPreamble = fs.readFileSync(preambleAbs, "utf-8");
-        // Replace everything between \documentclass and \begin{document}
         const docClassRe = /^(.*?\\documentclass[^\n]*\n)([\s\S]*?)(\\begin\{document\})/m;
         finalTex = finalTex.replace(docClassRe, "$1" + customPreamble + "\n$3");
         console.log("[vlatex] custom preamble applied from", preambleAbs);
@@ -620,7 +1147,6 @@ module.exports = class VLatexRustPlugin extends Plugin {
       }
     }
 
-    // Remove duplicate first section heading if it matches the document title
     if (title) {
       const sectionRe = new RegExp(`\\\\section\\{${title.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\}\\s*`);
       const firstSection = finalTex.match(/(?:\n|^)(\\section\{.*?\})/);
@@ -679,7 +1205,6 @@ module.exports = class VLatexRustPlugin extends Plugin {
 
       const texPath = path.join(parentDir, fileStem + ".tex");
       fs.writeFileSync(texPath, fullTex.tex, "utf-8");
-      // Nettoyer les anciens fichiers auxiliaires (labels périmés → \endcsname crash, .bbl flèches périmées)
       for (const ext of [".aux", ".bbl", ".bcf", ".out", ".log", ".toc", ".lof", ".lot"]) {
         const p = path.join(parentDir, fileStem + ext);
         try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch {}
@@ -706,7 +1231,6 @@ module.exports = class VLatexRustPlugin extends Plugin {
   runPdflatex(texPath, parentDir, fileStem, vaultRoot, callback, fullTexString) {
     let pass = 0;
     const engine = this.settings.latexEngine || "pdflatex";
-    // Mount the entire vault root to /vault. Input file is relative to vault root.
     const relTexPath = path.relative(vaultRoot, texPath);
     const relParentDir = path.relative(vaultRoot, parentDir);
 
@@ -748,7 +1272,6 @@ module.exports = class VLatexRustPlugin extends Plugin {
             }
             runFinalPass();
           };
-          // Try running biber (biblatex) or bibtex (natbib)
           const bcfPath = path.join(parentDir, fileStem + ".bcf");
           const auxPath = path.join(parentDir, fileStem + ".aux");
           if (fs.existsSync(bcfPath)) {
@@ -756,7 +1279,6 @@ module.exports = class VLatexRustPlugin extends Plugin {
             const biberCmd = `podman run --rm -v "${vaultRoot}:/vault" --workdir="/vault/${relParentDir}" vlatex-env biber "${fileStem}"`;
             exec(biberCmd, opts, () => { postProcessBbl(); });
           } else if (fs.existsSync(auxPath)) {
-            // Check if .aux has \bibstyle command (natbib/bibtex)
             const auxContent = fs.readFileSync(auxPath, "utf-8");
             if (auxContent.includes("\\bibstyle")) {
               console.log(`[vlatex] running bibtex (podman)`);
@@ -818,7 +1340,6 @@ module.exports = class VLatexRustPlugin extends Plugin {
         parentDir,
       );
 
-      // Add citation navigation arrows (↑/↓) for PDF
       let fullTexString = plainTex;
       try {
         fullTexString = this.vlatex.add_citation_navigation(plainTex);
@@ -827,7 +1348,6 @@ module.exports = class VLatexRustPlugin extends Plugin {
         console.log("[vlatex] citation navigation not available (old WASM):", e.message);
       }
 
-      // Inject header/footer for PDF via fancyhdr — same as DOCX: header right, footer left text + right page#, gray
       let fancySetup = "";
       if (this.settings.enableHeader || this.settings.enableFooter) {
         fancySetup += "\\usepackage{fancyhdr}\n\\pagestyle{fancy}\n\\fancyhf{}\n\\renewcommand{\\headrule}{{\\color{gray}\\rule{\\headwidth}{\\headrulewidth}}}\n\\renewcommand{\\footrule}{{\\color{gray}\\rule{\\headwidth}{\\headrulewidth}}}\n";
@@ -835,7 +1355,6 @@ module.exports = class VLatexRustPlugin extends Plugin {
           fancySetup += "\\fancyhead[R]{{\\color{gray!60}\\small " + this.settings.headerContent + "}}\n";
         }
         if (this.settings.enableFooter && this.settings.footerContent) {
-          // Strip \thepage from user text to avoid duplication (page number is added on the right)
           let cleanFooter = this.settings.footerContent.replace(/\\(?:thepage|thePage|thePage)\b/g, "").replace(/Page\b/g, "").trim();
           if (cleanFooter) {
             fancySetup += "\\fancyfoot[L]{{\\color{gray!60}\\small " + cleanFooter + "}}\n";
@@ -920,8 +1439,6 @@ module.exports = class VLatexRustPlugin extends Plugin {
 
       const docxTexPath = path.join(parentDir, fileStem + "_docx.tex");
 
-      // Evaluate LATEXBLOCK markers (```latex code blocks) via pdflatex+pdftotext
-      // so the rendered text appears in the DOCX instead of being dropped by pandoc.
       const renderLatex = async (latexCode) => {
         return new Promise((resolve, reject) => {
           const tmpDir = parentDir;
@@ -962,8 +1479,6 @@ module.exports = class VLatexRustPlugin extends Plugin {
         const rendered = await renderLatex(code);
         docxTexEval = docxTexEval.replace(lbMatch[0], rendered);
       }
-      // Strip any stray \begin{document} / \end{document} / \documentclass / \usepackage
-      // that may have leaked into body (pandoc doesn't tolerate these in the body)
       docxTexEval = docxTexEval
         .replace(/\\begin\{document\}/g, '')
         .replace(/\\end\{document\}/g, '')
@@ -973,11 +1488,9 @@ module.exports = class VLatexRustPlugin extends Plugin {
         .replace(/\\RequirePackage\s*(?:\[[^\]]*\])?\s*\{[^}]*\}/g, '')
         .replace(/\\documentstyle\s*(?:\[[^\]]*\])?\s*\{[^}]*\}/g, '')
         .replace(/\\providecommand\{\\defaulttablewidth\}\{[^}]*\}/g, '');
-      // Wrap in a minimal preamble with hypersetup so pandoc enables colored links in DOCX
       const docxPreamble = `\\documentclass{article}\n\\usepackage[utf8]{inputenc}\n\\usepackage[T1]{fontenc}\n\\usepackage{hyperref}\n\\usepackage{xcolor}\n\\hypersetup{\n  colorlinks=true,\n  linkcolor=blue,\n  urlcolor=blue,\n  citecolor=blue\n}\n\\begin{document}\n`;
       fs.writeFileSync(docxTexPath, docxPreamble + docxTexEval + "\n\\end{document}\n", "utf-8");
 
-      // Extract bibPaths again for pandoc
       let bibPaths = [];
       try {
         bibPaths = JSON.parse(this.vlatex.extract_bibliography_paths(content));
@@ -1028,14 +1541,12 @@ module.exports = class VLatexRustPlugin extends Plugin {
           new Notice("❌ Erreur pandoc: " + error.message);
         } else {
           console.log("[vlatex] DOCX success");
-          // Post-process DOCX: add bidirectional citation arrows (↑/↓)
           let docxPath = path.join(parentDir, fileStem + ".docx");
           try {
             let docxBytes = fs.readFileSync(docxPath);
             const arrowBytes = this.vlatex.modify_docx_arrows(docxBytes, docxTex);
             docxBytes = arrowBytes;
             console.log("[vlatex] arrows: ok");
-            // Post-process DOCX: add headers/footers
             const hfBytes = this.vlatex.add_docx_header_footer(
               docxBytes,
               this.settings.headerContent || "",
@@ -1045,7 +1556,6 @@ module.exports = class VLatexRustPlugin extends Plugin {
             );
             docxBytes = hfBytes;
             console.log("[vlatex] header/footer: ok");
-            // Post-process DOCX: add table cell colors from \rowcolor
             const tcBytes = this.vlatex.add_docx_table_colors(docxBytes, docxTex);
             docxBytes = tcBytes;
             console.log("[vlatex] table colors: ok");
@@ -1065,4 +1575,6 @@ module.exports = class VLatexRustPlugin extends Plugin {
       new Notice("❌ Erreur: " + err.message);
     }
   }
-};
+}
+
+module.exports = Markdown2TexPlugin;

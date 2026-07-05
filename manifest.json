@@ -1,9 +1,9 @@
 {
-  "id": "vlatex-rust",
-  "name": "vLaTeX Rust",
+  "id": "markdown2tex",
+  "name": "Markdown2TeX",
   "version": "1.0.0",
   "minAppVersion": "1.0.0",
-  "description": "Convert Obsidian notes to LaTeX/PDF/DOCX using Rust WASM — no external tools required.",
+  "description": "Merge embeds, citations, Mermaid, equations, cross-refs into a single .tex → PDF or DOCX. Zero dependencies.",
   "author": "DJ Victorien",
   "authorUrl": "https://github.com/dvrch",
   "main": "main.js",
