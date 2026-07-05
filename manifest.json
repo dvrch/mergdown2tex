@@ -1,9 +1,9 @@
 {
-  "id": "latexify",
-  "name": "LaTeXify",
+  "id": "mergdown2tex",
+  "name": "MergDown2TeX",
   "version": "1.0.0",
   "minAppVersion": "1.0.0",
-  "description": "WASM engine: merge embeds, Zotero/Pandoc citations, Mermaid, equations, cross-refs → .tex. For PDF/DOCX compilation, install TeX Live + Podman (see Dockerfile).",
+  "description": "Merge everything — embeds, Zotero/Pandoc citations, Mermaid, equations, cross-refs — into a unique .tex file. Compile to PDF, DOCX, or InDesign. WASM engine, zero build step.",
   "author": "DJ Victorien",
   "authorUrl": "https://github.com/dvrch",
   "main": "main.js",

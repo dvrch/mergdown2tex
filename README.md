@@ -1,15 +1,16 @@
-# LaTeXify
+# MergDown2TeX
 
-> **Merge everything. Compile anywhere.**  
-> WASM engine runs inside Obsidian. TeX Live + Podman for compilation.
+> **Merge everything. Convert anywhere.**  
+> WASM engine runs inside Obsidian. No build step required.
 
 [![Obsidian](https://img.shields.io/badge/Obsidian-Plugin-blue)](https://obsidian.md)
+[![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
 
 ---
 
 ## What it does
 
-One click. Your Obsidian note becomes a **publication-ready** LaTeX document.
+MergDown2TeX takes your Obsidian note and transforms it into a **publication-ready** LaTeX document. Everything is merged automatically:
 
 | Input | Output |
 |---|---|
@@ -22,10 +23,44 @@ One click. Your Obsidian note becomes a **publication-ready** LaTeX document.
 | `> [!note]` callouts | `tcolorbox` environments |
 | Footnotes, tables, lists | Full LaTeX support |
 
-**→ PDF** via local TeX Live (podman)  
-**→ DOCX** via Pandoc  
-**→ .tex** for manual editing  
-**→ InDesign** compatible output
+**Output formats:**
+- **PDF** via TeX Live + Podman
+- **DOCX** via Pandoc
+- **.tex** for manual editing
+- **InDesign** compatible output
+
+---
+
+## How it works
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Obsidian Note                                          │
+│  ├── [[Note A]]          ──→  \input{note_a}           │
+│  ├── ![[Note B]]         ──→  recursive expansion      │
+│  ├── ![[image.png]]      ──→  \includegraphics{}       │
+│  ├── @citation           ──→  \citep{} + arrows ↑↓     │
+│  ├── $math$              ──→  LaTeX equation            │
+│  └── ```mermaid```       ──→  rendered PNG              │
+└─────────────────────────────────────────────────────────┘
+                        │
+                        ▼
+┌─────────────────────────────────────────────────────────┐
+│  WASM Engine (inside Obsidian)                          │
+│  ├── Markdown → LaTeX conversion (pure Rust)            │
+│  ├── Embed expansion (filesystem)                       │
+│  ├── Citation extraction + navigation                   │
+│  └── Mermaid → PNG rendering                            │
+└─────────────────────────────────────────────────────────┘
+                        │
+                        ▼
+┌─────────────────────────────────────────────────────────┐
+│  Output Files                                           │
+│  ├── document.tex    (LaTeX source)                     │
+│  ├── document.pdf    (compiled PDF)                     │
+│  └── document.docx   (Word document)                    │
+└─────────────────────────────────────────────────────────┘
+```
 
 ---
 
@@ -37,31 +72,45 @@ One click. Your Obsidian note becomes a **publication-ready** LaTeX document.
 | LaTeX → PDF | TeX Live + Podman | Required |
 | LaTeX → DOCX | Pandoc | Required |
 
-**For PDF/DOCX compilation**, use the included `Dockerfile.vlatex`:
+### For PDF/DOCX compilation
+
+Install the LaTeX environment using the included Dockerfile:
+
 ```bash
-podman build -t vlatex-env -f Dockerfile.vlatex .
+# Build the container (one time)
+podman build -t mergdown2tex-env -f Dockerfile .
+
+# Or use Docker
+docker build -t mergdown2tex-env -f Dockerfile .
 ```
 
----
-
-## Why LaTeXify?
-
-| | Pandoc Plugin | Pandoc CLI | **LaTeXify** |
-|---|---|---|---|
-| Install required | Pandoc + TeX Live | Pandoc + TeX Live | **WASM only** |
-| Wikilink resolution | ❌ | ❌ | ✅ |
-| Embed expansion | ❌ | ❌ | ✅ |
-| Citation arrows (↑↓) | ❌ | ❌ | ✅ |
-| Mermaid → PNG | ❌ | ❌ | ✅ |
-| Custom preamble | Partial | Manual | ✅ |
+The container includes:
+- TeX Live (full)
+- Pandoc
+- Python3 + Pygments (for minted)
+- All required LaTeX packages
 
 ---
 
 ## Install
 
-1. Download `main.js`, `manifest.json`, `vlatex_bg.wasm` from [Releases](https://github.com/dvrch/obsidian-vlatex-rust/releases)
-2. Copy to `.obsidian/plugins/latexify/`
+### Manual install
+
+1. Download `main.js`, `manifest.json`, `vlatex_bg.wasm` from [Releases](https://github.com/dvrch/mergdown2tex/releases)
+2. Copy to `.obsidian/plugins/mergdown2tex/`
 3. Enable in **Settings → Community Plugins**
+
+### Folder structure
+
+```
+.obsidian/
+└── plugins/
+    └── mergdown2tex/
+        ├── main.js          56 KB   ← plugin + WASM bindings
+        ├── manifest.json   351 B   ← metadata
+        ├── vlatex_bg.wasm  2.1 MB  ← Rust converter engine
+        └── Dockerfile        1 KB  ← LaTeX compilation environment
+```
 
 ---
 
@@ -69,16 +118,37 @@ podman build -t vlatex-env -f Dockerfile.vlatex .
 
 | Command | Action |
 |---|---|
-| `LaTeXify: Convert to LaTeX` | Generate `.tex` |
-| `LaTeXify: Compile to PDF` | Generate PDF |
-| `LaTeXify: Compile to DOCX` | Generate Word |
+| `MergDown2TeX: Convert to LaTeX` | Generate `.tex` file |
+| `MergDown2TeX: Compile to PDF` | Generate PDF |
+| `MergDown2TeX: Compile to DOCX` | Generate Word document |
 
 ---
 
-## Requirements
+## Settings
 
-- Obsidian desktop (Electron)
-- TeX Live + Podman (for PDF/DOCX compilation)
+| Setting | Default | Description |
+|---|---|---|
+| `documentclass` | `report` | LaTeX document class |
+| `fontsize` | `12pt` | Font size |
+| `bibliography` | `""` | Path to `.bib` file |
+| `customPreamble` | `""` | Custom LaTeX preamble |
+| `useMinted` | `true` | Syntax highlighting with minted |
+| `useTcolorbox` | `true` | Callouts as tcolorbox |
+| `mermaidDpi` | `150` | Mermaid diagram resolution |
+
+---
+
+## Why MergDown2TeX?
+
+| | Pandoc Plugin | Pandoc CLI | **MergDown2TeX** |
+|---|---|---|---|
+| Install required | Pandoc + TeX Live | Pandoc + TeX Live | **WASM only** |
+| Wikilink resolution | ❌ | ❌ | ✅ |
+| Embed expansion | ❌ | ❌ | ✅ |
+| Citation arrows (↑↓) | ❌ | ❌ | ✅ |
+| Mermaid → PNG | ❌ | ❌ | ✅ |
+| Custom preamble | Partial | Manual | ✅ |
+| InDesign output | ❌ | ❌ | ✅ |
 
 ---
 
@@ -88,10 +158,26 @@ podman build -t vlatex-env -f Dockerfile.vlatex .
 main.js          56 KB   ← plugin + WASM bindings (merged)
 manifest.json   351 B   ← metadata
 vlatex_bg.wasm  2.1 MB  ← Rust converter engine
-Dockerfile      1 KB    ← LaTeX compilation environment
+Dockerfile        1 KB  ← LaTeX compilation environment
 ```
 
 **4 files. 2.2 MB total. Zero build step.**
+
+---
+
+## Troubleshooting
+
+### "WASM module not loaded"
+- Ensure `vlatex_bg.wasm` is in the same folder as `main.js`
+- Restart Obsidian
+
+### "Podman not found"
+- Install Podman: https://podman.io/getting-started/installation
+- Or use Docker instead
+
+### "Compilation failed"
+- Check that the container is built: `podman images | grep mergdown2tex-env`
+- Rebuild if needed: `podman build -t mergdown2tex-env -f Dockerfile .`
 
 ---
 
@@ -99,3 +185,10 @@ Dockerfile      1 KB    ← LaTeX compilation environment
 
 Free for personal, academic, community use.  
 Commercial: [contact author](https://github.com/dvrch).
+
+---
+
+## Support
+
+- [GitHub Issues](https://github.com/dvrch/mergdown2tex/issues)
+- [Documentation](https://dvrch.github.io/mergdown2tex/)
