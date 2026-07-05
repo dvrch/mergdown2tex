@@ -1,9 +1,9 @@
 {
-  "id": "markdown2tex",
-  "name": "Markdown2TeX",
+  "id": "latexify",
+  "name": "LaTeXify",
   "version": "1.0.0",
   "minAppVersion": "1.0.0",
-  "description": "Merge embeds, citations, Mermaid, equations, cross-refs into a single .tex → PDF or DOCX. Zero dependencies.",
+  "description": "Merge everything — embeds, Zotero/Pandoc citations, Mermaid, equations, cross-refs — into a unique .tex file. Compile to PDF, DOCX, or InDesign. Zero dependencies.",
   "author": "DJ Victorien",
   "authorUrl": "https://github.com/dvrch",
   "main": "main.js",

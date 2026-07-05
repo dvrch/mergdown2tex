@@ -1,7 +1,7 @@
-# Markdown2TeX
+# LaTeXify
 
-> Merge everything into one professional LaTeX document.  
-> **Zero dependencies.** Runs inside Obsidian via WASM.
+> **Merge everything. Compile anywhere.**  
+> Zero dependencies. Runs inside Obsidian via WASM.
 
 [![Obsidian](https://img.shields.io/badge/Obsidian-Plugin-blue)](https://obsidian.md)
 
@@ -24,13 +24,14 @@ One click. Your Obsidian note becomes a **publication-ready** LaTeX document.
 
 **→ PDF** via local TeX Live (podman)  
 **→ DOCX** via Pandoc  
-**→ .tex** for manual editing
+**→ .tex** for manual editing  
+**→ InDesign** compatible output
 
 ---
 
-## Why Markdown2TeX?
+## Why LaTeXify?
 
-| | Pandoc Plugin | Pandoc CLI | **Markdown2TeX** |
+| | Pandoc Plugin | Pandoc CLI | **LaTeXify** |
 |---|---|---|---|
 | Install required | Pandoc + TeX Live | Pandoc + TeX Live | **None** (WASM) |
 | Wikilink resolution | ❌ | ❌ | ✅ |
@@ -44,7 +45,7 @@ One click. Your Obsidian note becomes a **publication-ready** LaTeX document.
 ## Install
 
 1. Download `main.js`, `manifest.json`, `vlatex_bg.wasm` from [Releases](https://github.com/dvrch/obsidian-vlatex-rust/releases)
-2. Copy to `.obsidian/plugins/markdown2tex/`
+2. Copy to `.obsidian/plugins/latexify/`
 3. Enable in **Settings → Community Plugins**
 
 ---
@@ -53,9 +54,9 @@ One click. Your Obsidian note becomes a **publication-ready** LaTeX document.
 
 | Command | Action |
 |---|---|
-| `Markdown2TeX: Convert to LaTeX` | Generate `.tex` |
-| `Markdown2TeX: Compile to PDF` | Generate PDF |
-| `Markdown2TeX: Compile to DOCX` | Generate Word |
+| `LaTeXify: Convert to LaTeX` | Generate `.tex` |
+| `LaTeXify: Compile to PDF` | Generate PDF |
+| `LaTeXify: Compile to DOCX` | Generate Word |
 
 ---
 
@@ -70,7 +71,7 @@ One click. Your Obsidian note becomes a **publication-ready** LaTeX document.
 
 ```
 main.js          56 KB   ← plugin + WASM bindings (merged)
-manifest.json   327 B   ← metadata
+manifest.json   351 B   ← metadata
 vlatex_bg.wasm  2.1 MB  ← Rust converter engine
 ```
 
