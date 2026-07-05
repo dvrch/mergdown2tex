@@ -268,6 +268,6 @@ File not found: figures/diagram_1.png
 
 ## Next steps
 
-- [FAQ](../faq.md) - Frequently asked questions
-- [Commands](commands.md) - Available commands
-- [Settings](settings.md) - Configuration options
+- [FAQ](faq.md) - Frequently asked questions
+- [Commands](reference/commands.md) - Available commands
+- [Settings](reference/settings.md) - Configuration options
