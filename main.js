@@ -587,9 +587,9 @@ async function ensureWebImages(mdContent, cacheDir) {
           for (let i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i) & 0xff;
         }
         fs.writeFileSync(localPath, buf);
-        console.log("[vlatex] downloaded web image:", url, "→", localPath);
+        console.log("[mergdown2tex] downloaded web image:", url, "→", localPath);
       } catch (e) {
-        console.warn("[vlatex] cannot download", url, e.message);
+        console.warn("[mergdown2tex] cannot download", url, e.message);
         continue;
       }
     }
@@ -624,7 +624,7 @@ class Markdown2TexSettingTab extends PluginSettingTab {
   display() {
     const { containerEl } = this;
     containerEl.empty();
-    containerEl.createEl("h2", { text: "vLaTeX WASM Settings" });
+    containerEl.createEl("h2", { text: "MergDown2TeX Settings" });
 
     new Setting(containerEl)
       .setName("Chemin de la bibliographie (.bib)")
@@ -831,7 +831,7 @@ class Markdown2TexPlugin extends Plugin {
 
       const wasmPath = path.join(pluginDir, "vlatex_bg.wasm");
       if (!fs.existsSync(wasmPath)) {
-        throw new Error(`vlatex_bg.wasm introuvable: ${wasmPath}`);
+        throw new Error(`vlatex_bg.wasm not found: ${wasmPath}`);
       }
 
       this.vlatex = {
@@ -857,31 +857,31 @@ class Markdown2TexPlugin extends Plugin {
       };
 
       await initWasm(wasmPath);
-      new Notice("vLaTeX Rust (WASM) chargé avec succès !");
+      new Notice("MergDown2TeX (WASM) chargé avec succès !");
     } catch (e) {
-      console.error("[vlatex] FATAL:", e);
-      new Notice("Erreur vLaTeX : " + e.message);
+      console.error("[mergdown2tex] FATAL:", e);
+      new Notice("Erreur MergDown2TeX : " + e.message);
     }
 
     this.addCommand({
-      id: "vlatex-convert-to-tex",
-      name: "vLaTeX Rust: Convertir la note active en LaTeX (.tex)",
+      id: "mergdown2tex-convert-to-tex",
+      name: "MergDown2TeX: Convertir la note active en LaTeX (.tex)",
       callback: async () => {
         await this.convertToTex();
       },
     });
 
     this.addCommand({
-      id: "vlatex-compile-to-pdf",
-      name: "vLaTeX Rust: Convertir et compiler en PDF",
+      id: "mergdown2tex-compile-to-pdf",
+      name: "MergDown2TeX: Convertir et compiler en PDF",
       callback: async () => {
         await this.compilePdf();
       },
     });
 
     this.addCommand({
-      id: "vlatex-compile-to-docx",
-      name: "vLaTeX Rust: Convertir et compiler en DOCX (Word)",
+      id: "mergdown2tex-compile-to-docx",
+      name: "MergDown2TeX: Convertir et compiler en DOCX (Word)",
       callback: async () => {
         await this.compileDocx();
       },
@@ -911,7 +911,7 @@ class Markdown2TexPlugin extends Plugin {
     const parentDir = path.dirname(mdPath);
     const fileStem = activeFile.basename;
     const content = await this.app.vault.read(activeFile);
-    console.log("[vlatex] active file:", mdPath);
+    console.log("[mergdown2tex] active file:", mdPath);
     return { vaultRoot, mdPath, parentDir, fileStem, content, activeFile };
   }
 
@@ -924,13 +924,13 @@ class Markdown2TexPlugin extends Plugin {
         try {
           resolved = dvApi.evaluateInline(full, sourceFile)?.value?.toString() || "";
         } catch (e) {
-          console.log("[vlatex] Dataview evalInline failed:", full, e.message);
+          console.log("[mergdown2tex] Dataview evalInline failed:", full, e.message);
         }
       } else if (dvApi && dvApi.tryEvaluate) {
         try {
           resolved = dvApi.tryEvaluate(trimmed, {})?.toString() || "";
         } catch (e) {
-          console.log("[vlatex] Dataview tryEvaluate failed:", trimmed, e.message);
+          console.log("[mergdown2tex] Dataview tryEvaluate failed:", trimmed, e.message);
         }
       }
       if (!resolved) resolved = full;
@@ -988,7 +988,7 @@ class Markdown2TexPlugin extends Plugin {
         );
         fs.unlinkSync(mmdPath);
       } catch (e) {
-        console.error("[vlatex] mermaid error:", e);
+        console.error("[mergdown2tex] mermaid error:", e);
       }
     }
 
@@ -1012,7 +1012,7 @@ class Markdown2TexPlugin extends Plugin {
           absPath = fileRef;
           extension = path.extname(fileRef).slice(1);
         } else {
-          console.log("[vlatex] cannot resolve embed:", fileRef);
+          console.log("[mergdown2tex] cannot resolve embed:", fileRef);
           continue;
         }
       } else {
@@ -1046,14 +1046,14 @@ class Markdown2TexPlugin extends Plugin {
   }
 
   assembleFullDocument(content, body, includeToc, vaultRoot, parentDir) {
-    console.log("[vlatex] assembling full document...");
+    console.log("[mergdown2tex] assembling full document...");
     let bibPaths = [];
     try {
       const inlineBibPathsJson =
         this.vlatex.extract_bibliography_paths(content);
       bibPaths = JSON.parse(inlineBibPathsJson);
     } catch (e) {
-      console.error("[vlatex] bib paths error:", e);
+      console.error("[mergdown2tex] bib paths error:", e);
     }
 
     if (bibPaths.length === 0 && this.settings.bibliographyPath) {
@@ -1069,7 +1069,7 @@ class Markdown2TexPlugin extends Plugin {
       const citationsJson = this.vlatex.extract_citations(body);
       cites = JSON.parse(citationsJson);
     } catch (e) {
-      console.error("[vlatex] citations error:", e);
+      console.error("[mergdown2tex] citations error:", e);
     }
 
     if (bibPaths.length === 0 && cites.length > 0) {
@@ -1081,7 +1081,7 @@ class Markdown2TexPlugin extends Plugin {
           }
         }
       } catch (e) {
-        console.error("[vlatex] Error scanning for .bib files:", e);
+        console.error("[mergdown2tex] Error scanning for .bib files:", e);
       }
     }
 
@@ -1141,9 +1141,9 @@ class Markdown2TexPlugin extends Plugin {
         const customPreamble = fs.readFileSync(preambleAbs, "utf-8");
         const docClassRe = /^(.*?\\documentclass[^\n]*\n)([\s\S]*?)(\\begin\{document\})/m;
         finalTex = finalTex.replace(docClassRe, "$1" + customPreamble + "\n$3");
-        console.log("[vlatex] custom preamble applied from", preambleAbs);
+        console.log("[mergdown2tex] custom preamble applied from", preambleAbs);
       } catch (e) {
-        console.error("[vlatex] cannot read preamble:", e);
+        console.error("[mergdown2tex] cannot read preamble:", e);
       }
     }
 
@@ -1172,7 +1172,7 @@ class Markdown2TexPlugin extends Plugin {
     let content = this.processDataviewInline(rawContent, activeFile);
     try {
       new Notice("Conversion WASM en cours...");
-      console.log("[vlatex] processing embeds + building VFS...");
+      console.log("[mergdown2tex] processing embeds + building VFS...");
       let { processed, vfs } = await this.processEmbeds(
         content,
         activeFile,
@@ -1182,14 +1182,14 @@ class Markdown2TexPlugin extends Plugin {
       const webCacheDir = path.join(parentDir, "embedded_images");
       processed = await ensureWebImages(processed, webCacheDir);
       const vfsJson = JSON.stringify(vfs);
-      console.log("[vlatex] expanding content...");
+      console.log("[mergdown2tex] expanding content...");
       const expanded = this.vlatex.expand_wikilinks_with_vfs(
         processed,
         vaultRoot,
         mdPath,
         vfsJson,
       );
-      console.log("[vlatex] converting to LaTeX body...");
+      console.log("[mergdown2tex] converting to LaTeX body...");
       const body = this.vlatex.markdown_to_latex_with_vfs(
         expanded,
         "default",
@@ -1210,7 +1210,7 @@ class Markdown2TexPlugin extends Plugin {
         try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch {}
       }
       console.log(
-        "[vlatex] .tex written to",
+        "[mergdown2tex] .tex written to",
         texPath,
         fullTex.tex.length,
         "bytes",
@@ -1223,7 +1223,7 @@ class Markdown2TexPlugin extends Plugin {
           " bytes)",
       );
     } catch (err) {
-      console.error("[vlatex] convert error:", err);
+      console.error("[mergdown2tex] convert error:", err);
       new Notice("❌ Erreur: " + err.message);
     }
   }
@@ -1238,12 +1238,12 @@ class Markdown2TexPlugin extends Plugin {
     const opts = { cwd: parentDir };
     const runPass = () => {
       pass++;
-      console.log(`[vlatex] ${engine} pass ${pass} (podman)`);
+      console.log(`[mergdown2tex] ${engine} pass ${pass} (podman)`);
       exec(cmd, opts, (err, stdout, stderr) => {
-        console.log(`[vlatex] ${engine} pass ${pass} done`);
-        if (stdout) console.log(`[vlatex] stdout:`, stdout.slice(-500));
-        if (stderr) console.log(`[vlatex] stderr:`, stderr.slice(-500));
-        if (err) console.log(`[vlatex] err:`, err.message);
+        console.log(`[mergdown2tex] ${engine} pass ${pass} done`);
+        if (stdout) console.log(`[mergdown2tex] stdout:`, stdout.slice(-500));
+        if (stderr) console.log(`[mergdown2tex] stderr:`, stderr.slice(-500));
+        if (err) console.log(`[mergdown2tex] err:`, err.message);
         if (pass < 3) runPass();
         else {
           const runFinalPass = () => {
@@ -1262,26 +1262,26 @@ class Markdown2TexPlugin extends Plugin {
                   const modifiedBbl = this.vlatex.add_citation_arrows_to_bbl(bblContent, fullTexString);
                   fs.writeFileSync(bblPath, modifiedBbl, "utf-8");
                   const arrowCount = (modifiedBbl.match(/hyperlink\{cite-call-/g) || []).length;
-                  console.log("[vlatex] per-entry citation arrows injected into .bbl — arrows added:", arrowCount);
+                  console.log("[mergdown2tex] per-entry citation arrows injected into .bbl — arrows added:", arrowCount);
                 }
               } else {
-                console.log("[vlatex] bbl NOT FOUND at", bblPath);
+                console.log("[mergdown2tex] bbl NOT FOUND at", bblPath);
               }
             } catch (bblErr) {
-              console.error("[vlatex] bbl arrows error:", bblErr);
+              console.error("[mergdown2tex] bbl arrows error:", bblErr);
             }
             runFinalPass();
           };
           const bcfPath = path.join(parentDir, fileStem + ".bcf");
           const auxPath = path.join(parentDir, fileStem + ".aux");
           if (fs.existsSync(bcfPath)) {
-            console.log(`[vlatex] running biber (podman)`);
+            console.log(`[mergdown2tex] running biber (podman)`);
             const biberCmd = `podman run --rm -v "${vaultRoot}:/vault" --workdir="/vault/${relParentDir}" vlatex-env biber "${fileStem}"`;
             exec(biberCmd, opts, () => { postProcessBbl(); });
           } else if (fs.existsSync(auxPath)) {
             const auxContent = fs.readFileSync(auxPath, "utf-8");
             if (auxContent.includes("\\bibstyle")) {
-              console.log(`[vlatex] running bibtex (podman)`);
+              console.log(`[mergdown2tex] running bibtex (podman)`);
               const bibtexCmd = `podman run --rm -v "${vaultRoot}:/vault" --workdir="/vault/${relParentDir}" vlatex-env bibtex "${fileStem}"`;
               exec(bibtexCmd, opts, () => { postProcessBbl(); });
             } else {
@@ -1309,7 +1309,7 @@ class Markdown2TexPlugin extends Plugin {
       new Notice(
         `Conversion WASM + compilation PDF (${this.settings.latexEngine || "pdflatex"})...`,
       );
-      console.log("[vlatex] processing embeds + building VFS...");
+      console.log("[mergdown2tex] processing embeds + building VFS...");
       let { processed, vfs } = await this.processEmbeds(
         content,
         activeFile,
@@ -1319,14 +1319,14 @@ class Markdown2TexPlugin extends Plugin {
       const webCacheDir = path.join(parentDir, "embedded_images");
       processed = await ensureWebImages(processed, webCacheDir);
       const vfsJson = JSON.stringify(vfs);
-      console.log("[vlatex] expanding content...");
+      console.log("[mergdown2tex] expanding content...");
       const expanded = this.vlatex.expand_wikilinks_with_vfs(
         processed,
         vaultRoot,
         mdPath,
         vfsJson,
       );
-      console.log("[vlatex] converting to LaTeX body...");
+      console.log("[mergdown2tex] converting to LaTeX body...");
       const body = this.vlatex.markdown_to_latex_with_vfs(
         expanded,
         "default",
@@ -1343,9 +1343,9 @@ class Markdown2TexPlugin extends Plugin {
       let fullTexString = plainTex;
       try {
         fullTexString = this.vlatex.add_citation_navigation(plainTex);
-        console.log("[vlatex] citation navigation arrows added");
+        console.log("[mergdown2tex] citation navigation arrows added");
       } catch (e) {
-        console.log("[vlatex] citation navigation not available (old WASM):", e.message);
+        console.log("[mergdown2tex] citation navigation not available (old WASM):", e.message);
       }
 
       let fancySetup = "";
@@ -1368,7 +1368,7 @@ class Markdown2TexPlugin extends Plugin {
 
       const texPath = path.join(parentDir, fileStem + ".tex");
       fs.writeFileSync(texPath, fullTexString, "utf-8");
-      console.log("[vlatex] .tex written:", fullTexString.length, "bytes");
+      console.log("[mergdown2tex] .tex written:", fullTexString.length, "bytes");
       this.runPdflatex(
         texPath,
         parentDir,
@@ -1385,7 +1385,7 @@ class Markdown2TexPlugin extends Plugin {
         fullTexString,
       );
     } catch (err) {
-      console.error("[vlatex] pdf error:", err);
+      console.error("[mergdown2tex] pdf error:", err);
       new Notice("❌ Erreur: " + err.message);
     }
   }
@@ -1403,7 +1403,7 @@ class Markdown2TexPlugin extends Plugin {
       new Notice(
         `Conversion WASM + compilation DOCX (${this.settings.pandocPath || "pandoc"})...`,
       );
-      console.log("[vlatex] processing embeds + building VFS...");
+      console.log("[mergdown2tex] processing embeds + building VFS...");
       let { processed, vfs } = await this.processEmbeds(
         content,
         activeFile,
@@ -1413,14 +1413,14 @@ class Markdown2TexPlugin extends Plugin {
       const webCacheDir = path.join(parentDir, "embedded_images");
       processed = await ensureWebImages(processed, webCacheDir);
       const vfsJson = JSON.stringify(vfs);
-      console.log("[vlatex] expanding content...");
+      console.log("[mergdown2tex] expanding content...");
       const expanded = this.vlatex.expand_wikilinks_with_vfs(
         processed,
         vaultRoot,
         mdPath,
         vfsJson,
       );
-      console.log("[vlatex] converting to LaTeX body...");
+      console.log("[mergdown2tex] converting to LaTeX body...");
       const body = this.vlatex.markdown_to_latex_with_vfs(
         expanded,
         "default",
@@ -1434,7 +1434,7 @@ class Markdown2TexPlugin extends Plugin {
         parentDir,
       );
 
-      console.log("[vlatex] preparing for pandoc...");
+      console.log("[mergdown2tex] preparing for pandoc...");
       const docxTex = this.vlatex.prepare_latex_for_docx_full(fullTex, this.settings.keepNavArrows, this.settings.defaultTableWidth || "0.95");
 
       const docxTexPath = path.join(parentDir, fileStem + "_docx.tex");
@@ -1532,21 +1532,21 @@ class Markdown2TexPlugin extends Plugin {
         pandocArgs += ` --csl="/vault/${relCsl}"`;
       }
 
-      console.log("[vlatex] docx cmd:", pandocArgs);
+      console.log("[mergdown2tex] docx cmd:", pandocArgs);
       exec(pandocArgs, (error, stdout, stderr) => {
-        if (stdout) console.log("[vlatex] pandoc stdout:", stdout);
+        if (stdout) console.log("[mergdown2tex] pandoc stdout:", stdout);
         if (error) {
-          console.log("[vlatex] pandoc error:", error);
-          console.log("[vlatex] pandoc stderr:", stderr);
+          console.log("[mergdown2tex] pandoc error:", error);
+          console.log("[mergdown2tex] pandoc stderr:", stderr);
           new Notice("❌ Erreur pandoc: " + error.message);
         } else {
-          console.log("[vlatex] DOCX success");
+          console.log("[mergdown2tex] DOCX success");
           let docxPath = path.join(parentDir, fileStem + ".docx");
           try {
             let docxBytes = fs.readFileSync(docxPath);
             const arrowBytes = this.vlatex.modify_docx_arrows(docxBytes, docxTex);
             docxBytes = arrowBytes;
-            console.log("[vlatex] arrows: ok");
+            console.log("[mergdown2tex] arrows: ok");
             const hfBytes = this.vlatex.add_docx_header_footer(
               docxBytes,
               this.settings.headerContent || "",
@@ -1555,13 +1555,13 @@ class Markdown2TexPlugin extends Plugin {
               this.settings.enableFooter || false,
             );
             docxBytes = hfBytes;
-            console.log("[vlatex] header/footer: ok");
+            console.log("[mergdown2tex] header/footer: ok");
             const tcBytes = this.vlatex.add_docx_table_colors(docxBytes, docxTex);
             docxBytes = tcBytes;
-            console.log("[vlatex] table colors: ok");
+            console.log("[mergdown2tex] table colors: ok");
             fs.writeFileSync(docxPath, docxBytes);
           } catch (postErr) {
-            console.error("[vlatex] post-processing error:", postErr);
+            console.error("[mergdown2tex] post-processing error:", postErr);
           }
           new Notice("✅ DOCX compilé!");
           exec(
@@ -1571,7 +1571,7 @@ class Markdown2TexPlugin extends Plugin {
         }
       });
     } catch (err) {
-      console.error("[vlatex] docx error:", err);
+      console.error("[mergdown2tex] docx error:", err);
       new Notice("❌ Erreur: " + err.message);
     }
   }
