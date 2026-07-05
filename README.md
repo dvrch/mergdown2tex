@@ -1,56 +1,47 @@
-# vLaTeX Rust
+# vLaTeX
 
-Convert Obsidian notes to LaTeX/PDF using Rust WASM and local TeX Live.
-
-## Features
-
-- Full Obsidian-to-LaTeX conversion (85+ LaTeX commands, 100+ aliases)
-- Images and wikilinks resolved relative to the markdown file
-- PDF compilation via local TeX Live (pdflatex, biber/bibtex)
-- DOCX export support
-- Custom preamble support
-- Bibliography management with natbib
-- Navigation arrows between citations and references
+Convert Obsidian notes to LaTeX/PDF/DOCX using the [vlatex](https://github.com/dvrch/vlatex) CLI.
 
 ## Requirements
 
 - Obsidian desktop (Electron-based)
-- Local TeX Live installation (pdflatex, biber or bibtex)
+- [vlatex](https://github.com/dvrch/vlatex) binary installed and in your PATH
 
 ## Installation
 
 ### From Obsidian Community Plugins
 
 1. Open Obsidian Settings → Community Plugins
-2. Search for "vLaTeX Rust"
+2. Search for "vLaTeX"
 3. Install and enable the plugin
 
 ### Manual Installation
 
-1. Download `main.js`, `manifest.json`, `vlatex.js`, `vlatex_bg.js`, and `vlatex_bg.wasm` from the latest release
-2. Copy them to your vault's `.obsidian/plugins/vlatex-rust/` directory
+1. Download `main.js` and `manifest.json` from the [latest release](https://github.com/dvrch/obsidian-vlatex-rust/releases)
+2. Copy them to your vault's `.obsidian/plugins/vlatex/` directory
 3. Enable the plugin in Obsidian Settings → Community Plugins
 
 ## Usage
 
 1. Open a markdown note in Obsidian
-2. Click the LaTeX icon in the left sidebar (or use the command palette: "vLaTeX: Convert to LaTeX")
-3. The plugin will generate a `.tex` file next to your markdown file
-4. Use "vLaTeX: Compile to PDF" to generate a PDF (requires local TeX Live)
+2. Use the command palette:
+   - **vLaTeX: Convert active note to LaTeX** → generates `.tex` file
+   - **vLaTeX: Convert and compile to PDF** → generates PDF
+   - **vLaTeX: Convert and compile to DOCX** → generates Word document
 
 ## Configuration
 
 Open the plugin settings to configure:
 
+- **vlatex path**: Path to the vlatex binary (default: `vlatex`)
+- **LaTeX engine**: `pdflatex` or `xelatex`
 - **Document title**: Override the document title
 - **Author name**: Override the author name
-- **LaTeX engine**: Choose between pdflatex and xelatex
-- **Bibliography path**: Path to your .bib file
-- **CSL path**: Path to your .csl file for citation styling
+- **Bibliography path**: Path to your `.bib` file
 - **Preamble path**: Path to a custom preamble file
-- **Keep navigation arrows**: Show/hide citation navigation arrows
-- **Table width**: Default table width (0.0-1.0)
-- **Include TOC/LOT/LOF**: Toggle table/list of contents/tables/figures
+- **Keep navigation arrows**: Show citation navigation arrows
+- **Include table of contents**: Add TOC to the document
+- **Geometry**: Page geometry (e.g., `margin=2.5cm`)
 
 ## License
 

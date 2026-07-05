@@ -1,9 +1,9 @@
 {
-  "id": "vlatex-rust",
-  "name": "vLaTeX Rust",
+  "id": "vlatex",
+  "name": "vLaTeX",
   "version": "1.0.0",
   "minAppVersion": "1.0.0",
-  "description": "Convert Obsidian notes to LaTeX/PDF using Rust WASM and local TeX Live.",
+  "description": "Convert Obsidian notes to LaTeX/PDF/DOCX using the vlatex CLI.",
   "author": "DJ Victorien",
   "authorUrl": "https://github.com/dvrch",
   "main": "main.js",
