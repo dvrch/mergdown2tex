@@ -1,8 +1,8 @@
 {
   "id": "mergdowntotex",
   "name": "mergdowntotex",
-  "version": "1.0.0",
-  "minAppVersion": "1.0.0",
+  "version": "1.0.1",
+  "minAppVersion": "1.0.1",
   "description": "Merge everything — embeds, Zotero/Pandoc citations, Mermaid, equations, cross-refs — into a unique .tex file. Compile to PDF, DOCX, or InDesign. WASM engine, zero build step.",
   "author": "DJONTSO",
   "authorUrl": "https://dvrch.github.io/mergdown2tex/",
