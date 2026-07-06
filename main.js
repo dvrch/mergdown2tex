@@ -8,6 +8,12 @@ const fs = require("fs");
 const crypto = require("crypto");
 const { exec } = require("child_process");
 
+// === WASM Base64 Placeholder ===
+// En développement, on charge le wasm depuis le disque.
+// En release, bundle-release.js remplace ce placeholder par le vrai Base64.
+const WASM_BASE64_PLACEHOLDER = "WASM_BASE64_PLACEHOLDER";
+let WASM_BASE64 = WASM_BASE64_PLACEHOLDER;
+
 // --- WASM Memory Management (from vlatex_bg.js) ---
 
 let WASM_VECTOR_LEN = 0;
@@ -537,6 +543,18 @@ function __wbg_set_wasm(val) {
 async function initWasm(wasmPath) {
     if (wasm) return;
     const wasmBytes = require('fs').readFileSync(wasmPath);
+    const { instance } = await WebAssembly.instantiate(wasmBytes, __wbg_get_imports());
+    __wbg_set_wasm(instance.exports);
+    if (wasm.__wbindgen_start) wasm.__wbindgen_start();
+}
+
+// Version pour release : wasm embarqué en Base64
+async function initWasmEmbedded() {
+    if (wasm) return;
+    if (WASM_BASE64 === WASM_BASE64_PLACEHOLDER) {
+        throw new Error("WASM_BASE64 non initialisé — utiliser initWasm(path) en développement");
+    }
+    const wasmBytes = Buffer.from(WASM_BASE64, 'base64');
     const { instance } = await WebAssembly.instantiate(wasmBytes, __wbg_get_imports());
     __wbg_set_wasm(instance.exports);
     if (wasm.__wbindgen_start) wasm.__wbindgen_start();

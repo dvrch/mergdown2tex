@@ -103,7 +103,7 @@ The container includes:
 
 ### Manual install
 
-1. Download `main.js`, `manifest.json`, `vlatex_bg.wasm` from [Releases](https://github.com/dvrch/mergdown2tex/releases)
+1. Download `main.js` and `manifest.json` from [Releases](https://github.com/dvrch/mergdown2tex/releases)
 2. Copy to `.obsidian/plugins/mergdown2tex/`
 3. Enable in **Settings → Community Plugins**
 
@@ -113,10 +113,8 @@ The container includes:
 .obsidian/
 └── plugins/
     └── mergdown2tex/
-        ├── main.js          56 KB   ← plugin + WASM bindings
-        ├── manifest.json   351 B   ← metadata
-        ├── vlatex_bg.wasm  2.1 MB  ← Rust converter engine
-        └── Dockerfile        1 KB  ← LaTeX compilation environment
+        ├── main.js          ~2.8 MB   ← plugin + WASM embarqué
+        └── manifest.json     351 B    ← metadata
 ```
 
 ---
@@ -160,14 +158,35 @@ The container includes:
 
 ## Architecture
 
+**Release** (2 files — installés par Obsidian) :
+
 ```
-main.js          56 KB   ← plugin + WASM bindings (merged)
-manifest.json   351 B   ← metadata
-vlatex_bg.wasm  2.1 MB  ← Rust converter engine
-Dockerfile        1 KB  ← LaTeX compilation environment
+main.js          ~2.8 MB   ← plugin + WASM embarqué (Base64)
+manifest.json     351 B    ← metadata
 ```
 
-**4 files. 2.2 MB total. Zero build step.**
+**Développement** (dans le repo) :
+
+```
+main.js             56 KB   ← plugin + WASM bindings
+vlatex_bg.wasm     2.1 MB   ← WASM séparé (loaded from disk)
+manifest.json       351 B   ← metadata
+scripts/
+└── bundle-release.js        ← encode WASM → Base64 → injecte dans main.js
+```
+
+**Build release automatisé** par GitHub Actions :
+
+```mermaid
+graph LR
+    A[git tag 1.0.x] --> B[GitHub Actions]
+    B --> C[bundle-release.js]
+    C --> D[main.js + WASM]
+    D --> E[Release]
+    D --> F[Attestations]
+```
+
+**Zero build step. WASM embarqué dans main.js à la release.**
 
 ---
 
