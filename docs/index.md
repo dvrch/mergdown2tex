@@ -12,6 +12,7 @@
 
 The fastest way to go from Obsidian to LaTeX. Zero dependencies inside Obsidian.
 
+[Plugin](https://community.obsidian.md/plugins/mergdowntotex){ .md-button }
 [Get Started](getting-started/installation.md){ .md-button .md-button--primary }
 [View on GitHub](https://github.com/dvrch/mergdown2tex){ .md-button }
 
@@ -191,7 +192,6 @@ We use the formula $E = mc^2$.
 ---
 
 ## Support
-- [Plugin](https://community.obsidian.md/plugins/mergdowntotex)
 - [GitHub Issues](https://github.com/dvrch/mergdown2tex/issues)
 - [Documentation](https://dvrch.github.io/mergdown2tex/)
 - [Discord](https://discord.gg/mergdown2tex) (coming soon)
