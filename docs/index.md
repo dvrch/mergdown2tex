@@ -191,7 +191,7 @@ We use the formula $E = mc^2$.
 ---
 
 ## Support
-
+- [Plugin](https://community.obsidian.md/plugins/mergdowntotex)
 - [GitHub Issues](https://github.com/dvrch/mergdown2tex/issues)
 - [Documentation](https://dvrch.github.io/mergdown2tex/)
 - [Discord](https://discord.gg/mergdown2tex) (coming soon)
