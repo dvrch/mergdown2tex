@@ -1,7 +1,6 @@
 <div align="center">
 
-%%![MergDown2TeX Logo](assets/logo-horizontal.png)%%
-![MergDown2TeX Logo](https://raw.githubusercontent.com/dvrch/mergdown2tex/refs/heads/main/docs/assets/logo-horizontal.png)
+![MergDown2TeX Logo](assets/logo-horizontal.png)
 
 </div>
 
