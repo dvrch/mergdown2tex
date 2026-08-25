@@ -996,93 +996,25 @@ class Markdown2TexPlugin extends Plugin {
     try {
       new Notice("Génération du Markdown étendu...");
 
-      // 1. Résoudre les embeds ET les inliner (avec processEmbedsWithMarkers)
-      let { processed, vfs } = await this.processEmbedsWithMarkers(content, activeFile, vaultRoot, parentDir);
+      // 1. Résoudre les embeds et construire le VFS
+      let { processed, vfs } = await this.processEmbeds(content, activeFile, vaultRoot, parentDir);
       const webCacheDir = path.join(parentDir, "embedded_images");
       processed = await ensureWebImages(processed, webCacheDir);
 
-      // 2. Résoudre TOUS les wikilinks (y compris ceux dans les embeds inlinés) via WASM
+      // 2. Utiliser la NOUVELLE fonction Rust pour tout faire en une passe
+      //    - Inline les embeds
+      //    - Résout les wikilinks
+      //    - Remplace les liens .md par des ancres locales
+      //    - Ajoute des ancres {#id} après les titres
       const vfsJson = JSON.stringify(vfs);
-      let expanded = this.vlatex.expand_wikilinks_with_vfs(
+      const expanded = this.vlatex.expand_to_standalone_markdown(
         processed,
         vaultRoot,
         mdPath,
         vfsJson,
       );
 
-      // 3. Remplacer TOUS les liens vers des fichiers .md par des ancres locales
-      //    Ex: [texte](AutreNote.md#Section) -> [texte](#autre-note-section)
-      //    ou [texte](AutreNote.md) -> [texte](#autre-note)
-      //    Utiliser une fonction manuelle pour éviter les problèmes de regex
-      const replaceMdLinksWithAnchors = (content) => {
-        const openBracket = '[';
-        const closeBracket = ']';
-        const openParen = '(';
-        const closeParen = ')';
-        let result = content;
-        let pos = 0;
-        const replacements = [];
-        
-        while (true) {
-          const startBracket = result.indexOf(openBracket, pos);
-          if (startBracket === -1) break;
-          const endBracket = result.indexOf(closeBracket, startBracket + 1);
-          if (endBracket === -1) break;
-          const startParen = result.indexOf(openParen, endBracket + 1);
-          if (startParen === -1) break;
-          const endParen = result.indexOf(closeParen, startParen + 1);
-          if (endParen === -1) break;
-          
-          const fullMatch = result.substring(startBracket, endParen + 1);
-          const alias = result.substring(startBracket + 1, endBracket);
-          const link = result.substring(startParen + 1, endParen);
-          
-          // Ignorer les images (![...]) et les liens qui ne pointent pas vers .md
-          if (alias.startsWith('!') || !link.includes('.md')) {
-            pos = endParen + 1;
-            continue;
-          }
-          
-          // Extraire le fichier et l'anchor
-          const hashPos = link.indexOf('#');
-          const targetFile = hashPos === -1 ? link : link.substring(0, hashPos);
-          const anchor = hashPos === -1 ? null : link.substring(hashPos + 1);
-          
-          // Générer l'ancre locale
-          const fileStem = targetFile.replace(/\.md$/, '');
-          const sectionId = anchor 
-            ? anchor.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()
-            : fileStem.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
-          
-          replacements.push({
-            start: startBracket,
-            end: endParen + 1,
-            replacement: `[${alias}](#${sectionId})`
-          });
-          
-          pos = endParen + 1;
-        }
-        
-        // Appliquer les remplacements de la fin vers le début
-        for (let i = replacements.length - 1; i >= 0; i--) {
-          const { start, end, replacement } = replacements[i];
-          result = result.substring(0, start) + replacement + result.substring(end);
-        }
-        
-        return result;
-      };
-      
-      expanded = replaceMdLinksWithAnchors(expanded);
-
-      // 4. Ajouter des ancres Markdown {#id} après les titres pour les liens locaux
-      //    Ex: ## Section -> ## Section {#section}
-      const headerPattern = /^(#{1,6})\s+(.+)$/gm;
-      expanded = expanded.replace(headerPattern, (full, hashes, title) => {
-        const sectionId = title.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
-        return `${hashes} ${title} {#${sectionId}}`;
-      });
-
-      // 5. Écrire le fichier .expanded.md (sans marqueurs, Markdown pur)
+      // 3. Écrire le fichier .expanded.md
       const expandedPath = path.join(parentDir, fileStem + ".expanded.md");
       fs.writeFileSync(expandedPath, expanded, "utf-8");
       console.log("[mergdown2tex] .expanded.md written:", expandedPath, expanded.length, "bytes");

@@ -192,6 +192,43 @@ function expand_wikilinks_with_vfs(content, vault_root, md_path, vfs_json) {
 exports.expand_wikilinks_with_vfs = expand_wikilinks_with_vfs;
 
 /**
+ * Expands all wikilinks and embeds, then converts to standalone Markdown
+ * with local anchors instead of file references.
+ * @param {string} content
+ * @param {string} vault_root
+ * @param {string} md_path
+ * @param {string} vfs_json
+ * @returns {string}
+ */
+function expand_to_standalone_markdown(content, vault_root, md_path, vfs_json) {
+    let deferred7_0;
+    let deferred7_1;
+    try {
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(vault_root, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(md_path, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ptr3 = passStringToWasm0(vfs_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len3 = WASM_VECTOR_LEN;
+        const ret = wasm.expand_to_standalone_markdown(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
+        var ptr6 = ret[0];
+        var len6 = ret[1];
+        if (ret[3]) {
+            ptr6 = 0; len6 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred7_0 = ptr6;
+        deferred7_1 = len6;
+        return getStringFromWasm0(ptr6, len6);
+    } finally {
+        wasm.__wbindgen_free(deferred7_0, deferred7_1, 1);
+    }
+}
+exports.expand_to_standalone_markdown = expand_to_standalone_markdown;
+
+/**
  * @param {string} markdown_content
  * @returns {string}
  */
