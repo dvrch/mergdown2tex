@@ -330,6 +330,31 @@ function markdown_to_latex_with_vfs_bg(content, profile, vfs_json) {
     }
 }
 
+function latex_to_markdown_bg(tex) {
+    let deferred3_0;
+    let deferred3_1;
+    try {
+        const ptr0 = passStringToWasm0(tex, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ret = wasm.latex_to_markdown(ptr0, len0);
+        var ptr2 = ret[0];
+        var len2 = ret[1];
+        if (ret[3]) {
+            ptr2 = 0; len2 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred3_0 = ptr2;
+        deferred3_1 = len2;
+        return getStringFromWasm0(ptr2, len2);
+    } finally {
+        wasm.__wbindgen_free(deferred3_0, deferred3_1, 1);
+    }
+}
+
+function latex_to_markdown(tex) {
+    return latex_to_markdown_bg(tex);
+}
+
 function prepare_latex_for_docx_bg(tex_content) {
     let deferred2_0;
     let deferred2_1;
@@ -868,6 +893,7 @@ class Markdown2TexPlugin extends Plugin {
         init_panic_hook,
         markdown_to_latex,
         markdown_to_latex_with_vfs,
+        latex_to_markdown,
         modify_docx_arrows,
         prepare_latex_for_docx,
         prepare_latex_for_docx_full,
@@ -904,6 +930,209 @@ class Markdown2TexPlugin extends Plugin {
         await this.compileDocx();
       },
     });
+
+    this.addCommand({
+      id: "mergdown2tex-convert-to-md",
+      name: "MergDown2TeX: Convertir le fichier Markdown actif (.md) → LaTeX → Markdown (reverse)",
+      callback: async () => {
+        await this.convertToMd();
+      },
+    });
+
+    this.addCommand({
+      id: "mergdown2tex-expand-to-md",
+      name: "MergDown2TeX: Générer le Markdown étendu (.expanded.md)",
+      callback: async () => {
+        await this.expandToMd();
+      },
+    });
+  }
+
+  async convertToMd() {
+    if (!this.vlatex) {
+      new Notice("vLaTeX WASM non initialisé.");
+      return;
+    }
+    // Même logique que compilePdf : on part du fichier .md actif
+    // et on cherche le .tex correspondant (même nom, même dossier)
+    const fp = await this.getFilePaths();
+    if (!fp) return;
+    const { parentDir, fileStem } = fp;
+
+    const texPath = path.join(parentDir, fileStem + ".tex");
+    if (!fs.existsSync(texPath)) {
+      new Notice(`❌ Fichier LaTeX introuvable : ${fileStem}.tex\nConvertissez d'abord en LaTeX.`);
+      return;
+    }
+
+    try {
+      new Notice("Conversion LaTeX vers Markdown en cours...");
+      const texContent = fs.readFileSync(texPath, "utf-8");
+      const markdown = this.vlatex.latex_to_markdown(texContent);
+      const mdOutPath = path.join(parentDir, fileStem + "_reverse.md");
+      fs.writeFileSync(mdOutPath, markdown, "utf-8");
+      console.log("[mergdown2tex] .md written to", mdOutPath, markdown.length, "bytes");
+      new Notice(`✅ Markdown généré: ${fileStem}_reverse.md (${markdown.length} octets)`);
+    } catch (err) {
+      console.error("[mergdown2tex] reverse convert error:", err);
+      new Notice("❌ Erreur: " + err.message);
+    }
+  }
+
+  /**
+   * Génère un fichier .expanded.md : tout le contenu inline (embeds, wikilinks résolus),
+   * auto-suffisant, servira de source pour convertToTex.
+   */
+  async expandToMd() {
+    if (!this.vlatex) {
+      new Notice("vLaTeX WASM non initialisé.");
+      return;
+    }
+    const fp = await this.getFilePaths();
+    if (!fp) return;
+    const { vaultRoot, mdPath, parentDir, fileStem, content: rawContent, activeFile } = fp;
+    let content = this.processDataviewInline(rawContent, activeFile);
+
+    try {
+      new Notice("Génération du Markdown étendu...");
+
+      // 1. Expansion des embeds avec marqueurs de contexte
+      let { processed, vfs } = await this.processEmbedsWithMarkers(content, activeFile, vaultRoot, parentDir);
+      const webCacheDir = path.join(parentDir, "embedded_images");
+      processed = await ensureWebImages(processed, webCacheDir);
+
+      // 2. Résolution des wikilinks via WASM
+      const vfsJson = JSON.stringify(vfs);
+      const expanded = this.vlatex.expand_wikilinks_with_vfs(
+        processed,
+        vaultRoot,
+        mdPath,
+        vfsJson,
+      );
+
+      // 2.5. Ajout des marqueurs de backlink (↓↑)
+      const expandedWithBacklinks = this.addBacklinkMarkers(expanded, vaultRoot, mdPath);
+
+      // 3. Écriture du fichier .expanded.md
+      const expandedPath = path.join(parentDir, fileStem + ".expanded.md");
+      fs.writeFileSync(expandedPath, expandedWithBacklinks, "utf-8");
+      console.log("[mergdown2tex] .expanded.md written:", expandedPath, expandedWithBacklinks.length, "bytes");
+      new Notice(`✅ Markdown étendu généré : ${fileStem}.expanded.md (${expandedWithBacklinks.length} octets)`);
+      return { expandedPath, vaultRoot, parentDir, fileStem, expanded: expandedWithBacklinks };
+    } catch (err) {
+      console.error("[mergdown2tex] expandToMd error:", err);
+      new Notice("❌ Erreur: " + err.message);
+      return null;
+    }
+  }
+
+  /**
+   * Ajoute des marqueurs de backlink (↓↑) pour les wikilinks résolus.
+   * Remplace les wikilinks par des liens Markdown avec ancres pour que le .expanded.md
+   * soit autonome et produise les mêmes références croisées que la conversion directe.
+   * Ajoute aussi des ancres HTML <a id="..."></a> pour la compatibilité.
+   */
+  addBacklinkMarkers(content, vaultRoot, mdPath) {
+    let backlinkCounter = 0;
+    let result = content;
+    const backlinkMarkers = [];
+
+    // 1. Remplacer les wikilinks résolus par des liens Markdown avec ancres
+    // Format attendu après expand_wikilinks_with_vfs : [alias](target.md#anchor)
+    const wikilinkPattern = /\[([^\]]+)\]\(([^#)]+)(#([^)]+))?\)/g;
+    
+    result = result.replace(wikilinkPattern, (full, alias, target, hash, anchor) => {
+      const backlinkId = `backlink-${backlinkCounter++}`;
+      const sectionId = anchor || target.replace(/\.md$/, '').replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
+      
+      // Stocker le marqueur pour l'injecter avant la section cible
+      backlinkMarkers.push({ 
+        id: backlinkId, 
+        sectionId: sectionId,
+        alias: alias 
+      });
+      
+      // Remplacer par un lien Markdown avec ancre interne
+      return `[↓ ${alias}](#${sectionId})`;
+    });
+
+    // 2. Injecter les ancres Markdown natives et les marqueurs BACKLINK avant les sections cibles
+    // Utiliser le format Markdown {#id} pour les ancres (compatible avec le WASM)
+    for (const marker of backlinkMarkers) {
+      const escapedSectionId = marker.sectionId.replace(/[.*+?^${}()|[\]\/]/g, '\\$&');
+      const sectionPattern = new RegExp(`(^#{1,6}\s+${escapedSectionId})`, 'gm');
+      result = result.replace(sectionPattern, (sectionMatch) => {
+        return `%% BACKLINK: ${marker.id} ↑ %%\n${sectionMatch} {#${marker.sectionId}}`;
+      });
+    }
+
+    return result;
+  }
+
+  /**
+   * Variante de processEmbeds qui encadre les embeds de notes .md
+   * avec des marqueurs Obsidian %% EMBED: ... %% pour la lisibilité
+   * du fichier .expanded.md, sans altérer le comportement de conversion LaTeX.
+   */
+  async processEmbedsWithMarkers(content, sourceFile, vaultRoot, parentDir, depth = 0) {
+    if (depth > 10) return { processed: content, vfs: {} };
+    const vfs = {};
+    let processed = content;
+
+    // Images
+    const imgPattern = /!\[\[([^\]|#]+\.(?:png|jpg|jpeg|gif|svg|webp))(?:\|[^\]]*)?\]\]/gi;
+    processed = processed.replace(imgPattern, (full, fileRef) => {
+      let resolved = this.app.metadataCache.getFirstLinkpathDest(fileRef, sourceFile.path);
+      if (!resolved) return full;
+      const absPath = path.join(vaultRoot, resolved.path);
+      const relPath = path.relative(parentDir, absPath);
+      return `![${resolved.basename}](${relPath})`;
+    });
+
+    // Embeds .md
+    const mdPattern = /!\[\[([^\]|#]+)(?:#([^\]|]+))?(?:\|([^\]\n]+))?\]\]/g;
+    const matches = [];
+    let m;
+    while ((m = mdPattern.exec(processed)) !== null) {
+      const ext = path.extname(m[1]).slice(1).toLowerCase();
+      if (!ext || ext === 'md') matches.push({ full: m[0], fileRef: m[1] });
+    }
+
+    for (const { full, fileRef } of matches) {
+      const resolved = this.app.metadataCache.getFirstLinkpathDest(fileRef, sourceFile.path);
+      if (!resolved || resolved.extension !== 'md') continue;
+      const absPath = path.join(vaultRoot, resolved.path);
+      if (!vfs[absPath]) {
+        const rawContent = await this.app.vault.read(resolved);
+        const { processed: pContent, vfs: childVfs } = await this.processEmbedsWithMarkers(
+          rawContent, resolved, vaultRoot, parentDir, depth + 1,
+        );
+        vfs[absPath] = pContent;
+        Object.assign(vfs, childVfs);
+      }
+      // Remplacer les wikilinks dans le contenu embedé par des liens locaux
+      // Ex: [[AutreNote#Section]] -> [↓ Section](#autre-note-section)
+      let embedContent = vfs[absPath];
+      
+      // Nettoyer les métadonnées Obsidian (ex: %% ... %%, caption::, etc.)
+      embedContent = embedContent
+        .replace(/^%%[^%]*%%$/gm, '')  // Supprimer les blocs %% ... %%
+        .replace(/^[^:]+::\s*.*/gm, '')  // Supprimer les métadonnées (ex: caption:: value)
+        .replace(/^\s*$/gm, '');  // Supprimer les lignes vides
+      
+      // Remplacer les wikilinks dans l'embeded par des liens avec ancres locales
+      const wikilinkInEmbedPattern = /\[\\[([^\]#|]+)(?:#([^\]]+))?\]\]/g;
+      embedContent = embedContent.replace(wikilinkInEmbedPattern, (fullWiki, target, anchor) => {
+        const sectionId = anchor || target.replace(/\.md$/, '').replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
+        const cleanTarget = target.replace(/\.md$/, '');
+        const linkText = anchor || cleanTarget;
+        return `[↓ ${linkText}](#${sectionId})`;
+      });
+      
+      const marker = `\n%% EMBED: ${resolved.path} %%\n${embedContent}\n%% /EMBED %%\n`;
+      processed = processed.replaceAll(full, marker);
+    }
+    return { processed, vfs };
   }
 
   async loadSettings() {
@@ -1182,24 +1411,41 @@ class Markdown2TexPlugin extends Plugin {
   async convertToTex() {
     if (!this.vlatex) {
       new Notice("vLaTeX WASM non initialisé.");
-      return;
+      return null;
     }
     const fp = await this.getFilePaths();
-    if (!fp) return;
+    if (!fp) return null;
     const { vaultRoot, mdPath, parentDir, fileStem, content: rawContent, activeFile } = fp;
     let content = this.processDataviewInline(rawContent, activeFile);
     try {
       new Notice("Conversion WASM en cours...");
-      console.log("[mergdown2tex] processing embeds + building VFS...");
-      let { processed, vfs } = await this.processEmbeds(
-        content,
-        activeFile,
-        vaultRoot,
-        parentDir,
-      );
-      const webCacheDir = path.join(parentDir, "embedded_images");
-      processed = await ensureWebImages(processed, webCacheDir);
-      const vfsJson = JSON.stringify(vfs);
+
+      // Utilise le .expanded.md si disponible (source de vérité sur disque)
+      const expandedPath = path.join(parentDir, fileStem + ".expanded.md");
+      let processed, vfs;
+      if (fs.existsSync(expandedPath)) {
+        console.log("[mergdown2tex] using expanded.md as source:", expandedPath);
+        const expandedContent = fs.readFileSync(expandedPath, "utf-8");
+        // Nettoie TOUS les marqueurs %% ... %% et les ancres Markdown {#id} pour le convertisseur WASM
+        const cleanedExpanded = expandedContent
+          .replace(/^%% EMBED: [^%]+ %%$/gm, '')
+          .replace(/^%% \/EMBED %%$/gm, '')
+          .replace(/^%% BACKLINK: [^%]+ %%$/gm, '')
+          .replace(/^%% [^%]+ %%$/gm, '')  // Nettoyer TOUS les marqueurs %% ... %%
+          .replace(/\s+{#[^}]+}/g, '')    // Supprimer les ancres Markdown {#id}
+          .replace(/\n{3,}/g, '\n\n');  // Remplacer les sauts de ligne multiples par 2
+        processed = cleanedExpanded;
+        vfs = {};
+      } else {
+        console.log("[mergdown2tex] processing embeds + building VFS...");
+        let result = await this.processEmbeds(content, activeFile, vaultRoot, parentDir);
+        processed = result.processed;
+        vfs = result.vfs;
+        const webCacheDir = path.join(parentDir, "embedded_images");
+        processed = await ensureWebImages(processed, webCacheDir);
+      }
+
+      const vfsJson = JSON.stringify(vfs || {});
       console.log("[mergdown2tex] expanding content...");
       const expanded = this.vlatex.expand_wikilinks_with_vfs(
         processed,
@@ -1240,9 +1486,11 @@ class Markdown2TexPlugin extends Plugin {
           fullTex.tex.length +
           " bytes)",
       );
+      return { vaultRoot, parentDir, fileStem, texPath, texContent: fullTex.tex, content };
     } catch (err) {
       console.error("[mergdown2tex] convert error:", err);
       new Notice("❌ Erreur: " + err.message);
+      return null;
     }
   }
 
@@ -1319,52 +1567,15 @@ class Markdown2TexPlugin extends Plugin {
       new Notice("vLaTeX WASM non initialisé.");
       return;
     }
-    const fp = await this.getFilePaths();
-    if (!fp) return;
-    const { vaultRoot, mdPath, parentDir, fileStem, content: rawContent, activeFile } = fp;
-    let content = this.processDataviewInline(rawContent, activeFile);
     try {
-      new Notice(
-        `Conversion WASM + compilation PDF (${this.settings.latexEngine || "pdflatex"})...`,
-      );
-      console.log("[mergdown2tex] processing embeds + building VFS...");
-      let { processed, vfs } = await this.processEmbeds(
-        content,
-        activeFile,
-        vaultRoot,
-        parentDir,
-      );
-      const webCacheDir = path.join(parentDir, "embedded_images");
-      processed = await ensureWebImages(processed, webCacheDir);
-      const vfsJson = JSON.stringify(vfs);
-      console.log("[mergdown2tex] expanding content...");
-      const expanded = this.vlatex.expand_wikilinks_with_vfs(
-        processed,
-        vaultRoot,
-        mdPath,
-        vfsJson,
-      );
-      console.log("[mergdown2tex] converting to LaTeX body...");
-      const body = this.vlatex.markdown_to_latex_with_vfs(
-        expanded,
-        "default",
-        vfsJson,
-      );
-      const { tex: plainTex } = this.assembleFullDocument(
-        content,
-        body,
-        true,
-        vaultRoot,
-        parentDir,
-      );
+      const res = await this.convertToTex();
+      if (!res) return;
+      const { vaultRoot, parentDir, fileStem, texPath } = res;
 
-      let fullTexString = plainTex;
-      try {
-        fullTexString = this.vlatex.add_citation_navigation(plainTex);
-        console.log("[mergdown2tex] citation navigation arrows added");
-      } catch (e) {
-        console.log("[mergdown2tex] citation navigation not available (old WASM):", e.message);
-      }
+      new Notice(`Compilation PDF (${this.settings.latexEngine || "pdflatex"})...`);
+
+      // On lit le .tex physique qui a été généré sur le disque
+      let fullTexString = fs.readFileSync(texPath, "utf-8");
 
       let fancySetup = "";
       if (this.settings.enableHeader || this.settings.enableFooter) {
@@ -1382,11 +1593,9 @@ class Markdown2TexPlugin extends Plugin {
       }
       if (fancySetup) {
         fullTexString = fullTexString.replace("\\begin{document}", fancySetup + "\\begin{document}\n");
+        fs.writeFileSync(texPath, fullTexString, "utf-8");
       }
 
-      const texPath = path.join(parentDir, fileStem + ".tex");
-      fs.writeFileSync(texPath, fullTexString, "utf-8");
-      console.log("[mergdown2tex] .tex written:", fullTexString.length, "bytes");
       this.runPdflatex(
         texPath,
         parentDir,
@@ -1413,44 +1622,15 @@ class Markdown2TexPlugin extends Plugin {
       new Notice("vLaTeX WASM non initialisé.");
       return;
     }
-    const fp = await this.getFilePaths();
-    if (!fp) return;
-    const { vaultRoot, mdPath, parentDir, fileStem, content: rawContent, activeFile } = fp;
-    let content = this.processDataviewInline(rawContent, activeFile);
     try {
-      new Notice(
-        `Conversion WASM + compilation DOCX (${this.settings.pandocPath || "pandoc"})...`,
-      );
-      console.log("[mergdown2tex] processing embeds + building VFS...");
-      let { processed, vfs } = await this.processEmbeds(
-        content,
-        activeFile,
-        vaultRoot,
-        parentDir,
-      );
-      const webCacheDir = path.join(parentDir, "embedded_images");
-      processed = await ensureWebImages(processed, webCacheDir);
-      const vfsJson = JSON.stringify(vfs);
-      console.log("[mergdown2tex] expanding content...");
-      const expanded = this.vlatex.expand_wikilinks_with_vfs(
-        processed,
-        vaultRoot,
-        mdPath,
-        vfsJson,
-      );
-      console.log("[mergdown2tex] converting to LaTeX body...");
-      const body = this.vlatex.markdown_to_latex_with_vfs(
-        expanded,
-        "default",
-        vfsJson,
-      );
-      const { tex: fullTex, title: docTitle } = this.assembleFullDocument(
-        content,
-        body,
-        false,
-        vaultRoot,
-        parentDir,
-      );
+      const res = await this.convertToTex();
+      if (!res) return;
+      const { vaultRoot, parentDir, fileStem, texPath, content } = res;
+
+      new Notice(`Compilation DOCX (${this.settings.pandocPath || "pandoc"})...`);
+
+      // On lit le .tex physique généré sur le disque
+      const fullTex = fs.readFileSync(texPath, "utf-8");
 
       console.log("[mergdown2tex] preparing for pandoc...");
       const docxTex = this.vlatex.prepare_latex_for_docx_full(fullTex, this.settings.keepNavArrows, this.settings.defaultTableWidth || "0.95");
