@@ -1121,14 +1121,50 @@ class Markdown2TexPlugin extends Plugin {
         .replace(/^\s*$/gm, '');  // Supprimer les lignes vides
       
       // Remplacer les wikilinks dans l'embeded par des liens avec ancres locales
-      // Utiliser une approche sans regex complexe pour éviter les erreurs de syntaxe
-      const wikilinkInEmbedPattern = /\[\\[([^\]]+)(?:#([^\]]+))?\]\]/g;
-      embedContent = embedContent.replace(wikilinkInEmbedPattern, (fullWiki, target, anchor) => {
-        const sectionId = anchor || target.replace(/\.md$/, '').replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
-        const cleanTarget = target.replace(/\.md$/, '');
-        const linkText = anchor || cleanTarget;
-        return `[↓ ${linkText}](#${sectionId})`;
-      });
+      // Utiliser une fonction manuelle pour éviter les problèmes de regex
+      const replaceWikilinksInEmbed = (content) => {
+        const openTag = '[[', closeTag = ']]';
+        let result = content;
+        let pos = 0;
+        const replacements = [];
+        
+        while (true) {
+          const start = result.indexOf(openTag, pos);
+          if (start === -1) break;
+          const end = result.indexOf(closeTag, start + openTag.length);
+          if (end === -1) break;
+          
+          const fullMatch = result.substring(start, end + closeTag.length);
+          const inner = result.substring(start + openTag.length, end);
+          
+          // Séparer le target et l'anchor (ex: "Note#Section")
+          const hashPos = inner.indexOf('#');
+          const target = hashPos === -1 ? inner : inner.substring(0, hashPos);
+          const anchor = hashPos === -1 ? null : inner.substring(hashPos + 1);
+          
+          const sectionId = anchor || target.replace(/\.md$/, '').replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
+          const cleanTarget = target.replace(/\.md$/, '');
+          const linkText = anchor || cleanTarget;
+          
+          replacements.push({ 
+            start, 
+            end: end + closeTag.length,
+            replacement: `[↓ ${linkText}](#${sectionId})` 
+          });
+          
+          pos = end + closeTag.length;
+        }
+        
+        // Appliquer les remplacements de la fin vers le début pour ne pas casser les positions
+        for (let i = replacements.length - 1; i >= 0; i--) {
+          const { start, end, replacement } = replacements[i];
+          result = result.substring(0, start) + replacement + result.substring(end);
+        }
+        
+        return result;
+      };
+      
+      embedContent = replaceWikilinksInEmbed(embedContent);
       
       const marker = `\n%% EMBED: ${resolved.path} %%\n${embedContent}\n%% /EMBED %%\n`;
       processed = processed.replaceAll(full, marker);
