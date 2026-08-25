@@ -996,12 +996,12 @@ class Markdown2TexPlugin extends Plugin {
     try {
       new Notice("Génération du Markdown étendu...");
 
-      // 1. Résoudre les embeds et les images web
-      let { processed, vfs } = await this.processEmbeds(content, activeFile, vaultRoot, parentDir);
+      // 1. Résoudre les embeds ET les inliner (avec processEmbedsWithMarkers)
+      let { processed, vfs } = await this.processEmbedsWithMarkers(content, activeFile, vaultRoot, parentDir);
       const webCacheDir = path.join(parentDir, "embedded_images");
       processed = await ensureWebImages(processed, webCacheDir);
 
-      // 2. Résoudre TOUS les wikilinks (y compris ceux dans les embeds) via WASM
+      // 2. Résoudre TOUS les wikilinks (y compris ceux dans les embeds inlinés) via WASM
       const vfsJson = JSON.stringify(vfs);
       let expanded = this.vlatex.expand_wikilinks_with_vfs(
         processed,
