@@ -1010,34 +1010,76 @@ class Markdown2TexPlugin extends Plugin {
         vfsJson,
       );
 
-      // 3. Remplacer les liens vers d'autres fichiers .md par des ancres locales
+      // 3. Remplacer TOUS les liens vers des fichiers .md par des ancres locales
       //    Ex: [texte](AutreNote.md#Section) -> [texte](#autre-note-section)
-      //    Cela rend le .expanded.md autonome
-      //    On ignore les liens vers des images (![...]) et des URLs (http/https)
-      const mdLinkPattern = /\[([^\]]+)\]\(([^#)]+\.md)(#([^)]+))?\)/g;
-      expanded = expanded.replace(mdLinkPattern, (full, alias, targetFile, hash, anchor) => {
-        // Extraire le nom de la section depuis l'anchor ou le nom du fichier
-        const fileStem = targetFile.replace(/\.md$/, '');
-        const sectionId = anchor 
-          ? anchor.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()
-          : fileStem.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
-        return `[${alias}](#${sectionId})`;
-      });
+      //    ou [texte](AutreNote.md) -> [texte](#autre-note)
+      //    Utiliser une fonction manuelle pour éviter les problèmes de regex
+      const replaceMdLinksWithAnchors = (content) => {
+        const openBracket = '[';
+        const closeBracket = ']';
+        const openParen = '(';
+        const closeParen = ')';
+        let result = content;
+        let pos = 0;
+        const replacements = [];
+        
+        while (true) {
+          const startBracket = result.indexOf(openBracket, pos);
+          if (startBracket === -1) break;
+          const endBracket = result.indexOf(closeBracket, startBracket + 1);
+          if (endBracket === -1) break;
+          const startParen = result.indexOf(openParen, endBracket + 1);
+          if (startParen === -1) break;
+          const endParen = result.indexOf(closeParen, startParen + 1);
+          if (endParen === -1) break;
+          
+          const fullMatch = result.substring(startBracket, endParen + 1);
+          const alias = result.substring(startBracket + 1, endBracket);
+          const link = result.substring(startParen + 1, endParen);
+          
+          // Ignorer les images (![...]) et les liens qui ne pointent pas vers .md
+          if (alias.startsWith('!') || !link.includes('.md')) {
+            pos = endParen + 1;
+            continue;
+          }
+          
+          // Extraire le fichier et l'anchor
+          const hashPos = link.indexOf('#');
+          const targetFile = hashPos === -1 ? link : link.substring(0, hashPos);
+          const anchor = hashPos === -1 ? null : link.substring(hashPos + 1);
+          
+          // Générer l'ancre locale
+          const fileStem = targetFile.replace(/\.md$/, '');
+          const sectionId = anchor 
+            ? anchor.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()
+            : fileStem.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
+          
+          replacements.push({
+            start: startBracket,
+            end: endParen + 1,
+            replacement: `[${alias}](#${sectionId})`
+          });
+          
+          pos = endParen + 1;
+        }
+        
+        // Appliquer les remplacements de la fin vers le début
+        for (let i = replacements.length - 1; i >= 0; i--) {
+          const { start, end, replacement } = replacements[i];
+          result = result.substring(0, start) + replacement + result.substring(end);
+        }
+        
+        return result;
+      };
+      
+      expanded = replaceMdLinksWithAnchors(expanded);
 
       // 4. Ajouter des ancres Markdown {#id} après les titres pour les liens locaux
       //    Ex: ## Section -> ## Section {#section}
-      //    On utilise le même format que les liens pour garantir la correspondance
       const headerPattern = /^(#{1,6})\s+(.+)$/gm;
       expanded = expanded.replace(headerPattern, (full, hashes, title) => {
         const sectionId = title.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
         return `${hashes} ${title} {#${sectionId}}`;
-      });
-      
-      // 5. Remplacer aussi les liens sans ancre (ex: [texte](AutreNote.md)) par [texte](#autre-note)
-      const simpleMdLinkPattern = /\[([^\]]+)\]\(([^#)]+\.md)\)/g;
-      expanded = expanded.replace(simpleMdLinkPattern, (full, alias, targetFile) => {
-        const sectionId = targetFile.replace(/\.md$/, '').replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
-        return `[${alias}](#${sectionId})`;
       });
 
       // 5. Écrire le fichier .expanded.md (sans marqueurs, Markdown pur)
