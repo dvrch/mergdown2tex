@@ -996,29 +996,56 @@ class Markdown2TexPlugin extends Plugin {
     try {
       new Notice("Génération du Markdown étendu...");
 
-      // 1. Expansion des embeds avec marqueurs de contexte
-      let { processed, vfs } = await this.processEmbedsWithMarkers(content, activeFile, vaultRoot, parentDir);
+      // 1. Résoudre les embeds et les images web
+      let { processed, vfs } = await this.processEmbeds(content, activeFile, vaultRoot, parentDir);
       const webCacheDir = path.join(parentDir, "embedded_images");
       processed = await ensureWebImages(processed, webCacheDir);
 
-      // 2. Résolution des wikilinks via WASM
+      // 2. Résoudre TOUS les wikilinks (y compris ceux dans les embeds) via WASM
       const vfsJson = JSON.stringify(vfs);
-      const expanded = this.vlatex.expand_wikilinks_with_vfs(
+      let expanded = this.vlatex.expand_wikilinks_with_vfs(
         processed,
         vaultRoot,
         mdPath,
         vfsJson,
       );
 
-      // 2.5. Ajout des marqueurs de backlink (↓↑)
-      const expandedWithBacklinks = this.addBacklinkMarkers(expanded, vaultRoot, mdPath);
+      // 3. Remplacer les liens vers d'autres fichiers .md par des ancres locales
+      //    Ex: [texte](AutreNote.md#Section) -> [texte](#autre-note-section)
+      //    Cela rend le .expanded.md autonome
+      //    On ignore les liens vers des images (![...]) et des URLs (http/https)
+      const mdLinkPattern = /\[([^\]]+)\]\(([^#)]+\.md)(#([^)]+))?\)/g;
+      expanded = expanded.replace(mdLinkPattern, (full, alias, targetFile, hash, anchor) => {
+        // Extraire le nom de la section depuis l'anchor ou le nom du fichier
+        const fileStem = targetFile.replace(/\.md$/, '');
+        const sectionId = anchor 
+          ? anchor.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()
+          : fileStem.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
+        return `[${alias}](#${sectionId})`;
+      });
 
-      // 3. Écriture du fichier .expanded.md
+      // 4. Ajouter des ancres Markdown {#id} après les titres pour les liens locaux
+      //    Ex: ## Section -> ## Section {#section}
+      //    On utilise le même format que les liens pour garantir la correspondance
+      const headerPattern = /^(#{1,6})\s+(.+)$/gm;
+      expanded = expanded.replace(headerPattern, (full, hashes, title) => {
+        const sectionId = title.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
+        return `${hashes} ${title} {#${sectionId}}`;
+      });
+      
+      // 5. Remplacer aussi les liens sans ancre (ex: [texte](AutreNote.md)) par [texte](#autre-note)
+      const simpleMdLinkPattern = /\[([^\]]+)\]\(([^#)]+\.md)\)/g;
+      expanded = expanded.replace(simpleMdLinkPattern, (full, alias, targetFile) => {
+        const sectionId = targetFile.replace(/\.md$/, '').replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
+        return `[${alias}](#${sectionId})`;
+      });
+
+      // 5. Écrire le fichier .expanded.md (sans marqueurs, Markdown pur)
       const expandedPath = path.join(parentDir, fileStem + ".expanded.md");
-      fs.writeFileSync(expandedPath, expandedWithBacklinks, "utf-8");
-      console.log("[mergdown2tex] .expanded.md written:", expandedPath, expandedWithBacklinks.length, "bytes");
-      new Notice(`✅ Markdown étendu généré : ${fileStem}.expanded.md (${expandedWithBacklinks.length} octets)`);
-      return { expandedPath, vaultRoot, parentDir, fileStem, expanded: expandedWithBacklinks };
+      fs.writeFileSync(expandedPath, expanded, "utf-8");
+      console.log("[mergdown2tex] .expanded.md written:", expandedPath, expanded.length, "bytes");
+      new Notice(`✅ Markdown étendu généré : ${fileStem}.expanded.md (${expanded.length} octets)`);
+      return { expandedPath, vaultRoot, parentDir, fileStem, expanded };
     } catch (err) {
       console.error("[mergdown2tex] expandToMd error:", err);
       new Notice("❌ Erreur: " + err.message);
