@@ -1121,7 +1121,8 @@ class Markdown2TexPlugin extends Plugin {
         .replace(/^\s*$/gm, '');  // Supprimer les lignes vides
       
       // Remplacer les wikilinks dans l'embeded par des liens avec ancres locales
-      const wikilinkInEmbedPattern = /\[\\[([^\]#|]+)(?:#([^\]]+))?\]\]/g;
+      // Utiliser une approche sans regex complexe pour éviter les erreurs de syntaxe
+      const wikilinkInEmbedPattern = /\[\\[([^\]]+)(?:#([^\]]+))?\]\]/g;
       embedContent = embedContent.replace(wikilinkInEmbedPattern, (fullWiki, target, anchor) => {
         const sectionId = anchor || target.replace(/\.md$/, '').replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
         const cleanTarget = target.replace(/\.md$/, '');
