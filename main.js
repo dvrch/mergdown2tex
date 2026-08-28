@@ -883,6 +883,7 @@ class Markdown2TexPlugin extends Plugin {
         expand_wikilinks,
         expand_wikilinks_with_index,
         expand_wikilinks_with_vfs,
+        expand_to_standalone_markdown,
         extract_bibliography_paths,
         extract_citations,
         generate_full_bibliography,
@@ -930,10 +931,10 @@ class Markdown2TexPlugin extends Plugin {
     });
 
     this.addCommand({
-      id: "mergdown2tex-convert-to-md",
-      name: "MergDown2TeX: Convertir le fichier Markdown actif (.md) → LaTeX → Markdown (reverse)",
+      id: "mergdown2tex-tex-to-md",
+      name: "MergDown2TeX: Reconvertir le .tex (jumeau) de la note active en Markdown",
       callback: async () => {
-        await this.convertToMd();
+        await this.texToMarkdown();
       },
     });
 
@@ -946,13 +947,16 @@ class Markdown2TexPlugin extends Plugin {
     });
   }
 
-  async convertToMd() {
+  /**
+   * Convertisseur inverse : part du fichier .md actif, lit son jumeau .tex
+   * (produit par "Convertir en LaTeX"), et régénère du Markdown.
+   * Obsidian ne peut pas ouvrir les .tex, donc on part toujours du .md.
+   */
+  async texToMarkdown() {
     if (!this.vlatex) {
       new Notice("vLaTeX WASM non initialisé.");
       return;
     }
-    // Même logique que compilePdf : on part du fichier .md actif
-    // et on cherche le .tex correspondant (même nom, même dossier)
     const fp = await this.getFilePaths();
     if (!fp) return;
     const { parentDir, fileStem } = fp;
@@ -967,12 +971,12 @@ class Markdown2TexPlugin extends Plugin {
       new Notice("Conversion LaTeX vers Markdown en cours...");
       const texContent = fs.readFileSync(texPath, "utf-8");
       const markdown = this.vlatex.latex_to_markdown(texContent);
-      const mdOutPath = path.join(parentDir, fileStem + "_reverse.md");
+      const mdOutPath = path.join(parentDir, fileStem + "_conv.md");
       fs.writeFileSync(mdOutPath, markdown, "utf-8");
       console.log("[mergdown2tex] .md written to", mdOutPath, markdown.length, "bytes");
-      new Notice(`✅ Markdown généré: ${fileStem}_reverse.md (${markdown.length} octets)`);
+      new Notice(`✅ Markdown généré: ${fileStem}_conv.md (${markdown.length} octets)`);
     } catch (err) {
-      console.error("[mergdown2tex] reverse convert error:", err);
+      console.error("[mergdown2tex] tex->md error:", err);
       new Notice("❌ Erreur: " + err.message);
     }
   }
@@ -999,84 +1003,18 @@ class Markdown2TexPlugin extends Plugin {
       const webCacheDir = path.join(parentDir, "embedded_images");
       processed = await ensureWebImages(processed, webCacheDir);
 
-      // 2. Résoudre les wikilinks via WASM (y compris ceux dans les embeds inlinés)
+      // 2. Le WASM (Rust) convertit le contenu en Markdown autonome :
+      //    - résout les wikilinks/embeds restants
+      //    - remplace les liens .md par des ancres locales [↓ ...](#slug)
+      //    - ajoute les ancres Markdown {#id} aux titres
+      //    - injecte les marqueurs bidirectionnels %% BACKLINK: id ↑ %% (Option A)
       const vfsJson = JSON.stringify(vfs);
-      let expanded = this.vlatex.expand_wikilinks_with_vfs(
+      let expanded = this.vlatex.expand_to_standalone_markdown(
         processed,
         vaultRoot,
         mdPath,
         vfsJson,
       );
-
-      // 3. Remplacer TOUS les liens vers des fichiers .md par des ancres locales
-      //    Ex: [texte](AutreNote.md#Section) -> [texte](#autre-note-section)
-      //    Utiliser une fonction manuelle pour éviter les problèmes de regex
-      const replaceMdLinksWithAnchors = (content) => {
-        const openBracket = '[';
-        const closeBracket = ']';
-        const openParen = '(';
-        const closeParen = ')';
-        let result = content;
-        let pos = 0;
-        const replacements = [];
-        
-        while (true) {
-          const startBracket = result.indexOf(openBracket, pos);
-          if (startBracket === -1) break;
-          const endBracket = result.indexOf(closeBracket, startBracket + 1);
-          if (endBracket === -1) break;
-          const startParen = result.indexOf(openParen, endBracket + 1);
-          if (startParen === -1) break;
-          const endParen = result.indexOf(closeParen, startParen + 1);
-          if (endParen === -1) break;
-          
-          const fullMatch = result.substring(startBracket, endParen + 1);
-          const alias = result.substring(startBracket + 1, endBracket);
-          const link = result.substring(startParen + 1, endParen);
-          
-          // Ignorer les images (![...]) et les liens qui ne pointent pas vers .md
-          if (alias.startsWith('!') || !link.includes('.md')) {
-            pos = endParen + 1;
-            continue;
-          }
-          
-          // Extraire le fichier et l'anchor
-          const hashPos = link.indexOf('#');
-          const targetFile = hashPos === -1 ? link : link.substring(0, hashPos);
-          const anchor = hashPos === -1 ? null : link.substring(hashPos + 1);
-          
-          // Générer l'ancre locale
-          const fileStem = targetFile.replace(/\.md$/, '');
-          const sectionId = anchor 
-            ? anchor.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()
-            : fileStem.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
-          
-          replacements.push({
-            start: startBracket,
-            end: endParen + 1,
-            replacement: `[${alias}](#${sectionId})`
-          });
-          
-          pos = endParen + 1;
-        }
-        
-        // Appliquer les remplacements de la fin vers le début
-        for (let i = replacements.length - 1; i >= 0; i--) {
-          const { start, end, replacement } = replacements[i];
-          result = result.substring(0, start) + replacement + result.substring(end);
-        }
-        
-        return result;
-      };
-      
-      expanded = replaceMdLinksWithAnchors(expanded);
-
-      // 4. Ajouter des ancres Markdown {#id} après les titres pour les liens locaux
-      const headerPattern = /^(#{1,6})\s+(.+)$/gm;
-      expanded = expanded.replace(headerPattern, (full, hashes, title) => {
-        const sectionId = title.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
-        return `${hashes} ${title} {#${sectionId}}`;
-      });
 
       // 3. Écrire le fichier .expanded.md
       const expandedPath = path.join(parentDir, fileStem + ".expanded.md");
@@ -1089,49 +1027,6 @@ class Markdown2TexPlugin extends Plugin {
       new Notice("❌ Erreur: " + err.message);
       return null;
     }
-  }
-
-  /**
-   * Ajoute des marqueurs de backlink (↓↑) pour les wikilinks résolus.
-   * Remplace les wikilinks par des liens Markdown avec ancres pour que le .expanded.md
-   * soit autonome et produise les mêmes références croisées que la conversion directe.
-   * Ajoute aussi des ancres HTML <a id="..."></a> pour la compatibilité.
-   */
-  addBacklinkMarkers(content, vaultRoot, mdPath) {
-    let backlinkCounter = 0;
-    let result = content;
-    const backlinkMarkers = [];
-
-    // 1. Remplacer les wikilinks résolus par des liens Markdown avec ancres
-    // Format attendu après expand_wikilinks_with_vfs : [alias](target.md#anchor)
-    const wikilinkPattern = /\[([^\]]+)\]\(([^#)]+)(#([^)]+))?\)/g;
-    
-    result = result.replace(wikilinkPattern, (full, alias, target, hash, anchor) => {
-      const backlinkId = `backlink-${backlinkCounter++}`;
-      const sectionId = anchor || target.replace(/\.md$/, '').replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
-      
-      // Stocker le marqueur pour l'injecter avant la section cible
-      backlinkMarkers.push({ 
-        id: backlinkId, 
-        sectionId: sectionId,
-        alias: alias 
-      });
-      
-      // Remplacer par un lien Markdown avec ancre interne
-      return `[↓ ${alias}](#${sectionId})`;
-    });
-
-    // 2. Injecter les ancres Markdown natives et les marqueurs BACKLINK avant les sections cibles
-    // Utiliser le format Markdown {#id} pour les ancres (compatible avec le WASM)
-    for (const marker of backlinkMarkers) {
-      const escapedSectionId = marker.sectionId.replace(/[.*+?^${}()|[\]\/]/g, '\\$&');
-      const sectionPattern = new RegExp(`(^#{1,6}\s+${escapedSectionId})`, 'gm');
-      result = result.replace(sectionPattern, (sectionMatch) => {
-        return `%% BACKLINK: ${marker.id} ↑ %%\n${sectionMatch} {#${marker.sectionId}}`;
-      });
-    }
-
-    return result;
   }
 
   /**
