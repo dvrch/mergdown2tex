@@ -1157,7 +1157,15 @@ class Markdown2TexPlugin extends Plugin {
       
       embedContent = replaceWikilinksInEmbed(embedContent);
       
-      const marker = `\n%% EMBED: ${resolved.path} %%\n${embedContent}\n%% /EMBED %%\n`;
+      // Ancre de bloc : la référence croisée d'un bloc (equation/figure/table)
+      // pointe vers cette ancre. L'id est le slug du nom de la note, cohérent
+      // avec replaceWikilinksInEmbed et avec les labels LaTeX directs (eq:/fig:/tab:),
+      // ce qui fait que les liens [↓ ...](#slug) du .expanded.md pointent au bon endroit.
+      let baseName = (resolved.basename !== undefined) ? resolved.basename : path.basename(resolved.path, '.md');
+      const blockSlug = baseName.replace(/\.md$/, '').replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
+      const isBlock = /^(eq|figure|table)__block_/.test(baseName);
+      const anchorTag = isBlock ? `<a id="${blockSlug}"></a>\n` : '';
+      const marker = `\n${anchorTag}%% EMBED: ${resolved.path} %%\n${embedContent}\n%% /EMBED %%\n`;
       processed = processed.replaceAll(full, marker);
     }
     return { processed, vfs };
