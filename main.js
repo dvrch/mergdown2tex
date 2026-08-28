@@ -195,6 +195,33 @@ function expand_wikilinks_with_vfs_bg(content, vault_root, md_path, vfs_json) {
     }
 }
 
+function expand_to_standalone_markdown_bg(content, vault_root, md_path, vfs_json) {
+    let deferred6_0;
+    let deferred6_1;
+    try {
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(vault_root, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(md_path, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ptr3 = passStringToWasm0(vfs_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len3 = WASM_VECTOR_LEN;
+        const ret = wasm.expand_to_standalone_markdown(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
+        var ptr5 = ret[0];
+        var len5 = ret[1];
+        if (ret[3]) {
+            ptr5 = 0; len5 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred6_0 = ptr5;
+        deferred6_1 = len5;
+        return getStringFromWasm0(ptr5, len5);
+    } finally {
+        wasm.__wbindgen_free(deferred6_0, deferred6_1, 1);
+    }
+}
+
 function extract_bibliography_paths_bg(markdown_content) {
     let deferred2_0;
     let deferred2_1;
@@ -453,6 +480,10 @@ function expand_wikilinks_with_index(content, vault_root, md_path, _path_index_j
 
 function expand_wikilinks_with_vfs(content, vault_root, md_path, vfs_json) {
     return expand_wikilinks_with_vfs_bg(content, vault_root, md_path, vfs_json);
+}
+
+function expand_to_standalone_markdown(content, vault_root, md_path, vfs_json) {
+    return expand_to_standalone_markdown_bg(content, vault_root, md_path, vfs_json);
 }
 
 function extract_bibliography_paths(markdown_content) {
