@@ -6,5 +6,5 @@
   "description": "Merge & doc. export everything — embeds, Zotero/Pandoc citations, Mermaid, equations, cross-refs — into a unique .tex file. Compile to PDF, DOCX, or InDesign. WASM engine, zero build step.",
   "author": "DJONTSO",
   "authorUrl": "https://dvrch.github.io/mergdown2tex/",
-  "isDesktopOnly": true
+  "isDesktopOnly": false
 }
