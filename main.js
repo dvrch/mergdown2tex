@@ -2,11 +2,148 @@
 // All memory management functions, raw bindings, and high-level wrappers
 // from vlatex_bg.js and vlatex.js merged here
 
-const { Plugin, Notice, PluginSettingTab, Setting, requestUrl } = require("obsidian");
-const path = require("path");
-const fs = require("fs");
-const crypto = require("crypto");
-const { exec } = require("child_process");
+const { Plugin, Notice, PluginSettingTab, Setting, requestUrl, Platform } = require("obsidian");
+
+// --- Multiplateforme (PC + Android) ---
+// fs/path/crypto/zlib/child_process n'existent pas sur Obsidian mobile.
+// On les charge paresseusement UNIQUEMENT sur desktop, pour que le plugin
+// puisse se charger et s'activer sur Android. Sur mobile, on expose des stubs
+// dont chaque méthode lève une erreur claire si une fonction native (déjà
+// gardée par Platform.isDesktop ou indisponible) est réellement appelée.
+const _nativeModules = (() => {
+  const isDesktop = typeof Platform !== "undefined" && !!Platform.isDesktop;
+  if (!isDesktop) return {};
+  try {
+    const m = {};
+    try { m.path = require("path"); } catch (e) { m.path = null; }
+    try { m.fs = require("fs"); } catch (e) { m.fs = null; }
+    try { m.crypto = require("crypto"); } catch (e) { m.crypto = null; }
+    try { m.zlib = require("zlib"); } catch (e) { m.zlib = null; }
+    try { m.exec = require("child_process").exec; } catch (e) { m.exec = null; }
+    return m;
+  } catch (e) { return {}; }
+})();
+
+const _stubUnavailable = (name) => () => { throw new Error("Module natif '" + name + "' indisponible sur mobile (Obsidian)"); };
+
+function _nativeStub() {
+  return new Proxy({}, {
+    get(t, k) {
+      if (k === "join") return ((...a) => a.join("/"));
+      if (k === "dirname") return ((p) => String(p).replace(/\/?[^/]*$/, ""));
+      if (k === "basename") return ((p) => String(p).split(/[\\/]/).pop());
+      if (k === "extname") return ((p) => { const b = String(p).split(/[\\/]/).pop(); const i = b.lastIndexOf("."); return i > 0 ? b.slice(i) : ""; });
+      if (k === "resolve") return ((...a) => a.join("/"));
+      if (k === "relative") return ((from, to) => String(to));
+      if (k === "sep") return "/";
+      if (k === "isAbsolute") return ((p) => String(p).startsWith("/") || /^[A-Za-z]:/.test(String(p)));
+      if (k === "getFullPath") return ((p) => p);
+      if (k === "getBasePath") return (() => "/");
+      if (k === "statSync") return ((p) => ({ size: 0 }));
+      return _stubUnavailable("fs/path");
+    },
+  });
+}
+
+const path = (_nativeModules.path) || _nativeStub();
+const fs = (_nativeModules.fs) || _nativeStub();
+const crypto = (_nativeModules.crypto) || _nativeStub();
+const zlib = (_nativeModules.zlib) || null;
+const exec = (_nativeModules.exec) || _stubUnavailable("exec");
+
+// --- Helpers d'accès fichier multiplateforme (PC + Android) ---
+// Sur desktop on utilise fs natif ; sur mobile on utilise app.vault.adapter.
+// Tous prennent un chemin RELATIF au vault (style "Dossier/fichier.tex").
+const adapterGet = (app) => (app && app.vault && app.vault.adapter) ? app.vault.adapter : null;
+
+async function vaultReadText(app, relPath) {
+  const a = adapterGet(app);
+  if (a && typeof a.read === "function") {
+    try { return await a.read(relPath); } catch (e) { /* fallback fs ci-dessous */ }
+  }
+  const p = requirePathOrNull();
+  const root = app && app.vault && app.vault.adapter && app.vault.adapter.getBasePath ? app.vault.adapter.getBasePath() : null;
+  if (p && root) {
+    const abs = p.join(root, relPath);
+    return fs.readFileSync(abs, "utf-8");
+  }
+  throw new Error("Lecture fichier impossible: " + relPath + " (ni adapter ni fs disponible)");
+}
+
+async function vaultWriteText(app, relPath, data) {
+  const a = adapterGet(app);
+  if (a && typeof a.write === "function") {
+    try { await a.write(relPath, data); return; } catch (e) { /* fallback */ }
+  }
+  const p = requirePathOrNull();
+  const root = app && app.vault && app.vault.adapter && app.vault.adapter.getBasePath ? app.vault.adapter.getBasePath() : null;
+  if (p && root) {
+    const abs = p.join(root, relPath);
+    const dir = p.dirname(abs);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(abs, data, "utf-8");
+    return;
+  }
+  throw new Error("Écriture fichier impossible: " + relPath + " (ni adapter ni fs disponible)");
+}
+
+async function vaultReadBinary(app, relPath) {
+  const a = adapterGet(app);
+  if (a && typeof a.readBinary === "function") {
+    try { const b = await a.readBinary(relPath); if (b) return b; } catch (e) { /* fallback */ }
+  }
+  const p = requirePathOrNull();
+  const root = app && app.vault && app.vault.adapter && app.vault.adapter.getBasePath ? app.vault.adapter.getBasePath() : null;
+  if (p && root) {
+    const abs = p.join(root, relPath);
+    return fs.readFileSync(abs);
+  }
+  throw new Error("Lecture binaire impossible: " + relPath);
+}
+
+async function vaultWriteBinary(app, relPath, data) {
+  const a = adapterGet(app);
+  if (a && typeof a.writeBinary === "function") {
+    try { await a.writeBinary(relPath, data); return; } catch (e) { /* fallback */ }
+  }
+  const p = requirePathOrNull();
+  const root = app && app.vault && app.vault.adapter && app.vault.adapter.getBasePath ? app.vault.adapter.getBasePath() : null;
+  if (p && root) {
+    const abs = p.join(root, relPath);
+    const dir = p.dirname(abs);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(abs, Buffer.from(data));
+    return;
+  }
+  throw new Error("Écriture binaire impossible: " + relPath);
+}
+
+async function vaultMkdir(app, relPath) {
+  const a = adapterGet(app);
+  if (a && typeof a.mkdir === "function") {
+    try { await a.mkdir(relPath); return; } catch (e) { /* fallback */ }
+  }
+  const p = requirePathOrNull();
+  const root = app && app.vault && app.vault.adapter && app.vault.adapter.getBasePath ? app.vault.adapter.getBasePath() : null;
+  if (p && root) {
+    fs.mkdirSync(p.join(root, relPath), { recursive: true });
+  }
+}
+
+async function vaultExists(app, relPath) {
+  const a = adapterGet(app);
+  if (a && typeof a.exists === "function") {
+    try { return await a.exists(relPath); } catch (e) { /* fallback */ }
+  }
+  const p = requirePathOrNull();
+  const root = app && app.vault && app.vault.adapter && app.vault.adapter.getBasePath ? app.vault.adapter.getBasePath() : null;
+  if (p && root) return fs.existsSync(p.join(root, relPath));
+  return false;
+}
+
+function requirePathOrNull() {
+  return (_nativeModules && _nativeModules.path) ? _nativeModules.path : null;
+}
 
 // === WASM Base64 Placeholder ===
 // En développement, on charge le wasm depuis le disque.
@@ -181,6 +318,33 @@ function expand_wikilinks_with_vfs_bg(content, vault_root, md_path, vfs_json) {
         const ptr3 = passStringToWasm0(vfs_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
         const len3 = WASM_VECTOR_LEN;
         const ret = wasm.expand_wikilinks_with_vfs(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
+        var ptr5 = ret[0];
+        var len5 = ret[1];
+        if (ret[3]) {
+            ptr5 = 0; len5 = 0;
+            throw takeFromExternrefTable0(ret[2]);
+        }
+        deferred6_0 = ptr5;
+        deferred6_1 = len5;
+        return getStringFromWasm0(ptr5, len5);
+    } finally {
+        wasm.__wbindgen_free(deferred6_0, deferred6_1, 1);
+    }
+}
+
+function expand_to_standalone_markdown_bg(content, vault_root, md_path, vfs_json) {
+    let deferred6_0;
+    let deferred6_1;
+    try {
+        const ptr0 = passStringToWasm0(content, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len0 = WASM_VECTOR_LEN;
+        const ptr1 = passStringToWasm0(vault_root, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len1 = WASM_VECTOR_LEN;
+        const ptr2 = passStringToWasm0(md_path, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len2 = WASM_VECTOR_LEN;
+        const ptr3 = passStringToWasm0(vfs_json, wasm.__wbindgen_malloc, wasm.__wbindgen_realloc);
+        const len3 = WASM_VECTOR_LEN;
+        const ret = wasm.expand_to_standalone_markdown(ptr0, len0, ptr1, len1, ptr2, len2, ptr3, len3);
         var ptr5 = ret[0];
         var len5 = ret[1];
         if (ret[3]) {
@@ -455,6 +619,10 @@ function expand_wikilinks_with_vfs(content, vault_root, md_path, vfs_json) {
     return expand_wikilinks_with_vfs_bg(content, vault_root, md_path, vfs_json);
 }
 
+function expand_to_standalone_markdown(content, vault_root, md_path, vfs_json) {
+    return expand_to_standalone_markdown_bg(content, vault_root, md_path, vfs_json);
+}
+
 function extract_bibliography_paths(markdown_content) {
     return extract_bibliography_paths_bg(markdown_content);
 }
@@ -573,10 +741,159 @@ async function initWasm(wasmPath) {
     if (wasm.__wbindgen_start) wasm.__wbindgen_start();
 }
 
+// === PANDOC WASM SUPPORT ===
+
+const g = e => e.replaceAll("\\", "/").replace(/\/+$/, "");
+const _ = e => g(e).split("/").pop() ?? "";
+const v = e => { let t = g(e).lastIndexOf("/"); return t <= 0 ? "" : g(e).substring(0, t); };
+const y = e => { let t = _(e), n = t.lastIndexOf("."); return n <= 0 ? "" : t.substring(n); };
+const b = e => { let t = _(e); return t.substring(0, t.length - y(e).length); };
+const x = e => /^([a-zA-Z]:)?[\\/]/.test(e);
+const S = (e, t) => {
+  let n = x(t) ? g(t) : `${g(e)}/${g(t)}`;
+  let r = [];
+  for (let e of n.split("/")) {
+    if (e !== ".") {
+      if (e === ".." && r.length > 0 && r[r.length - 1] !== "..") {
+        r.pop();
+        continue;
+      }
+      r.push(e);
+    }
+  }
+  return r.join("/");
+};
+function Pe(e) {
+  return e.startsWith('"') && e.endsWith('"') || e.startsWith("'") && e.endsWith("'") ? e.substring(1, e.length - 1) : e;
+}
+
+const Xs = /(?:[^\s"]+|"[^"]*")+/g;
+const Zs = /^--([\w-]+)(?:=([\s\S]*))?$/;
+const Qs = /^-([a-zA-Z])([\s\S]*)$/;
+const $s = {
+  from: { kind: "string" },
+  read: { key: "from", kind: "string" },
+  to: { kind: "string" },
+  write: { key: "to", kind: "string" },
+  output: { key: "output-file", kind: "string" },
+  standalone: { kind: "flag" },
+  "shift-heading-level-by": { kind: "number" },
+  "indented-code-classes": { kind: "list" },
+  "default-image-extension": { kind: "string" },
+  "file-scope": { kind: "flag" },
+  "preserve-tabs": { kind: "flag" },
+  "tab-stop": { kind: "number" },
+  "track-changes": { kind: "string" },
+  "strip-comments": { kind: "flag" },
+  "extract-media": { kind: "string" },
+  abbreviations: { kind: "string", file: true },
+  metadata: { kind: "pairs" },
+  "metadata-file": { key: "metadata-files", kind: "list", file: true },
+  template: { kind: "string", file: true },
+  variable: { key: "variables", kind: "pairs" },
+  eol: { kind: "string" },
+  dpi: { kind: "number" },
+  wrap: { kind: "string" },
+  columns: { kind: "number" },
+  "table-of-contents": { kind: "flag" },
+  toc: { key: "table-of-contents", kind: "flag" },
+  "toc-depth": { kind: "number" },
+  "number-sections": { kind: "flag" },
+  "number-offset": { kind: "list" },
+  "syntax-definition": { key: "syntax-definitions", kind: "list", file: true },
+  "include-in-header": { kind: "list", file: true },
+  "include-before-body": { kind: "list", file: true },
+  "include-after-body": { kind: "list", file: true },
+  "resource-path": { kind: "paths" },
+  listings: { kind: "flag" },
+  "list-of-figures": { kind: "flag" },
+  lof: { key: "list-of-figures", kind: "flag" },
+  "list-of-tables": { kind: "flag" },
+  lot: { key: "list-of-tables", kind: "flag" },
+  "list-tables": { kind: "flag" },
+  "figure-caption-position": { kind: "string" },
+  "table-caption-position": { kind: "string" },
+  "top-level-division": { kind: "string" },
+  "markdown-headings": { kind: "string" },
+  "reference-links": { kind: "flag" },
+  "reference-location": { kind: "string" },
+  "section-divs": { kind: "flag" },
+  "email-obfuscation": { kind: "string" },
+  "id-prefix": { key: "identifier-prefix", kind: "string" },
+  "title-prefix": { kind: "string" },
+  ascii: { kind: "flag" },
+  "html-q-tags": { kind: "flag" },
+  "link-images": { kind: "flag" },
+  "embed-resources": { kind: "flag" },
+  "self-contained": { kind: "flag" },
+  css: { kind: "list", file: true },
+  "reference-doc": { kind: "string", file: true },
+  incremental: { kind: "flag" },
+  "slide-level": { kind: "number" },
+  "split-level": { kind: "number" },
+  "chunk-template": { kind: "string" },
+  "epub-cover-image": { kind: "string", file: true },
+  "epub-metadata": { kind: "string", file: true },
+  "epub-embed-font": { key: "epub-fonts", kind: "list", file: true },
+  "epub-title-page": { kind: "flag" },
+  "epub-subdirectory": { kind: "string" },
+  "ipynb-output": { kind: "string" },
+  bibliography: { kind: "string", file: true },
+  csl: { kind: "string", file: true },
+  "citation-abbreviations": { kind: "string", file: true },
+  "syntax-highlighting": { kind: "string" },
+  "highlight-style": { key: "syntax-highlighting", kind: "string" }
+};
+const ec = {f:"from", r:"read", t:"to", w:"write", o:"output", s:"standalone", V:"variable", M:"metadata", H:"include-in-header", B:"include-before-body", A:"include-after-body", c:"css", N:"number-sections", d:"data-dir"};
+const tc = new Set(["verbose", "quiet", "trace", "dump-args", "no-check-certificate"]);
+const nc = new Set(["data-dir", "log", "request-header", "pdf-engine", "pdf-engine-opt"]);
+const rc = ["mathjax", "katex", "mathml", "webtex", "gladtex"];
+const ic = ["natbib", "biblatex"];
+const ac = e => typeof e == "object" && typeof e.path == "string";
+const oc = e => e?.toLowerCase() === "false";
+const sc = e => { let t = e.indexOf("="); return t === -1 ? [e, true] : [e.substring(0, t), Pe(e.substring(t + 1))]; };
+const cc = e => { let t = e.split(";"); return t.length > 1 || /^[a-zA-Z]:[\/]/.test(e) ? t.filter(Boolean) : e.split(":").filter(Boolean) };
+const Cc = "_external";
+const C = () => require("obsidian").Platform.isDesktop;
+const Zc = async () => { if (!require("obsidian").Platform.isDesktop) throw Error("There is no file system outside the vault to reach on this device"); return require("fs/promises"); };
+const Qc = e => new Uint8Array(e);
+const $c = e => e.buffer.slice(e.byteOffset, e.byteOffset + e.byteLength);
+
+class wc {#e;#t;#n=new Map;#r=new Map;constructor(e){this.#e=g(e),this.#t=!/^[a-zA-Z]:/.test(this.#e)}#i(e){return this.#t?e:e.toLowerCase()}inVault(e){let t=g(e),n=`${this.#i(this.#e)}/`;return this.#i(t).startsWith(n)?t.substring(this.#e.length+1):void 0}directory(e){let t=g(e),n=this.inVault(t);if(n!==void 0)return this.#a(t,n);if(this.#i(t)===this.#i(this.#e))return this.#a(t,`.`);let r=this.#n.get(this.#i(t));if(r)return r;let i=`${Cc}/${this.#n.size}`;return this.#n.set(this.#i(t),i),this.#a(t,i)}file(e){let t=g(e),n=this.inVault(t);return n===void 0?this.#a(t,`${this.directory(v(t))}/${_(t)}`):this.#a(t,n)}#a(e,t){return this.#r.set(t,e),t}toReal(e){let t=this.#r.get(e);if(t)return t;let n=e.lastIndexOf(`/`);if(n===-1)return;let r=this.toReal(e.substring(0,n));return r===void 0?void 0:`${r}/${e.substring(n+1)}`}}
+const Tc=`--[==[
+remote.lua — images the note names by URL, read from where the plugin put them
+]==]
+`;
+const Ec="_remote";
+const Dc=".obsidian-remote";
+const Oc=".obsidian-remote.lua";
+const Lc = e => { e.filters = [...e.filters ?? [], { type: "lua", path: Oc }] };
+const Rc = ".obsidian-embeds";
+const zc = new TextDecoder("utf-8");
+const Bc = new TextEncoder();
+const Vc = e => Object.fromEntries(Object.entries(e).map(([e, t]) => [e, typeof t == "string" ? Bc.encode(t) : t]));
+const Hc = e => e.map(e => { let { pretty: t, message: n, type: r } = e ?? {}; return t ?? n ?? r; }).filter(Boolean).join("\n");
+const Uc = e => e.filter(e => e?.verbosity !== "INFO");
+const Fc = async (e, t) => { return { files: {}, warnings: [] }; }; // Simple stub or empty since we don't do remote downloads inside wasm FS directly
+
+const uc=["template","bibliography","csl","citation-abbreviations","reference-doc","epub-cover-image","epub-metadata","abbreviations"],dc=["css","include-in-header","include-before-body","include-after-body","syntax-definitions","epub-fonts","metadata-files"],fc=["resource-path","extract-media"];
+function lc(e){let t={},n=[],r=[],i=[],a=[],o=(e,r,i)=>{let a=e.key??r,o=i===void 0?void 0:Pe(i);switch(e.kind){case`flag`:t[a]=!oc(o);break;case`number`:{let e=Number(o);t[a]=Number.isFinite(e)?e:o;break}case`list`:{let e=t[a]??[],n=a===`number-offset`?o.split(`,`).map(Number):[o];t[a]=[...e,...n];break}case`paths`:{let e=t[a]??[];t[a]=[...e,...cc(o)];break}case`pairs`:{let e=t[a]??{},[n,r]=sc(o);t[a]={...e,[n]:r};break}default:t[a]=o}e.file&&o&&n.push(o)},s=e.match(Xs)??[];for(let e=1;e<s.length;e+=1){let c=s[e];if(c===`--`)continue;let l=Zs.exec(c),u=l?null:Qs.exec(c);if(!l&&!u){i.push(Pe(c));continue}let d=l?l[1]:ec[u[1]],f=l?l[2]:u[2]?Pe(u[2]).replace(/^=/,``):void 0;if(!d){r.push(c);continue}if(tc.has(d))continue;if(nc.has(d)){f===void 0&&(e+=1);continue}if(d===`citeproc`){a.push(`citeproc`);continue}if(d===`lua-filter`||d===`filter`){f===void 0&&e+1<s.length&&(f=s[e+=1]);let t=Pe(f??``);if(d===`filter`){r.push(`--filter=${t}`);continue}a.push({type:`lua`,path:t}),n.push(t);continue}if(rc.includes(d)){let e=f===void 0?void 0:Pe(f);t[`html-math-method`]=e?{method:d,url:e}:{method:d};continue}if(ic.includes(d)){t[`cite-method`]=d;continue}if(d===`no-highlight`){t[`syntax-highlighting`]=`none`;continue}let p=$s[d];if(!p){r.push(l?c:`-${u[1]}`);continue}if(f===void 0&&p.kind!==`flag`){if(e+1>=s.length){r.push(c);continue}f=s[e+=1]}o(p,d,f)}return a.length>0&&(t.filters=a),{defaults:t,inputFiles:i,files:n,unsupported:r}}
+function pc(e,t){for(let n of[...uc,`output-file`]){let r=e[n];typeof r==`string`&&(e[n]=t.file(r))}let n=(e,t)=>e.map(e=>typeof e==`string`?t(e):e);for(let r of dc)Array.isArray(e[r])&&(e[r]=n(e[r],t.file));for(let r of fc){let i=e[r];typeof i==`string`?e[r]=t.directory(i):Array.isArray(i)&&(e[r]=n(i,t.directory))}e.filters&&=e.filters.map(e=>ac(e)?{...e,path:t.file(e.path)}:e)}
+function mc(e){let t=[];for(let n of uc)typeof e[n]==`string`&&t.push(e[n]);for(let n of dc)Array.isArray(e[n])&&t.push(...e[n].filter(e=>typeof e==`string`));for(let n of e.filters??[])ac(n)&&t.push(n.path);return t}
+var td=class e{static read_bytes(t,n){let r=new e;return r.buf=t.getUint32(n,!0),r.buf_len=t.getUint32(n+4,!0),r}static read_bytes_array(t,n,r){let i=[];for(let a=0;a<r;a++)i.push(e.read_bytes(t,n+8*a));return i}},nd=class e{static read_bytes(t,n){let r=new e;return r.buf=t.getUint32(n,!0),r.buf_len=t.getUint32(n+4,!0),r}static read_bytes_array(t,n,r){let i=[];for(let a=0;a<r;a++)i.push(e.read_bytes(t,n+8*a));return i}},rd=class{head_length(){return 24}name_length(){return this.dir_name.byteLength}write_head_bytes(e,t){e.setBigUint64(t,this.d_next,!0),e.setBigUint64(t+8,this.d_ino,!0),e.setUint32(t+16,this.dir_name.length,!0),e.setUint8(t+20,this.d_type)}write_name_bytes(e,t,n){e.set(this.dir_name.slice(0,Math.min(this.dir_name.byteLength,n)),t)}constructor(e,t,n,r){let i=new TextEncoder().encode(n);this.d_next=e,this.d_ino=t,this.d_namlen=i.byteLength,this.d_type=r,this.dir_name=i}},id=class{write_bytes(e,t){e.setUint8(t,this.fs_filetype),e.setUint16(t+2,this.fs_flags,!0),e.setBigUint64(t+8,this.fs_rights_base,!0),e.setBigUint64(t+16,this.fs_rights_inherited,!0)}constructor(e,t){this.fs_rights_base=0n,this.fs_rights_inherited=0n,this.fs_filetype=e,this.fs_flags=t}},ad=class{write_bytes(e,t){e.setBigUint64(t,this.dev,!0),e.setBigUint64(t+8,this.ino,!0),e.setUint8(t+16,this.filetype),e.setBigUint64(t+24,this.nlink,!0),e.setBigUint64(t+32,this.size,!0),e.setBigUint64(t+38,this.atim,!0),e.setBigUint64(t+46,this.mtim,!0),e.setBigUint64(t+52,this.ctim,!0)}constructor(e,t,n){this.dev=0n,this.nlink=0n,this.atim=0n,this.mtim=0n,this.ctim=0n,this.ino=e,this.filetype=t,this.size=n}},od=class e{static read_bytes(t,n){return new e(t.getBigUint64(n,!0),t.getUint8(n+8),t.getUint32(n+16,!0),t.getBigUint64(n+24,!0),t.getUint16(n+36,!0))}constructor(e,t,n,r,i){this.userdata=e,this.eventtype=t,this.clockid=n,this.timeout=r,this.flags=i}},sd=class{write_bytes(e,t){e.setBigUint64(t,this.userdata,!0),e.setUint16(t+8,this.error,!0),e.setUint8(t+10,this.eventtype)}constructor(e,t,n){this.userdata=e,this.error=t,this.eventtype=n}},cd=class{write_bytes(e,t){e.setUint32(t,this.pr_name.byteLength,!0)}constructor(e){this.pr_name=new TextEncoder().encode(e)}},ld=class e{static dir(t){let n=new e;return n.tag=0,n.inner=new cd(t),n}write_bytes(e,t){e.setUint32(t,this.tag,!0),this.inner.write_bytes(e,t+4)}},ud=class{enable(e){this.log=dd(e===void 0||e,this.prefix)}get enabled(){return this.isEnabled}constructor(e){this.isEnabled=e,this.prefix=`wasi:`,this.enable(e)}};function dd(e,t){return e?console.log.bind(console,`%c%s`,`color: #265BA0`,t):()=>{}}var fd=new ud(!1),pd=class extends Error{constructor(e){super(`exit with exit code `+e),this.code=e}},md=class{start(e){this.inst=e;try{return e.exports._start(),0}catch(e){if(e instanceof pd)return e.code;throw e}}initialize(e){this.inst=e,e.exports._initialize&&e.exports._initialize()}constructor(e,t,n,r={}){this.args=[],this.env=[],this.fds=[],fd.enable(r.debug),this.args=e,this.env=t,this.fds=n;let i=this;this.wasiImport={args_sizes_get(e,t){let n=new DataView(i.inst.exports.memory.buffer);n.setUint32(e,i.args.length,!0);let r=0;for(let e of i.args)r+=e.length+1;return n.setUint32(t,r,!0),fd.log(n.getUint32(e,!0),n.getUint32(t,!0)),0},args_get(e,t){let n=new DataView(i.inst.exports.memory.buffer),r=new Uint8Array(i.inst.exports.memory.buffer),a=t;for(let a=0;a<i.args.length;a++){n.setUint32(e,t,!0),e+=4;let o=new TextEncoder().encode(i.args[a]);r.set(o,t),n.setUint8(t+o.length,0),t+=o.length+1}return fd.enabled&&fd.log(new TextDecoder(`utf-8`).decode(r.slice(a,t))),0},environ_sizes_get(e,t){let n=new DataView(i.inst.exports.memory.buffer);n.setUint32(e,i.env.length,!0);let r=0;for(let e of i.env)r+=new TextEncoder().encode(e).length+1;return n.setUint32(t,r,!0),fd.log(n.getUint32(e,!0),n.getUint32(t,!0)),0},environ_get(e,t){let n=new DataView(i.inst.exports.memory.buffer),r=new Uint8Array(i.inst.exports.memory.buffer),a=t;for(let a=0;a<i.env.length;a++){n.setUint32(e,t,!0),e+=4;let o=new TextEncoder().encode(i.env[a]);r.set(o,t),n.setUint8(t+o.length,0),t+=o.length+1}return fd.enabled&&fd.log(new TextDecoder(`utf-8`).decode(r.slice(a,t))),0},clock_res_get(e,t){let n;switch(e){case 1:n=5000n;break;case 0:n=1000000n;break;default:return 52}return new DataView(i.inst.exports.memory.buffer).setBigUint64(t,n,!0),0},clock_time_get(e,t,n){let r=new DataView(i.inst.exports.memory.buffer);if(e===0)r.setBigUint64(n,BigInt(new Date().getTime())*1000000n,!0);else if(e==1){let e;try{e=BigInt(Math.round(performance.now()*1e6))}catch{e=0n}r.setBigUint64(n,e,!0)}else r.setBigUint64(n,0n,!0);return 0},fd_advise(e,t,n,r){return i.fds[e]==null?8:0},fd_allocate(e,t,n){return i.fds[e]==null?8:i.fds[e].fd_allocate(t,n)},fd_close(e){if(i.fds[e]!=null){let t=i.fds[e].fd_close();return i.fds[e]=void 0,t}return 8},fd_datasync(e){return i.fds[e]==null?8:i.fds[e].fd_sync()},fd_fdstat_get(e,t){if(i.fds[e]!=null){let{ret:n,fdstat:r}=i.fds[e].fd_fdstat_get();return r?.write_bytes(new DataView(i.inst.exports.memory.buffer),t),n}return 8},fd_fdstat_set_flags(e,t){return i.fds[e]==null?8:i.fds[e].fd_fdstat_set_flags(t)},fd_fdstat_set_rights(e,t,n){return i.fds[e]==null?8:i.fds[e].fd_fdstat_set_rights(t,n)},fd_filestat_get(e,t){if(i.fds[e]!=null){let{ret:n,filestat:r}=i.fds[e].fd_filestat_get();return r?.write_bytes(new DataView(i.inst.exports.memory.buffer),t),n}return 8},fd_filestat_set_size(e,t){return i.fds[e]==null?8:i.fds[e].fd_filestat_set_size(t)},fd_filestat_set_times(e,t,n,r){return i.fds[e]==null?8:i.fds[e].fd_filestat_set_times(t,n,r)},fd_pread(e,t,n,r,a){let o=new DataView(i.inst.exports.memory.buffer),s=new Uint8Array(i.inst.exports.memory.buffer);if(i.fds[e]!=null){let c=td.read_bytes_array(o,t,n),l=0;for(let t of c){let{ret:n,data:c}=i.fds[e].fd_pread(t.buf_len,r);if(n!=0)return o.setUint32(a,l,!0),n;if(s.set(c,t.buf),l+=c.length,r+=BigInt(c.length),c.length!=t.buf_len)break}return o.setUint32(a,l,!0),0}return 8},fd_prestat_get(e,t){let n=new DataView(i.inst.exports.memory.buffer);if(i.fds[e]!=null){let{ret:r,prestat:a}=i.fds[e].fd_prestat_get();return a?.write_bytes(n,t),r}return 8},fd_prestat_dir_name(e,t,n){if(i.fds[e]!=null){let{ret:r,prestat:a}=i.fds[e].fd_prestat_get();if(a==null)return r;let o=a.inner.pr_name;return new Uint8Array(i.inst.exports.memory.buffer).set(o.slice(0,n),t),o.byteLength>n?37:0}return 8},fd_pwrite(e,t,n,r,a){let o=new DataView(i.inst.exports.memory.buffer),s=new Uint8Array(i.inst.exports.memory.buffer);if(i.fds[e]!=null){let c=nd.read_bytes_array(o,t,n),l=0;for(let t of c){let n=s.slice(t.buf,t.buf+t.buf_len),{ret:c,nwritten:u}=i.fds[e].fd_pwrite(n,r);if(c!=0)return o.setUint32(a,l,!0),c;if(l+=u,r+=BigInt(u),u!=n.byteLength)break}return o.setUint32(a,l,!0),0}return 8},fd_read(e,t,n,r){let a=new DataView(i.inst.exports.memory.buffer),o=new Uint8Array(i.inst.exports.memory.buffer);if(i.fds[e]!=null){let s=td.read_bytes_array(a,t,n),c=0;for(let t of s){let{ret:n,data:s}=i.fds[e].fd_read(t.buf_len);if(n!=0)return a.setUint32(r,c,!0),n;if(o.set(s,t.buf),c+=s.length,s.length!=t.buf_len)break}return a.setUint32(r,c,!0),0}return 8},fd_readdir(e,t,n,r,a){let o=new DataView(i.inst.exports.memory.buffer),s=new Uint8Array(i.inst.exports.memory.buffer);if(i.fds[e]!=null){let c=0;for(;;){let{ret:l,dirent:u}=i.fds[e].fd_readdir_single(r);if(l!=0)return o.setUint32(a,c,!0),l;if(u==null)break;if(n-c<u.head_length()){c=n;break}let d=new ArrayBuffer(u.head_length());if(u.write_head_bytes(new DataView(d),0),s.set(new Uint8Array(d).slice(0,Math.min(d.byteLength,n-c)),t),t+=u.head_length(),c+=u.head_length(),n-c<u.name_length()){c=n;break}u.write_name_bytes(s,t,n-c),t+=u.name_length(),c+=u.name_length(),r=u.d_next}return o.setUint32(a,c,!0),0}return 8},fd_renumber(e,t){if(i.fds[e]!=null&&i.fds[t]!=null){let n=i.fds[t].fd_close();return n==0?(i.fds[t]=i.fds[e],i.fds[e]=void 0,0):n}return 8},fd_seek(e,t,n,r){let a=new DataView(i.inst.exports.memory.buffer);if(i.fds[e]!=null){let{ret:o,offset:s}=i.fds[e].fd_seek(t,n);return a.setBigInt64(r,s,!0),o}return 8},fd_sync(e){return i.fds[e]==null?8:i.fds[e].fd_sync()},fd_tell(e,t){let n=new DataView(i.inst.exports.memory.buffer);if(i.fds[e]!=null){let{ret:r,offset:a}=i.fds[e].fd_tell();return n.setBigUint64(t,a,!0),r}return 8},fd_write(e,t,n,r){let a=new DataView(i.inst.exports.memory.buffer),o=new Uint8Array(i.inst.exports.memory.buffer);if(i.fds[e]!=null){let s=nd.read_bytes_array(a,t,n),c=0;for(let t of s){let n=o.slice(t.buf,t.buf+t.buf_len),{ret:s,nwritten:l}=i.fds[e].fd_write(n);if(s!=0)return a.setUint32(r,c,!0),s;if(c+=l,l!=n.byteLength)break}return a.setUint32(r,c,!0),0}return 8},path_create_directory(e,t,n){let r=new Uint8Array(i.inst.exports.memory.buffer);if(i.fds[e]!=null){let a=new TextDecoder(`utf-8`).decode(r.slice(t,t+n));return i.fds[e].path_create_directory(a)}return 8},path_filestat_get(e,t,n,r,a){let o=new DataView(i.inst.exports.memory.buffer),s=new Uint8Array(i.inst.exports.memory.buffer);if(i.fds[e]!=null){let c=new TextDecoder(`utf-8`).decode(s.slice(n,n+r)),{ret:l,filestat:u}=i.fds[e].path_filestat_get(t,c);return u?.write_bytes(o,a),l}return 8},path_filestat_set_times(e,t,n,r,a,o,s){let c=new Uint8Array(i.inst.exports.memory.buffer);if(i.fds[e]!=null){let l=new TextDecoder(`utf-8`).decode(c.slice(n,n+r));return i.fds[e].path_filestat_set_times(t,l,a,o,s)}return 8},path_link(e,t,n,r,a,o,s){let c=new Uint8Array(i.inst.exports.memory.buffer);if(i.fds[e]!=null&&i.fds[a]!=null){let l=new TextDecoder(`utf-8`).decode(c.slice(n,n+r)),u=new TextDecoder(`utf-8`).decode(c.slice(o,o+s)),{ret:d,inode_obj:f}=i.fds[e].path_lookup(l,t);return f==null?d:i.fds[a].path_link(u,f,!1)}return 8},path_open(e,t,n,r,a,o,s,c,l){let u=new DataView(i.inst.exports.memory.buffer),d=new Uint8Array(i.inst.exports.memory.buffer);if(i.fds[e]!=null){let f=new TextDecoder(`utf-8`).decode(d.slice(n,n+r));fd.log(f);let{ret:p,fd_obj:m}=i.fds[e].path_open(t,f,a,o,s,c);if(p!=0)return p;i.fds.push(m);let h=i.fds.length-1;return u.setUint32(l,h,!0),0}return 8},path_readlink(e,t,n,r,a,o){let s=new DataView(i.inst.exports.memory.buffer),c=new Uint8Array(i.inst.exports.memory.buffer);if(i.fds[e]!=null){let l=new TextDecoder(`utf-8`).decode(c.slice(t,t+n));fd.log(l);let{ret:u,data:d}=i.fds[e].path_readlink(l);if(d!=null){let e=new TextEncoder().encode(d);if(e.length>a)return s.setUint32(o,0,!0),8;c.set(e,r),s.setUint32(o,e.length,!0)}return u}return 8},path_remove_directory(e,t,n){let r=new Uint8Array(i.inst.exports.memory.buffer);if(i.fds[e]!=null){let a=new TextDecoder(`utf-8`).decode(r.slice(t,t+n));return i.fds[e].path_remove_directory(a)}return 8},path_rename(e,t,n,r,a,o){let s=new Uint8Array(i.inst.exports.memory.buffer);if(i.fds[e]!=null&&i.fds[r]!=null){let c=new TextDecoder(`utf-8`).decode(s.slice(t,t+n)),l=new TextDecoder(`utf-8`).decode(s.slice(a,a+o)),{ret:u,inode_obj:d}=i.fds[e].path_unlink(c);if(d==null)return u;if(u=i.fds[r].path_link(l,d,!0),u!=0&&i.fds[e].path_link(c,d,!0)!=0)throw`path_link should always return success when relinking an inode back to the original place`;return u}return 8},path_symlink(e,t,n,r,a){let o=new Uint8Array(i.inst.exports.memory.buffer);return i.fds[n]==null?8:(new TextDecoder(`utf-8`).decode(o.slice(e,e+t)),new TextDecoder(`utf-8`).decode(o.slice(r,r+a)),58)},path_unlink_file(e,t,n){let r=new Uint8Array(i.inst.exports.memory.buffer);if(i.fds[e]!=null){let a=new TextDecoder(`utf-8`).decode(r.slice(t,t+n));return i.fds[e].path_unlink_file(a)}return 8},poll_oneoff(e,t,n){if(n===0)return 28;if(n>1)return fd.log(`poll_oneoff: only a single subscription is supported`),58;let r=new DataView(i.inst.exports.memory.buffer),a=od.read_bytes(r,e),o=a.eventtype,s=a.clockid,c=a.timeout;if(o!==0)return fd.log(`poll_oneoff: only clock subscriptions are supported`),58;let l;if(s===1)l=()=>BigInt(Math.round(performance.now()*1e6));else if(s===0)l=()=>BigInt(new Date().getTime())*1000000n;else return 28;let u=a.flags&1?c:l()+c;for(;u>l(););return new sd(a.userdata,0,o).write_bytes(r,t),0},proc_exit(e){throw new pd(e)},proc_raise(e){throw`raised signal `+e},sched_yield(){},random_get(e,t){let n=new Uint8Array(i.inst.exports.memory.buffer).subarray(e,e+t);if(`crypto`in globalThis&&(typeof SharedArrayBuffer>`u`||!(i.inst.exports.memory.buffer instanceof SharedArrayBuffer)))for(let e=0;e<t;e+=65536)crypto.getRandomValues(n.subarray(e,e+65536));else for(let e=0;e<t;e++)n[e]=Math.random()*256|0},sock_recv(e,t,n){throw`sockets not supported`},sock_send(e,t,n){throw`sockets not supported`},sock_shutdown(e,t){throw`sockets not supported`},sock_accept(e,t){throw`sockets not supported`}}}},hd=class{fd_allocate(e,t){return 58}fd_close(){return 0}fd_fdstat_get(){return{ret:58,fdstat:null}}fd_fdstat_set_flags(e){return 58}fd_fdstat_set_rights(e,t){return 58}fd_filestat_get(){return{ret:58,filestat:null}}fd_filestat_set_size(e){return 58}fd_filestat_set_times(e,t,n){return 58}fd_pread(e,t){return{ret:58,data:new Uint8Array}}fd_prestat_get(){return{ret:58,prestat:null}}fd_pwrite(e,t){return{ret:58,nwritten:0}}fd_read(e){return{ret:58,data:new Uint8Array}}fd_readdir_single(e){return{ret:58,dirent:null}}fd_seek(e,t){return{ret:58,offset:0n}}fd_sync(){return 0}fd_tell(){return{ret:58,offset:0n}}fd_write(e){return{ret:58,nwritten:0}}path_create_directory(e){return 58}path_filestat_get(e,t){return{ret:58,filestat:null}}path_filestat_set_times(e,t,n,r,i){return 58}path_link(e,t,n){return 58}path_unlink(e){return{ret:58,inode_obj:null}}path_lookup(e,t){return{ret:58,inode_obj:null}}path_open(e,t,n,r,i,a){return{ret:54,fd_obj:null}}path_readlink(e){return{ret:58,data:null}}path_remove_directory(e){return 58}path_rename(e,t,n){return 58}path_unlink_file(e){return 58}},gd=class e{static issue_ino(){return e.next_ino++}static root_ino(){return 0n}constructor(){this.ino=e.issue_ino()}};gd.next_ino=1n;var _d=class extends hd{fd_allocate(e,t){if(!(this.file.size>e+t)){let n=new Uint8Array(Number(e+t));n.set(this.file.data,0),this.file.data=n}return 0}fd_fdstat_get(){return{ret:0,fdstat:new id(4,0)}}fd_filestat_set_size(e){if(this.file.size>e)this.file.data=new Uint8Array(this.file.data.buffer.slice(0,Number(e)));else{let t=new Uint8Array(Number(e));t.set(this.file.data,0),this.file.data=t}return 0}fd_read(e){let t=this.file.data.slice(Number(this.file_pos),Number(this.file_pos+BigInt(e)));return this.file_pos+=BigInt(t.length),{ret:0,data:t}}fd_pread(e,t){return{ret:0,data:this.file.data.slice(Number(t),Number(t+BigInt(e)))}}fd_seek(e,t){let n;switch(t){case 0:n=e;break;case 1:n=this.file_pos+e;break;case 2:n=BigInt(this.file.data.byteLength)+e;break;default:return{ret:28,offset:0n}}return n<0?{ret:28,offset:0n}:(this.file_pos=n,{ret:0,offset:this.file_pos})}fd_tell(){return{ret:0,offset:this.file_pos}}fd_write(e){if(this.file.readonly)return{ret:8,nwritten:0};if(this.file_pos+BigInt(e.byteLength)>this.file.size){let t=this.file.data;this.file.data=new Uint8Array(Number(this.file_pos+BigInt(e.byteLength))),this.file.data.set(t)}return this.file.data.set(e,Number(this.file_pos)),this.file_pos+=BigInt(e.byteLength),{ret:0,nwritten:e.byteLength}}fd_pwrite(e,t){if(this.file.readonly)return{ret:8,nwritten:0};if(t+BigInt(e.byteLength)>this.file.size){let n=this.file.data;this.file.data=new Uint8Array(Number(t+BigInt(e.byteLength))),this.file.data.set(n)}return this.file.data.set(e,Number(t)),{ret:0,nwritten:e.byteLength}}fd_filestat_get(){return{ret:0,filestat:this.file.stat()}}constructor(e){super(),this.file_pos=0n,this.file=e}},vd=class extends hd{fd_seek(e,t){return{ret:8,offset:0n}}fd_tell(){return{ret:8,offset:0n}}fd_allocate(e,t){return 8}fd_fdstat_get(){return{ret:0,fdstat:new id(3,0)}}fd_readdir_single(e){if(fd.enabled&&(fd.log(`readdir_single`,e),fd.log(e,this.dir.contents.keys())),e==0n)return{ret:0,dirent:new rd(1n,this.dir.ino,`.`,3)};if(e==1n)return{ret:0,dirent:new rd(2n,this.dir.parent_ino(),`..`,3)};if(e>=BigInt(this.dir.contents.size)+2n)return{ret:0,dirent:null};let[t,n]=Array.from(this.dir.contents.entries())[Number(e-2n)];return{ret:0,dirent:new rd(e+1n,n.ino,t,n.stat().filetype)}}path_filestat_get(e,t){let{ret:n,path:r}=xd.from(t);if(r==null)return{ret:n,filestat:null};let{ret:i,entry:a}=this.dir.get_entry_for_path(r);return a==null?{ret:i,filestat:null}:{ret:0,filestat:a.stat()}}path_lookup(e,t){let{ret:n,path:r}=xd.from(e);if(r==null)return{ret:n,inode_obj:null};let{ret:i,entry:a}=this.dir.get_entry_for_path(r);return a==null?{ret:i,inode_obj:null}:{ret:0,inode_obj:a}}path_open(e,t,n,r,i,a){let{ret:o,path:s}=xd.from(t);if(s==null)return{ret:o,fd_obj:null};let{ret:c,entry:l}=this.dir.get_entry_for_path(s);if(l==null){if(c!=44)return{ret:c,fd_obj:null};if((n&1)==1){let{ret:e,entry:r}=this.dir.create_entry_for_path(t,(n&2)==2);if(r==null)return{ret:e,fd_obj:null};l=r}else return{ret:44,fd_obj:null}}else if((n&4)==4)return{ret:20,fd_obj:null};return(n&2)==2&&l.stat().filetype!==3?{ret:54,fd_obj:null}:l.path_open(n,r,a)}path_create_directory(e){return this.path_open(0,e,3,0n,0n,0).ret}path_link(e,t,n){let{ret:r,path:i}=xd.from(e);if(i==null)return r;if(i.is_dir)return 44;let{ret:a,parent_entry:o,filename:s,entry:c}=this.dir.get_parent_dir_and_entry_for_path(i,!0);if(o==null||s==null)return a;if(c!=null){let e=t.stat().filetype==3,r=c.stat().filetype==3;if(e&&r){if(n&&c instanceof Sd){if(c.contents.size!=0)return 55}else return 20}else if(e&&!r)return 54;else if(!e&&r)return 31;else if(t.stat().filetype!=4||c.stat().filetype!=4)return 20}return!n&&t.stat().filetype==3?63:(o.contents.set(s,t),0)}path_unlink(e){let{ret:t,path:n}=xd.from(e);if(n==null)return{ret:t,inode_obj:null};let{ret:r,parent_entry:i,filename:a,entry:o}=this.dir.get_parent_dir_and_entry_for_path(n,!0);return i==null||a==null?{ret:r,inode_obj:null}:o==null?{ret:44,inode_obj:null}:(i.contents.delete(a),{ret:0,inode_obj:o})}path_unlink_file(e){let{ret:t,path:n}=xd.from(e);if(n==null)return t;let{ret:r,parent_entry:i,filename:a,entry:o}=this.dir.get_parent_dir_and_entry_for_path(n,!1);return i==null||a==null||o==null?r:o.stat().filetype===3?31:(i.contents.delete(a),0)}path_remove_directory(e){let{ret:t,path:n}=xd.from(e);if(n==null)return t;let{ret:r,parent_entry:i,filename:a,entry:o}=this.dir.get_parent_dir_and_entry_for_path(n,!1);return i==null||a==null||o==null?r:!(o instanceof Sd)||o.stat().filetype!==3?54:o.contents.size===0?i.contents.delete(a)?0:44:55}fd_filestat_get(){return{ret:0,filestat:this.dir.stat()}}fd_filestat_set_size(e){return 8}fd_read(e){return{ret:8,data:new Uint8Array}}fd_pread(e,t){return{ret:8,data:new Uint8Array}}fd_write(e){return{ret:8,nwritten:0}}fd_pwrite(e,t){return{ret:8,nwritten:0}}constructor(e){super(),this.dir=e}},yd=class extends vd{fd_prestat_get(){return{ret:0,prestat:ld.dir(this.prestat_name)}}constructor(e,t){super(new Sd(t)),this.prestat_name=e}},bd=class extends gd{path_open(e,t,n){if(this.readonly&&(t&BigInt(64))==BigInt(64))return{ret:63,fd_obj:null};if((e&8)==8){if(this.readonly)return{ret:63,fd_obj:null};this.data=new Uint8Array([])}let r=new _d(this);return n&1&&r.fd_seek(0n,2),{ret:0,fd_obj:r}}get size(){return BigInt(this.data.byteLength)}stat(){return new ad(this.ino,4,this.size)}constructor(e,t){super(),this.data=new Uint8Array(e),this.readonly=!!t?.readonly}},xd=class e{static from(t){let n=new e;if(n.is_dir=t.endsWith(`/`),t.startsWith(`/`))return{ret:76,path:null};if(t.includes(`\0`))return{ret:28,path:null};for(let e of t.split(`/`))if(e!==``&&e!==`.`){if(e===`..`){if(n.parts.pop()==null)return{ret:76,path:null};continue}n.parts.push(e)}return{ret:0,path:n}}to_path_string(){let e=this.parts.join(`/`);return this.is_dir&&(e+=`/`),e}constructor(){this.parts=[],this.is_dir=!1}},Sd=class e extends gd{parent_ino(){return this.parent==null?gd.root_ino():this.parent.ino}path_open(e,t,n){return{ret:0,fd_obj:new vd(this)}}stat(){return new ad(this.ino,3,0n)}get_entry_for_path(t){let n=this;for(let r of t.parts){if(!(n instanceof e))return{ret:54,entry:null};let t=n.contents.get(r);if(t!==void 0)n=t;else return fd.log(r),{ret:44,entry:null}}return t.is_dir&&n.stat().filetype!=3?{ret:54,entry:null}:{ret:0,entry:n}}get_parent_dir_and_entry_for_path(t,n){let r=t.parts.pop();if(r===void 0)return{ret:28,parent_entry:null,filename:null,entry:null};let{ret:i,entry:a}=this.get_entry_for_path(t);if(a==null)return{ret:i,parent_entry:null,filename:null,entry:null};if(!(a instanceof e))return{ret:54,parent_entry:null,filename:null,entry:null};let o=a.contents.get(r);return o===void 0?n?{ret:0,parent_entry:a,filename:r,entry:null}:{ret:44,parent_entry:null,filename:null,entry:null}:t.is_dir&&o.stat().filetype!=3?{ret:54,parent_entry:null,filename:null,entry:null}:{ret:0,parent_entry:a,filename:r,entry:o}}create_entry_for_path(t,n){let{ret:r,path:i}=xd.from(t);if(i==null)return{ret:r,entry:null};let{ret:a,parent_entry:o,filename:s,entry:c}=this.get_parent_dir_and_entry_for_path(i,!0);if(o==null||s==null)return{ret:a,entry:null};if(c!=null)return{ret:20,entry:null};fd.log(`create`,i);let l;return l=n?new e(new Map):new bd(new ArrayBuffer(0)),o.contents.set(s,l),c=l,{ret:0,entry:c}}constructor(t){super(),this.parent=null,this.contents=t instanceof Array?new Map(t):t;for(let t of this.contents.values())t instanceof e&&(t.parent=this)}},Cd=class e extends hd{fd_filestat_get(){return{ret:0,filestat:new ad(this.ino,2,BigInt(0))}}fd_fdstat_get(){let e=new id(2,0);return e.fs_rights_base=BigInt(64),{ret:0,fdstat:e}}fd_write(e){return this.write(e),{ret:0,nwritten:e.byteLength}}static lineBuffered(t){let n=new TextDecoder(`utf-8`,{fatal:!1}),r=``;return new e(e=>{r+=n.decode(e,{stream:!0});let i=r.split(`
+`);for(let[e,n]of i.entries())e<i.length-1?t(n):r=n})}constructor(e){super(),this.ino=gd.issue_ino(),this.write=e}},wd=new TextEncoder,Td=e=>new TextDecoder(`utf-8`).decode(e),Ed=[`stdin`,`stdout`,`stderr`,`warnings`];
+class PandocWasmEngine {#e;#t;#n;constructor(e,t,n){this.#e=e.exports,this.#t=t,this.#n=n}static async load(t){let n=[`pandoc.wasm`,`+RTS`,`-H64m`,`-RTS`],r=new Map,i=new yd(`/`,r),a=new md(n,[],[new _d(new bd(new Uint8Array,{readonly:!0})),Cd.lineBuffered(()=>{}),Cd.lineBuffered(e=>console.warn(e)),i],{debug:!1}),o=await WebAssembly.instantiate(t,{wasi_snapshot_preview1:a.wasiImport});o=o.instance??o;a.initialize(o);let s=o.exports;s.__wasm_call_ctors();let c=()=>new DataView(s.memory.buffer),l=s.malloc(4);c().setUint32(l,n.length,!0);let u=s.malloc(4*(n.length+1));n.forEach((e,t)=>{let n=wd.encode(e),r=s.malloc(n.length+1);new Uint8Array(s.memory.buffer,r,n.length).set(n),c().setUint8(r+n.length,0),c().setUint32(u+4*t,r,!0)}),c().setUint32(u+4*n.length,0,!0);let d=s.malloc(4);return c().setUint32(d,u,!0),s.hs_init_with_rtsopts(l,d),new PandocWasmEngine(o,r,i.dir)}#r(e){let t=wd.encode(JSON.stringify(e)),n=this.#e.malloc(t.length);return new Uint8Array(this.#e.memory.buffer,n,t.length).set(t),[n,t.length]}#i(e,t,n){let r=typeof t==`string`?wd.encode(t):t,i=e.replace(/^\/+/,``),a=i.split(`/`);if(a.length===1){this.#t.set(i,new bd(r,{readonly:n}));return}for(let e=1;e<a.length;e+=1)this.#n.create_entry_for_path(a.slice(0,e).join(`/`),!0);let o=this.#n.create_entry_for_path(i,!1).entry??this.#a(a);o instanceof bd&&(o.data=r,o.readonly=n)}#a(e){let t=this.#n;for(let n of e)t=t instanceof Sd?t.contents.get(n):void 0;return t}#o(e,t,n){for(let[r,i]of e){let e=t?`${t}/${r}`:r;i instanceof Sd?this.#o(i.contents,e,n):i instanceof bd&&i.data.length>0&&(n[e]=i.data)}}run(e,t,n={}){this.#t.clear();let r=new bd(t?wd.encode(t):new Uint8Array,{readonly:!0}),i=new bd(new Uint8Array,{readonly:!1}),a=new bd(new Uint8Array,{readonly:!1}),o=new bd(new Uint8Array,{readonly:!1});this.#t.set(`stdin`,r),this.#t.set(`stdout`,i),this.#t.set(`stderr`,a),this.#t.set(`warnings`,o);let s=new Set(Ed);for(let[e,t]of Object.entries(n))this.#i(e,t,!0),s.add(e.replace(/^\/+/,``));let c=e[`output-file`];typeof c==`string`&&this.#i(c,new Uint8Array,!1);let[l,u]=this.#r(e);this.#e.convert(l,u);let d={};this.#o(this.#t,``,d);for(let e of s)delete d[e];let f=[],p=Td(o.data);if(p)try{f=JSON.parse(p)}catch{}return{stdout:Td(i.data),stderr:Td(a.data),warnings:f,files:d}}query(e){this.#t.clear();let t=new bd(new Uint8Array,{readonly:!1}),n=new bd(new Uint8Array,{readonly:!1});this.#t.set(`stdout`,t),this.#t.set(`stderr`,n);let[r,i]=this.#r(e);return this.#e.query(r,i),JSON.parse(Td(t.data))}get version(){return this.query({query:`version`})}}
+class WasmFileSystem {#e;#r;constructor(e,t){this.vault=e,this.#r=g(t),this.#e=new wc(t)}async read(e){let t=this.#e.inVault(e);let _m="READ "+e+" | #r="+this.#r+" | inVault="+t;if(t!==void 0){let b;try{b=await this.vault.adapter.readBinary(t)}catch(_e){_m+=" | adapterTHROW="+_e.message}let _bl=(b&&b.byteLength!==void 0)?(b.byteLength+"B"):"none";if(b&&typeof b.byteLength==="number"&&b.byteLength>0){_m+=" | adapter="+_bl+" => ADAPTER_OK";(globalThis.__mergdiag=globalThis.__mergdiag||[]).push(_m);return Qc(b)}_m+=" | adapter="+_bl+" => NOBYTES";let _p=path.resolve(this.#r,t);let _d=null;let _ferr="";try{_d=fs.readFileSync(_p);_m+=" | fs="+_d.length+"B => FS_OK"}catch(_e){_ferr=_e.message;_m+=" | fs="+_p+" THROW="+_e.message+" => FS_FAIL"}(globalThis.__mergdiag=globalThis.__mergdiag||[]).push(_m);if(_d)return new Uint8Array(_d);return}let _r;try{_r=C()?new Uint8Array(await(await Zc()).readFile(e)):void 0}catch(_e){};(globalThis.__mergdiag=globalThis.__mergdiag||[]).push(_m+" => OOV="+(_r?("bytes "+_r.length):"none"));return _r}async exists(e){let t=this.#e.inVault(e);if(t!==void 0)return await this.vault.adapter.exists(t);if(!C())return!1;try{return await(await Zc()).stat(e),!0}catch{return!1}}async mkdir(e){let t=this.#e.inVault(e);if(t!==void 0){await this.vault.adapter.mkdir(t);return}C()&&await(await Zc()).mkdir(e,{recursive:!0})}async write(e,t){let n=this.#e.inVault(e);if(n!==void 0){let e=v(n);e&&await this.vault.adapter.mkdir(e),await this.vault.adapter.writeBinary(n,$c(t));return}if(!C())throw Error(`"${e}" is outside the vault, and there is nowhere else to write to on this device`);let r=await Zc(),i=v(e);i&&await r.mkdir(i,{recursive:!0}),await r.writeFile(e,t)}}
+async function runPandocWasm(e,t,n){let{defaults:r,inputFiles:i,unsupported:a}=lc(n.command),o=new wc(n.vaultDir),s=n.cwd??n.vaultDir,c=e=>o.file(S(s,e)),l=e=>o.directory(S(s,e)),u=typeof r[`output-file`]==`string`?r[`output-file`]:void 0;u&&l(v(S(s,u))),pc(r,{file:c,directory:l});let d=i.map(e=>c(e));d.length>0&&(r[`input-files`]=d);let f={},p=async(e,n)=>{let r=await t.read(e);r&&(f[n]=r)};await Promise.all([...i.map(e=>p(S(s,e),c(e))),...mc(r).map(async e=>{let t=o.toReal(e);t&&await p(t,e)}),...(n.resources??[]).map(e=>p(e,c(e)))]);let m=[...n.embeds??[]];m.length>0&&(f[Rc]=m.map(([e,t])=>`${e}\t${c(t)}\n`).join(``));let h=n.download?await Fc(f,n.download):{files:{},warnings:[]};Object.keys(h.files).length>0&&(Object.assign(f,h.files),Lc(r));let g=typeof r[`output-file`]==`string`?r[`output-file`]:void 0,_=g&&r.to===`typst`&&g.toLowerCase().endsWith(`.pdf`)?`${g.slice(0,-4)}.typ`:void 0;_&&(r[`output-file`]=_);let y=e.run(r,d.length===0?``:void 0,f),b={...y.files},x=``;if(_&&g){let e=b[_];if(delete b[_],!n.typst)throw Error(`A PDF was asked for, and typst was not handed over to make it with`);let{pdf:t,diagnostics:r}=await n.typst.compile(_,zc.decode(e??new Uint8Array),{...Vc(f),...b});if(x=r,!t)throw Error([y.stderr.trim(),r].filter(Boolean).join(`
+`)||`Typst wrote no PDF, and said nothing about why`);b[g]=t}let ee=[];await Promise.all(Object.entries(b).map(async([e,n])=>{let r=o.toReal(e);r&&(await t.write(r,n),ee.push(r))}));let te=y.stderr.trim();if(ee.length===0&&u&&te)throw Error(te);return{written:ee,stderr:[te,x,...h.warnings,Hc(Uc(y.warnings))].filter(Boolean).join(`
+`),unsupported:a}}
+
+
+
 // Version pour release : wasm embarqué en Base64
 async function initWasmEmbedded() {
     if (wasm) return;
-    if (WASM_BASE64 === WASM_BASE64_PLACEHOLDER) {
+    if (!WASM_BASE64 || WASM_BASE64 === "WASM_BASE64_PLACEHOLDER" || WASM_BASE64.length < 100) {
         throw new Error("WASM_BASE64 non initialisé — utiliser initWasm(path) en développement");
     }
     const wasmBytes = Buffer.from(WASM_BASE64, 'base64');
@@ -656,7 +973,9 @@ const DEFAULT_SETTINGS = {
   footerContent: "",
   enableHeader: false,
   enableFooter: false,
+  useWasmPandoc: true,
 };
+
 
 class Markdown2TexSettingTab extends PluginSettingTab {
   constructor(app, plugin) {
@@ -668,6 +987,17 @@ class Markdown2TexSettingTab extends PluginSettingTab {
     const { containerEl } = this;
     containerEl.empty();
     containerEl.createEl("h2", { text: "MergDown2TeX Settings" });
+
+    new Setting(containerEl)
+      .setName("Moteur Pandoc WASM (DOCX)")
+      .setDesc("Compilation DOCX via pandoc.wasm embarqué. Si le fichier manque, cliquez pour le télécharger automatiquement depuis GitHub.")
+      .addButton((btn) => {
+        btn.setButtonText("Statut & installer").onClick(async () => {
+          const ok = await this.plugin.ensurePandocWasm(this.plugin);
+          new Notice(ok ? "Pandoc WASM : installé et prêt ✅" : "Pandoc WASM : introuvable après installation ❌", 4000);
+          this.display();
+        });
+      });
 
     new Setting(containerEl)
       .setName("Chemin de la bibliographie (.bib)")
@@ -846,10 +1176,311 @@ class Markdown2TexSettingTab extends PluginSettingTab {
             await this.plugin.saveSettings();
           }),
       );
+
+    if (Platform.isDesktop) {
+      new Setting(containerEl)
+        .setName("Utiliser Pandoc WASM (Recommandé)")
+        .setDesc("Exécute Pandoc directement en WebAssembly sans avoir besoin d'installer de logiciel tiers ou d'utiliser Podman/Docker.")
+        .addToggle((toggle) =>
+          toggle
+            .setValue(this.plugin.settings.useWasmPandoc)
+            .onChange(async (value) => {
+              this.plugin.settings.useWasmPandoc = value;
+              await this.plugin.saveSettings();
+            }),
+        );
+    } else {
+      new Setting(containerEl)
+        .setName("Mode mobile")
+        .setDesc("Sur smartphone/tablette, l'export PDF (via Pandoc WASM + Typst) et DOCX (via Pandoc WASM) sont disponibles. Le rendu pdflatex/podman reste réservé au PC.");
+      new Setting(containerEl)
+        .setName("Moteurs sur mobile")
+        .setDesc("DOCX : Pandoc WASM. PDF : Pandoc WASM + Typst WASM. Aucun logiciel externe requis.");
+    }
   }
 }
 
+
 class Markdown2TexPlugin extends Plugin {
+
+  getPluginDir() {
+    if (this.app.vault.adapter.getBasePath) {
+      return path.join(this.app.vault.adapter.getBasePath(), this.manifest.dir);
+    } else if (this.app.vault.adapter.getFullPath) {
+      return this.app.vault.adapter.getFullPath(this.manifest.dir);
+    } else {
+      return path.join(process.cwd(), this.app.vault.configDir, "plugins", this.manifest.id);
+    }
+  }
+
+  async pandocWasmExists() {
+    const rel = ".obsidian/plugins/" + this.manifest.id + "/pandoc.wasm";
+    const a = adapterGet(this.app);
+    if (a && typeof a.exists === "function") {
+      // Mobile ou desktop : écoute via l'adapter (app.vault.adapter)
+      try { return await a.exists(rel); } catch (e) { /* fallback fs */ }
+    }
+    try {
+      return fs.existsSync(path.join(this.getPluginDir(), "pandoc.wasm"));
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async downloadPandocWasm(release) {
+    new Notice("Téléchargement de pandoc.wasm (" + (release.size || "?") + " octets)...");
+    const resp = await requestUrl({ url: release.browser_download_url, throw: false });
+    if (resp.status < 200 || resp.status >= 300) {
+      throw new Error("Échec du téléchargement: HTTP " + resp.status);
+    }
+    const arrBuf = resp.arrayBuffer;
+    const wasmBytes = this.extractWasmFromZip(arrBuf, release.browser_download_url);
+    const pluginDir = this.getPluginDir();
+    const outPath = path.join(pluginDir, "pandoc.wasm");
+    const adapter = this.app.vault.adapter;
+    if (adapter.getBasePath || adapter.getFullPath) {
+      const rel = path.relative(this.app.vault.adapter.getBasePath ? this.app.vault.adapter.getBasePath() : adapter.getFullPath("/"), outPath).replace(/\\/g, "/");
+      await adapter.mkdir(path.dirname(rel));
+      await adapter.writeBinary(rel, wasmBytes);
+    } else {
+      fs.writeFileSync(outPath, Buffer.from(wasmBytes));
+    }
+    new Notice("pandoc.wasm installé !");
+    return true;
+  }
+
+  inflateRawPortable(input) {
+    // Décompresseur DEFLATE brut (RFC 1951) en pur JS.
+    // Nécessaire sur mobile où le module natif 'zlib' est indisponible.
+    const out = [];
+    let ip = 0;
+    let bval = 0, blen = 0;
+    const bits = (n) => {
+      while (blen < n) { bval |= (input[ip++] & 0xff) << blen; blen += 8; }
+      const v = bval & ((1 << n) - 1);
+      bval >>>= n; blen -= n;
+      return v;
+    };
+    const makeDecoder = (lengths) => {
+      const maxLen = lengths.reduce((m, x) => Math.max(m, x), 0);
+      const blCount = new Array(maxLen + 2).fill(0);
+      for (const l of lengths) if (l > 0) blCount[l]++;
+      let code = 0;
+      const firstCode = new Array(maxLen + 1).fill(0);
+      for (let l = 1; l <= maxLen; l++) { firstCode[l] = code; code = (code + blCount[l]) << 1; }
+      const symbolTable = new Array(maxLen + 1).fill(0).map(() => []);
+      for (let i = 0; i < lengths.length; i++) {
+        const l = lengths[i];
+        if (l > 0) symbolTable[l].push(i);
+      }
+      return {
+        maxLen, blCount, firstCode, symbolTable,
+        decode() {
+          let c = 0;
+          for (let len = 1; len <= this.maxLen; len++) {
+            c = (c << 1) | bits(1);
+            if (c - this.firstCode[len] < this.blCount[len]) {
+              return this.symbolTable[len][c - this.firstCode[len]];
+            }
+          }
+          return -1;
+        },
+      };
+    };
+    const FIXED_LIT = new Array(288).fill(0);
+    for (let i = 0; i < 144; i++) FIXED_LIT[i] = 8;
+    for (let i = 144; i < 256; i++) FIXED_LIT[i] = 9;
+    for (let i = 256; i < 280; i++) FIXED_LIT[i] = 7;
+    for (let i = 280; i < 288; i++) FIXED_LIT[i] = 8;
+    const FIXED_DIST = new Array(30).fill(5);
+    const FIXED_LIT_DEC = makeDecoder(FIXED_LIT);
+    const FIXED_DIST_DEC = makeDecoder(FIXED_DIST);
+    const LENG_BASE = [3,4,5,6,7,8,9,10,11,13,15,17,19,23,27,31,35,43,51,59,67,83,99,115,131,163,195,227,258];
+    const LENG_EXTRA = [0,0,0,0,0,0,0,0,1,1,1,1,2,2,2,2,3,3,3,3,4,4,4,4,5,5,5,5,0];
+    const DIST_BASE = [1,2,3,4,5,7,9,13,17,25,33,49,65,97,129,193,257,385,513,769,1025,1537,2049,3073,4097,6145,8193,12289,16385,24577];
+    const DIST_EXTRA = [0,0,0,0,1,1,2,2,3,3,4,4,5,5,6,6,7,7,8,8,9,9,10,10,11,11,12,12,13,13];
+
+    let isFinal = 0;
+    while (!isFinal) {
+      isFinal = bits(1);
+      const btype = bits(2);
+      if (btype === 0) {
+        bval = 0; blen = 0;
+        const LEN = input[ip++] | (input[ip++] << 8);
+        const NLEN = input[ip++] | (input[ip++] << 8);
+        if ((LEN ^ 0xffff) !== NLEN) throw new Error("LEN/NLEN mismatch stocké");
+        for (let i = 0; i < LEN; i++) out.push(input[ip++]);
+        continue;
+      }
+      let litDec, distDec;
+      if (btype === 1) { litDec = FIXED_LIT_DEC; distDec = FIXED_DIST_DEC; }
+      else if (btype === 2) {
+        const HLIT = bits(5) + 257;
+        const HDIST = bits(5) + 1;
+        const HCLEN = bits(4) + 4;
+        const CL_ORDER = [16,17,18,0,8,7,9,6,10,5,11,4,12,3,13,2,14,1,15];
+        const clLen = new Array(19).fill(0);
+        for (let i = 0; i < HCLEN; i++) clLen[CL_ORDER[i]] = bits(3);
+        const clDec = makeDecoder(clLen);
+        const lens = [];
+        while (lens.length < HLIT + HDIST) {
+          const sym = clDec.decode();
+          if (sym < 0) throw new Error("code-length symb invalide");
+          if (sym < 16) lens.push(sym);
+          else if (sym === 16) {
+            const prev = lens[lens.length - 1] || 0;
+            const rep = 3 + bits(2);
+            for (let k = 0; k < rep; k++) lens.push(prev);
+          } else if (sym === 17) {
+            const rep = 3 + bits(3);
+            for (let k = 0; k < rep; k++) lens.push(0);
+          } else {
+            const rep = 11 + bits(7);
+            for (let k = 0; k < rep; k++) lens.push(0);
+          }
+        }
+        litDec = makeDecoder(lens.slice(0, HLIT));
+        distDec = makeDecoder(lens.slice(HLIT));
+      } else {
+        throw new Error("type réservé (3) en DEFLATE");
+      }
+      for (;;) {
+        const lit = litDec.decode();
+        if (lit < 0) throw new Error("littéral invalide");
+        if (lit < 256) { out.push(lit); continue; }
+        if (lit === 256) break;
+        const li = lit - 257;
+        const len = LENG_BASE[li] + (LENG_EXTRA[li] ? bits(LENG_EXTRA[li]) : 0);
+        const dsym = distDec.decode();
+        if (dsym < 0) throw new Error("dist invalide");
+        const dist = DIST_BASE[dsym] + (DIST_EXTRA[dsym] ? bits(DIST_EXTRA[dsym]) : 0);
+        for (let k = 0; k < len; k++) out.push(out[out.length - dist]);
+      }
+    }
+    return new Uint8Array(out);
+  }
+  extractWasmFromZip(arrayBuffer, fallbackName) {
+    const dv = new DataView(arrayBuffer);
+    const bytes = new Uint8Array(arrayBuffer);
+    if (bytes.length < 4 || bytes[0] !== 0x50 || bytes[1] !== 0x4b) {
+      if (bytes[0] === 0x00 && bytes[1] === 0x61 && bytes[2] === 0x73 && bytes[3] === 0x6d) {
+        return bytes; // déjà du wasm brut
+      }
+      throw new Error("Archive invalide, impossible d'extraire pandoc.wasm");
+    }
+    const decoder = new TextDecoder();
+    let offset = 0;
+    while (offset < bytes.length - 4) {
+      const sig = dv.getUint32(offset, true);
+      if (sig === 0x04034b50) { // local file header
+        const method = dv.getUint16(offset + 8, true);
+        const compSize = dv.getUint32(offset + 18, true);
+        const uncompSize = dv.getUint32(offset + 22, true);
+        const nameLen = dv.getUint16(offset + 26, true);
+        const extraLen = dv.getUint16(offset + 28, true);
+        const name = decoder.decode(bytes.subarray(offset + 30, offset + 30 + nameLen));
+        const dataStart = offset + 30 + nameLen + extraLen;
+        const base = name.split("/").pop().toLowerCase();
+        if (name.endsWith(".wasm") && (base === "pandoc.wasm" || base.startsWith("pandoc"))) {
+          const comp = bytes.subarray(dataStart, dataStart + compSize);
+          if (method === 0) {
+            if (comp.length !== uncompSize) throw new Error("pandoc.wasm tronqué dans l'archive");
+            return comp;
+          } else if (method === 8) {
+            if (zlib) {
+              return new Uint8Array(zlib.inflateRawSync(comp));
+            }
+            // Mobile : pas de module zlib natif -> décompresseur DEFLATE portable
+            return this.inflateRawPortable(comp);
+          }
+          throw new Error("Compression non supportée (méthode " + method + ") dans l'archive");
+        }
+        offset = dataStart + compSize;
+      } else if (sig === 0x06054b50) { // end of central directory
+        break;
+      } else {
+        offset += 1;
+      }
+    }
+    throw new Error("Aucun fichier .wasm trouvé dans l'archive (" + fallbackName + ")");
+  }
+
+  async findLatestPandocWasmRelease() {
+    const resp = await requestUrl({
+      url: "https://api.github.com/repos/jgm/pandoc/releases?per_page=12",
+      headers: { Accept: "application/vnd.github+json" },
+      throw: false,
+    });
+    if (resp.status !== 200) return null;
+    const releases = Array.isArray(resp.json) ? resp.json : [];
+    for (const rel of releases) {
+      for (const asset of rel.assets || []) {
+        const n = asset.name || "";
+        if (/pandoc(-wasm)?-?[\d.]+\.wasm\.zip$/.test(n) || /^pandoc\.wasm\.zip$/.test(n) || /^pandoc-wasm-[\d.]+\.zip$/.test(n)) {
+          return { ...asset, version: rel.tag_name || rel.name };
+        }
+      }
+    }
+    return null;
+  }
+
+  async ensurePandocWasm() {
+    if (await this.pandocWasmExists()) return true;
+    try {
+      const release = await this.findLatestPandocWasmRelease();
+      if (!release) {
+        new Notice("Impossible de trouver l'asset pandoc.wasm sur GitHub.", 5000);
+        return false;
+      }
+      await this.downloadPandocWasm(release);
+      return await this.pandocWasmExists();
+    } catch (e) {
+      console.error("mergdown2tex téléchargement wasm échoué:", e);
+      new Notice("Téléchargement pandoc.wasm échoué: " + e.message, 6000);
+      return false;
+    }
+  }
+
+  async getPandocWasmEngine() {
+    if (this.pandocWasmEngine) return this.pandocWasmEngine;
+    const rel = ".obsidian/plugins/" + this.manifest.id + "/pandoc.wasm";
+    let wasmBytes = null;
+    const a = adapterGet(this.app);
+    if (a && typeof a.readBinary === "function") {
+      // Mobile d'abord : lit pandoc.wasm depuis le vault via l'adapter
+      try { wasmBytes = await a.readBinary(rel); } catch (e) { wasmBytes = null; }
+      if (wasmBytes && typeof wasmBytes.byteLength === "number" && wasmBytes.byteLength > 0) {
+        this.pandocWasmEngine = await PandocWasmEngine.load(new Uint8Array(wasmBytes));
+        new Notice("Pandoc WASM initialisé !");
+        return this.pandocWasmEngine;
+      }
+    }
+    // Desktop fallback fs
+    if (!wasmBytes) {
+      const pluginDir = this.getPluginDir();
+      const wasmPath = path.join(pluginDir, "pandoc.wasm");
+      if (!fs.existsSync(wasmPath)) {
+        new Notice("pandoc.wasm absent — téléchargement automatique en cours...", 5000);
+        const ok = await this.ensurePandocWasm();
+        if (!ok) {
+          throw new Error(
+            "pandoc.wasm introuvable dans le dossier du plugin (" + pluginDir + "). Installation automatique impossible. " +
+            "Veuillez cliquer sur « Statut & installer » dans les paramètres.",
+          );
+        }
+        wasmBytes = a && typeof a.readBinary === "function" ? await a.readBinary(rel) : null;
+        if (!wasmBytes) wasmBytes = fs.readFileSync(wasmPath);
+      } else {
+        wasmBytes = fs.readFileSync(wasmPath);
+      }
+    }
+    new Notice("Chargement de Pandoc WASM...");
+    this.pandocWasmEngine = await PandocWasmEngine.load(wasmBytes instanceof Uint8Array ? wasmBytes : new Uint8Array(wasmBytes));
+    new Notice("Pandoc WASM initialisé !");
+    return this.pandocWasmEngine;
+  }
+
+
   async onload() {
     await this.loadSettings();
     this.addSettingTab(new Markdown2TexSettingTab(this.app, this));
@@ -883,6 +1514,7 @@ class Markdown2TexPlugin extends Plugin {
         expand_wikilinks,
         expand_wikilinks_with_index,
         expand_wikilinks_with_vfs,
+        expand_to_standalone_markdown,
         extract_bibliography_paths,
         extract_citations,
         generate_full_bibliography,
@@ -930,16 +1562,8 @@ class Markdown2TexPlugin extends Plugin {
     });
 
     this.addCommand({
-      id: "mergdown2tex-convert-to-md",
-      name: "MergDown2TeX: Convertir le fichier Markdown actif (.md) → LaTeX → Markdown (reverse)",
-      callback: async () => {
-        await this.convertToMd();
-      },
-    });
-
-    this.addCommand({
       id: "mergdown2tex-tex-to-md",
-      name: "MergDown2TeX: Convertir le fichier .tex actif en Markdown",
+      name: "MergDown2TeX: Reconvertir le .tex (jumeau) de la note active en Markdown",
       callback: async () => {
         await this.texToMarkdown();
       },
@@ -955,67 +1579,15 @@ class Markdown2TexPlugin extends Plugin {
   }
 
   /**
-   * Convertit le fichier .tex actif en Markdown (génère un .tex_conv.md).
-   * Fonctionne sur un .tex ouvert directement ; sinon se replie sur le .tex
-   * jumeau du .md actif.
+   * Convertisseur inverse : part du fichier .md actif, lit son jumeau .tex
+   * (produit par "Convertir en LaTeX"), et régénère du Markdown.
+   * Obsidian ne peut pas ouvrir les .tex, donc on part toujours du .md.
    */
   async texToMarkdown() {
     if (!this.vlatex) {
       new Notice("vLaTeX WASM non initialisé.");
       return;
     }
-    const activeFile = this.app.workspace.getActiveFile();
-    if (!activeFile) {
-      new Notice("Aucun fichier actif.");
-      return;
-    }
-
-    let texPath;
-    if (activeFile.extension === "tex") {
-      texPath = path.join(this.app.vault.adapter.getBasePath(), activeFile.path);
-    } else if (activeFile.extension === "md") {
-      const fp = await this.getFilePaths();
-      if (!fp) return;
-      const candidate = path.join(fp.parentDir, fp.fileStem + ".tex");
-      if (!fs.existsSync(candidate)) {
-        new Notice(`❌ Fichier LaTeX introuvable : ${fp.fileStem}.tex\nOuvrez un fichier .tex ou convertissez d'abord en LaTeX.`);
-        return;
-      }
-      texPath = candidate;
-    } else {
-      new Notice("Le fichier actif n'est ni un .tex ni un .md.");
-      return;
-    }
-
-    if (!fs.existsSync(texPath)) {
-      new Notice(`❌ Fichier LaTeX introuvable : ${texPath}`);
-      return;
-    }
-
-    try {
-      new Notice("Conversion LaTeX vers Markdown en cours...");
-      const texContent = fs.readFileSync(texPath, "utf-8");
-      const markdown = this.vlatex.latex_to_markdown(texContent);
-      const mdOutPath = path.join(
-        path.dirname(texPath),
-        path.basename(texPath, ".tex") + "_conv.md",
-      );
-      fs.writeFileSync(mdOutPath, markdown, "utf-8");
-      console.log("[mergdown2tex] .md written to", mdOutPath, markdown.length, "bytes");
-      new Notice(`✅ Markdown généré: ${path.basename(mdOutPath)} (${markdown.length} octets)`);
-    } catch (err) {
-      console.error("[mergdown2tex] tex->md error:", err);
-      new Notice("❌ Erreur: " + err.message);
-    }
-  }
-
-  async convertToMd() {
-    if (!this.vlatex) {
-      new Notice("vLaTeX WASM non initialisé.");
-      return;
-    }
-    // Même logique que compilePdf : on part du fichier .md actif
-    // et on cherche le .tex correspondant (même nom, même dossier)
     const fp = await this.getFilePaths();
     if (!fp) return;
     const { parentDir, fileStem } = fp;
@@ -1030,12 +1602,12 @@ class Markdown2TexPlugin extends Plugin {
       new Notice("Conversion LaTeX vers Markdown en cours...");
       const texContent = fs.readFileSync(texPath, "utf-8");
       const markdown = this.vlatex.latex_to_markdown(texContent);
-      const mdOutPath = path.join(parentDir, fileStem + "_reverse.md");
+      const mdOutPath = path.join(parentDir, fileStem + "_conv.md");
       fs.writeFileSync(mdOutPath, markdown, "utf-8");
       console.log("[mergdown2tex] .md written to", mdOutPath, markdown.length, "bytes");
-      new Notice(`✅ Markdown généré: ${fileStem}_reverse.md (${markdown.length} octets)`);
+      new Notice(`✅ Markdown généré: ${fileStem}_conv.md (${markdown.length} octets)`);
     } catch (err) {
-      console.error("[mergdown2tex] reverse convert error:", err);
+      console.error("[mergdown2tex] tex->md error:", err);
       new Notice("❌ Erreur: " + err.message);
     }
   }
@@ -1062,89 +1634,46 @@ class Markdown2TexPlugin extends Plugin {
       const webCacheDir = path.join(parentDir, "embedded_images");
       processed = await ensureWebImages(processed, webCacheDir);
 
-      // 2. Résoudre les wikilinks via WASM (y compris ceux dans les embeds inlinés)
+      // 2. Le WASM (Rust) convertit le contenu en Markdown autonome :
+      //    - résout les wikilinks/embeds restants
+      //    - remplace les liens .md par des ancres locales [↓ ...](#slug)
+      //    - ajoute les ancres Markdown {#id} aux titres
+      //    - injecte les marqueurs bidirectionnels %% BACKLINK: id ↑ %% (Option A)
       const vfsJson = JSON.stringify(vfs);
-      let expanded = this.vlatex.expand_wikilinks_with_vfs(
+      let expanded = this.vlatex.expand_to_standalone_markdown(
         processed,
         vaultRoot,
         mdPath,
         vfsJson,
       );
 
-      // 3. Remplacer TOUS les liens vers des fichiers .md par des ancres locales
-      //    Ex: [texte](AutreNote.md#Section) -> [texte](#autre-note-section)
-      //    Utiliser une fonction manuelle pour éviter les problèmes de regex
-      const replaceMdLinksWithAnchors = (content) => {
-        const openBracket = '[';
-        const closeBracket = ']';
-        const openParen = '(';
-        const closeParen = ')';
-        let result = content;
-        let pos = 0;
-        const replacements = [];
-        
-        while (true) {
-          const startBracket = result.indexOf(openBracket, pos);
-          if (startBracket === -1) break;
-          const endBracket = result.indexOf(closeBracket, startBracket + 1);
-          if (endBracket === -1) break;
-          const startParen = result.indexOf(openParen, endBracket + 1);
-          if (startParen === -1) break;
-          const endParen = result.indexOf(closeParen, startParen + 1);
-          if (endParen === -1) break;
-          
-          const fullMatch = result.substring(startBracket, endParen + 1);
-          const alias = result.substring(startBracket + 1, endBracket);
-          const link = result.substring(startParen + 1, endParen);
-          
-          // Ignorer les images (![...]) et les liens qui ne pointent pas vers .md
-          if (alias.startsWith('!') || !link.includes('.md')) {
-            pos = endParen + 1;
-            continue;
-          }
-          
-          // Extraire le fichier et l'anchor
-          const hashPos = link.indexOf('#');
-          const targetFile = hashPos === -1 ? link : link.substring(0, hashPos);
-          const anchor = hashPos === -1 ? null : link.substring(hashPos + 1);
-          
-          // Générer l'ancre locale
-          const fileStem = targetFile.replace(/\.md$/, '');
-          const sectionId = anchor 
-            ? anchor.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()
-            : fileStem.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
-          
-          replacements.push({
-            start: startBracket,
-            end: endParen + 1,
-            replacement: `[${alias}](#${sectionId})`
-          });
-          
-          pos = endParen + 1;
-        }
-        
-        // Appliquer les remplacements de la fin vers le début
-        for (let i = replacements.length - 1; i >= 0; i--) {
-          const { start, end, replacement } = replacements[i];
-          result = result.substring(0, start) + replacement + result.substring(end);
-        }
-        
-        return result;
-      };
-      
-      expanded = replaceMdLinksWithAnchors(expanded);
-
-      // 4. Ajouter des ancres Markdown {#id} après les titres pour les liens locaux
-      const headerPattern = /^(#{1,6})\s+(.+)$/gm;
-      expanded = expanded.replace(headerPattern, (full, hashes, title) => {
-        const sectionId = title.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
-        return `${hashes} ${title} {#${sectionId}}`;
-      });
-
       // 3. Écrire le fichier .expanded.md
       const expandedPath = path.join(parentDir, fileStem + ".expanded.md");
-      fs.writeFileSync(expandedPath, expanded, "utf-8");
-      console.log("[mergdown2tex] .expanded.md written:", expandedPath, expanded.length, "bytes");
+      const rel = path.relative(vaultRoot, expandedPath).split(path.sep).join("/");
+      // Écrit via l'API vault d'Obsidian (et non fs.writeFileSync) : c'est la seule
+      // façon de garder cohérents le TFile en mémoire, son stat (mtime/size) et le
+      // metadataCache d'Obsidian (qui indexe les ancres de bloc `^id`). Une écriture
+      // FS directe laisse Obsidian avec un cache stale → « Impossible de trouver ^id ».
+      let file = this.app.vault.getAbstractFileByPath(rel);
+      try {
+        if (file && file.constructor && file.constructor.name === "TFile") {
+          await this.app.vault.modify(file, expanded);
+        } else if (file && file.children !== undefined) {
+          // Fallback: `getAbstractFileByPath` a retourné un dossier → chemin invalide
+          file = null;
+        }
+        if (!file) {
+          file = await this.app.vault.create(rel, expanded);
+        }
+        // Force la re-lecture + re-indexation du block-id cache
+        await this.app.vault.read(file);
+        this.app.metadataCache.trigger("changed", file);
+        console.log("[mergdown2tex] .expanded.md written (via app.vault):", rel, expanded.length, "bytes");
+      } catch (vaultErr) {
+        // Repli sécurité en écriture FS directe si l'API vault échoue
+        console.error("[mergdown2tex] app.vault write failed, falling back to FS:", vaultErr);
+        fs.writeFileSync(expandedPath, expanded, "utf-8");
+      }
       new Notice(`✅ Markdown étendu généré : ${fileStem}.expanded.md (${expanded.length} octets)`);
       return { expandedPath, vaultRoot, parentDir, fileStem, expanded };
     } catch (err) {
@@ -1155,61 +1684,20 @@ class Markdown2TexPlugin extends Plugin {
   }
 
   /**
-   * Ajoute des marqueurs de backlink (↓↑) pour les wikilinks résolus.
-   * Remplace les wikilinks par des liens Markdown avec ancres pour que le .expanded.md
-   * soit autonome et produise les mêmes références croisées que la conversion directe.
-   * Ajoute aussi des ancres HTML <a id="..."></a> pour la compatibilité.
-   */
-  addBacklinkMarkers(content, vaultRoot, mdPath) {
-    let backlinkCounter = 0;
-    let result = content;
-    const backlinkMarkers = [];
-
-    // 1. Remplacer les wikilinks résolus par des liens Markdown avec ancres
-    // Format attendu après expand_wikilinks_with_vfs : [alias](target.md#anchor)
-    const wikilinkPattern = /\[([^\]]+)\]\(([^#)]+)(#([^)]+))?\)/g;
-    
-    result = result.replace(wikilinkPattern, (full, alias, target, hash, anchor) => {
-      const backlinkId = `backlink-${backlinkCounter++}`;
-      const sectionId = anchor || target.replace(/\.md$/, '').replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
-      
-      // Stocker le marqueur pour l'injecter avant la section cible
-      backlinkMarkers.push({ 
-        id: backlinkId, 
-        sectionId: sectionId,
-        alias: alias 
-      });
-      
-      // Remplacer par un lien Markdown avec ancre interne
-      return `[↓ ${alias}](#${sectionId})`;
-    });
-
-    // 2. Injecter les ancres Markdown natives et les marqueurs BACKLINK avant les sections cibles
-    // Utiliser le format Markdown {#id} pour les ancres (compatible avec le WASM)
-    for (const marker of backlinkMarkers) {
-      const escapedSectionId = marker.sectionId.replace(/[.*+?^${}()|[\]\/]/g, '\\$&');
-      const sectionPattern = new RegExp(`(^#{1,6}\s+${escapedSectionId})`, 'gm');
-      result = result.replace(sectionPattern, (sectionMatch) => {
-        return `%% BACKLINK: ${marker.id} ↑ %%\n${sectionMatch} {#${marker.sectionId}}`;
-      });
-    }
-
-    return result;
-  }
-
-  /**
-   * Variante de processEmbeds qui encadre les embeds de notes .md
-   * avec des marqueurs Obsidian %% EMBED: ... %% pour la lisibilité
-   * du fichier .expanded.md, sans altérer le comportement de conversion LaTeX.
+   * Préparation du contenu pour l'aplatissement dans le WASM (Rust) :
+   * - résout uniquement les images `![[img.png]]` -> `![alt](relpath)` (le WASM ne gère pas les images)
+   * - garde les embeds natifs `![[note]]` dans `processed` : c'est le WASM (expand_embeds_recursive)
+   *   qui les inline, nettoie le contenu et injecte les marqueurs `^id` + refs `[[#^id|..]]`
+   * - construit le vfs (contenu brut des notes de bloc, images résolues) keyé par chemin absolu
+   *   ET par basename (sans .md) pour que le WASM résolve `![[Nom]]` par nom.
    */
   async processEmbedsWithMarkers(content, sourceFile, vaultRoot, parentDir, depth = 0) {
     if (depth > 10) return { processed: content, vfs: {} };
     const vfs = {};
     let processed = content;
 
-    // Images
     const imgPattern = /!\[\[([^\]|#]+\.(?:png|jpg|jpeg|gif|svg|webp))(?:\|[^\]]*)?\]\]/gi;
-    processed = processed.replace(imgPattern, (full, fileRef) => {
+    const resolveImages = (text) => text.replace(imgPattern, (full, fileRef) => {
       let resolved = this.app.metadataCache.getFirstLinkpathDest(fileRef, sourceFile.path);
       if (!resolved) return full;
       const absPath = path.join(vaultRoot, resolved.path);
@@ -1217,86 +1705,35 @@ class Markdown2TexPlugin extends Plugin {
       return `![${resolved.basename}](${relPath})`;
     });
 
-    // Embeds .md
+    processed = resolveImages(processed);
+
+    // Embeds natifs .md : on lit le contenu brut de chaque note et on le met dans le vfs
     const mdPattern = /!\[\[([^\]|#]+)(?:#([^\]|]+))?(?:\|([^\]\n]+))?\]\]/g;
     const matches = [];
     let m;
     while ((m = mdPattern.exec(processed)) !== null) {
       const ext = path.extname(m[1]).slice(1).toLowerCase();
-      if (!ext || ext === 'md') matches.push({ full: m[0], fileRef: m[1] });
+      if (!ext || ext === 'md') matches.push({ fileRef: m[1] });
     }
 
-    for (const { full, fileRef } of matches) {
+    for (const { fileRef } of matches) {
       const resolved = this.app.metadataCache.getFirstLinkpathDest(fileRef, sourceFile.path);
       if (!resolved || resolved.extension !== 'md') continue;
-      const absPath = path.join(vaultRoot, resolved.path);
+      const absPath = path.join(vaultRoot, resolved.path).replace(/\\/g, "/");
       if (!vfs[absPath]) {
         const rawContent = await this.app.vault.read(resolved);
-        const { processed: pContent, vfs: childVfs } = await this.processEmbedsWithMarkers(
-          rawContent, resolved, vaultRoot, parentDir, depth + 1,
+        // On résout les images de la note, on garde `![[autre_note]]` natif pour le WASM
+        const noteContent = resolveImages(rawContent);
+        const { vfs: childVfs } = await this.processEmbedsWithMarkers(
+          noteContent, resolved, vaultRoot, parentDir, depth + 1,
         );
-        vfs[absPath] = pContent;
         Object.assign(vfs, childVfs);
+        vfs[absPath] = noteContent;
+        // Clé par basename (sans .md) : le WASM résout `![[Nom]]` / `[[Nom]]` par nom
+        if (!vfs[resolved.basename]) vfs[resolved.basename] = noteContent;
       }
-      // Remplacer les wikilinks dans le contenu embedé par des liens locaux
-      // Ex: [[AutreNote#Section]] -> [↓ Section](#autre-note-section)
-      let embedContent = vfs[absPath];
-      
-      // Nettoyer les métadonnées Obsidian (ex: %% ... %%, caption::, etc.)
-      embedContent = embedContent
-        .replace(/^%%[^%]*%%$/gm, '')  // Supprimer les blocs %% ... %%
-        .replace(/^[^:]+::\s*.*/gm, '')  // Supprimer les métadonnées (ex: caption:: value)
-        .replace(/^\s*$/gm, '');  // Supprimer les lignes vides
-      
-      // Remplacer les wikilinks dans l'embeded par des liens avec ancres locales
-      // Utiliser une fonction manuelle pour éviter les problèmes de regex
-      const replaceWikilinksInEmbed = (content) => {
-        const openTag = '[[', closeTag = ']]';
-        let result = content;
-        let pos = 0;
-        const replacements = [];
-        
-        while (true) {
-          const start = result.indexOf(openTag, pos);
-          if (start === -1) break;
-          const end = result.indexOf(closeTag, start + openTag.length);
-          if (end === -1) break;
-          
-          const fullMatch = result.substring(start, end + closeTag.length);
-          const inner = result.substring(start + openTag.length, end);
-          
-          // Séparer le target et l'anchor (ex: "Note#Section")
-          const hashPos = inner.indexOf('#');
-          const target = hashPos === -1 ? inner : inner.substring(0, hashPos);
-          const anchor = hashPos === -1 ? null : inner.substring(hashPos + 1);
-          
-          const sectionId = anchor || target.replace(/\.md$/, '').replace(/[^a-zA-Z0-9]/g, '-').toLowerCase();
-          const cleanTarget = target.replace(/\.md$/, '');
-          const linkText = anchor || cleanTarget;
-          
-          replacements.push({ 
-            start, 
-            end: end + closeTag.length,
-            replacement: `[↓ ${linkText}](#${sectionId})` 
-          });
-          
-          pos = end + closeTag.length;
-        }
-        
-        // Appliquer les remplacements de la fin vers le début pour ne pas casser les positions
-        for (let i = replacements.length - 1; i >= 0; i--) {
-          const { start, end, replacement } = replacements[i];
-          result = result.substring(0, start) + replacement + result.substring(end);
-        }
-        
-        return result;
-      };
-      
-      embedContent = replaceWikilinksInEmbed(embedContent);
-      
-      const marker = `\n%% EMBED: ${resolved.path} %%\n${embedContent}\n%% /EMBED %%\n`;
-      processed = processed.replaceAll(full, marker);
     }
+
     return { processed, vfs };
   }
 
@@ -1585,24 +2022,12 @@ class Markdown2TexPlugin extends Plugin {
     try {
       new Notice("Conversion WASM en cours...");
 
-      // Utilise le .expanded.md si disponible (source de vérité sur disque)
-      const expandedPath = path.join(parentDir, fileStem + ".expanded.md");
+      // Traitement des embeds/images/mermaid côté JS (comme v1.0.2) :
+      // le WASM sans fs/http/mmdc ne peut ni matérialiser les images
+      // ni rendre les diagrammes mermaid -> on le fait dans le plugin
+      console.log("[mergdown2tex] processing embeds + building VFS...");
       let processed, vfs;
-      if (fs.existsSync(expandedPath)) {
-        console.log("[mergdown2tex] using expanded.md as source:", expandedPath);
-        const expandedContent = fs.readFileSync(expandedPath, "utf-8");
-        // Nettoie TOUS les marqueurs %% ... %% et les ancres Markdown {#id} pour le convertisseur WASM
-        const cleanedExpanded = expandedContent
-          .replace(/^%% EMBED: [^%]+ %%$/gm, '')
-          .replace(/^%% \/EMBED %%$/gm, '')
-          .replace(/^%% BACKLINK: [^%]+ %%$/gm, '')
-          .replace(/^%% [^%]+ %%$/gm, '')  // Nettoyer TOUS les marqueurs %% ... %%
-          .replace(/\s+{#[^}]+}/g, '')    // Supprimer les ancres Markdown {#id}
-          .replace(/\n{3,}/g, '\n\n');  // Remplacer les sauts de ligne multiples par 2
-        processed = cleanedExpanded;
-        vfs = {};
-      } else {
-        console.log("[mergdown2tex] processing embeds + building VFS...");
+      {
         let result = await this.processEmbeds(content, activeFile, vaultRoot, parentDir);
         processed = result.processed;
         vfs = result.vfs;
@@ -1727,7 +2152,117 @@ class Markdown2TexPlugin extends Plugin {
     runPass();
   }
 
+  async getTypstCompiler() {
+    if (this.typstCompiler) return this.typstCompiler;
+    const a = adapterGet(this.app);
+    const relDir = ".obsidian/plugins/pandoc-gui/wasm";
+    let wasmBytes = null;
+    // 1) typst.wasm : réutiliser celui de pandoc-gui s'il existe, sinon télécharger
+    try {
+      if (a && typeof a.exists === "function" && await a.exists(relDir + "/typst.wasm")) {
+        wasmBytes = new Uint8Array(await a.readBinary(relDir + "/typst.wasm"));
+      }
+    } catch (e) { /* ignore */ }
+    if (!wasmBytes || wasmBytes.length === 0) {
+      new Notice("Téléchargement de typst.wasm...");
+      const resp = await requestUrl({ url: mp, throw: false });
+      if (resp.status < 200 || resp.status >= 300) throw new Error("Téléchargement typst.wasm échoué (HTTP " + resp.status + ")");
+      wasmBytes = new Uint8Array(resp.arrayBuffer);
+      try { await this.app.vault.adapter.mkdir(relDir); await this.app.vault.adapter.writeBinary(relDir + "/typst.wasm", wasmBytes); } catch (e) {}
+    }
+    // 2) fonts : réutiliser celles de pandoc-gui, sinon télécharger les "base"
+    let fonts = [];
+    const fontRelDir = relDir + "/fonts";
+    try {
+      if (a && typeof a.list === "function") {
+        const listing = await a.list(fontRelDir);
+        const names = (listing && listing.files) || [];
+        for (const n of names) {
+          if (/\.(ttf|otf|ttc|otc)$/i.test(n)) {
+            try { fonts.push(new Uint8Array(await a.readBinary(fontRelDir + "/" + n))); } catch (e) {}
+          }
+        }
+      }
+    } catch (e) { /* ignore */ }
+    if (fonts.length < 5) {
+      new Notice("Téléchargement des polices Typst (base)...");
+      const files = (vp && vp.base && vp.base.files) || [];
+      try { await this.app.vault.adapter.mkdir(fontRelDir); } catch (e) {}
+      for (const file of files) {
+        try {
+          const resp = await requestUrl({ url: `${hp}/${vp.base.repo}/files/fonts/${file}`, throw: false });
+          if (resp.status < 200 || resp.status >= 300) continue;
+          const arr = new Uint8Array(resp.arrayBuffer);
+          fonts.push(arr);
+          try { await this.app.vault.adapter.writeBinary(fontRelDir + "/" + file, arr); } catch (e) {}
+        } catch (e) { console.warn("[mergdown2tex] font dl failed:", file, e.message); }
+      }
+    }
+    if (fonts.length === 0) throw new Error("Aucune police Typst disponible. Installez pandoc-gui ou téléchargez les polices Typst.");
+    new Notice("Chargement de Typst WASM...");
+    this.typstCompiler = await Sp(wasmBytes, fonts);
+    new Notice("Typst WASM initialisé !");
+    return this.typstCompiler;
+  }
+
+  async compilePdfMobile() {
+    if (!this.vlatex) { new Notice("vLaTeX WASM non initialisé."); return; }
+    const activeFile = this.app.workspace.getActiveFile();
+    if (!activeFile || activeFile.extension !== "md") { new Notice("Sélectionnez un fichier Markdown."); return; }
+    new Notice("Compilation PDF (Pandoc WASM + Typst)...");
+    try {
+      const { parentDir, fileStem, fullTex, content } = await this.convertToLatexMobile(activeFile);
+      const typCompiler = await this.getTypstCompiler();
+
+      const texRel = (parentDir ? parentDir + "/" : "") + fileStem + ".tex";
+      await vaultWriteText(this.app, texRel, fullTex);
+
+      const wasmEngine = await this.getPandocWasmEngine();
+      const wasmFS = new WasmFileSystem(this.app.vault, "");
+      const numberSectionsFlag = this.settings.enableDocxNumbering ? " --number-sections" : "";
+      const inputRel = ("/" + texRel).replace(/\\/g, "/");
+      const outRel = "/" + (parentDir ? parentDir + "/" : "") + fileStem + ".pdf";
+      const outputRel = outRel.replace(/\\/g, "/");
+      // -t typst convertit directement markdown->typst (évite le /tmp/media du chemin pdf)
+      const wasmCmd = `pandoc "${inputRel}" -t typst -o "${outputRel}"${numberSectionsFlag}`;
+
+      let resources = [];
+      const imgRe = /\\includegraphics(?:\[[^}]*\])?\{([^}]+)\}/g;
+      let imgMatch;
+      while ((imgMatch = imgRe.exec(fullTex)) !== null) {
+        const imgRel = imgMatch[1].replace(/^\.\//, "");
+        let full = (parentDir ? parentDir + "/" : "") + imgRel;
+        if (await vaultExists(this.app, full)) resources.push("/" + full);
+      }
+
+      console.log("[mergdown2tex][mobile] running Pandoc WASM (typst):", wasmCmd);
+      const result = await runPandocWasm(wasmEngine, wasmFS, {
+        command: wasmCmd,
+        vaultDir: "",
+        resources,
+        embeds: [],
+        typst: typCompiler,
+      });
+      if (result.stderr) console.log("[mergdown2tex][mobile] pandoc stderr:", result.stderr);
+
+      const pdfRel = (parentDir ? parentDir + "/" : "") + fileStem + ".pdf";
+      const pdfBytes = await this.app.vault.adapter.readBinary(pdfRel);
+      if (pdfBytes && pdfBytes.length > 4 && pdfBytes[0] === 0x25 && pdfBytes[1] === 0x50) {
+        new Notice("✅ PDF compilé sur mobile !");
+      } else {
+        new Notice("⚠️ PDF généré mais non-lisible : " + (result.stderr || "diagnostic Typst"), 8000);
+      }
+    } catch (e) {
+      console.error("[mergdown2tex][mobile] PDF error:", e);
+      new Notice("❌ Erreur PDF mobile: " + e.message);
+    }
+  }
+
   async compilePdf() {
+    // Sur mobile : chemin WASM dédié (typst) sans pdflatex/podman.
+    if (!Platform.isDesktop) {
+      return this.compilePdfMobile();
+    }
     if (!this.vlatex) {
       new Notice("vLaTeX WASM non initialisé.");
       return;
@@ -1782,7 +2317,90 @@ class Markdown2TexPlugin extends Plugin {
     }
   }
 
+  async convertToLatexMobile(activeFile, vaultRoot, mdPath) {
+    // Pipeline LaTeX simplifié pour mobile : utilise UNIQUEMENT le WASM embarqué
+    // et app.vault.adapter (aucun fs/podman/mermaid).
+    const parentDir = activeFile.parent ? activeFile.parent.path : "";
+    const fileStem = activeFile.basename;
+    const content = await this.app.vault.read(activeFile);
+    let processed = this.processDataviewInline(content, activeFile);
+    const vfs = {};
+    const vfsJson = JSON.stringify(vfs);
+    const expanded = this.vlatex.expand_wikilinks_with_vfs(processed, vaultRoot || "", mdPath || activeFile.path, vfsJson);
+    const body = this.vlatex.markdown_to_latex_with_vfs(expanded, "default", vfsJson);
+    const fullTex = this.assembleFullDocument(content, body, true, vaultRoot || "", parentDir || "");
+    return { parentDir, fileStem, fullTex: fullTex.tex, content };
+  }
+
+  async compileDocxMobile() {
+    if (!this.vlatex) { new Notice("vLaTeX WASM non initialisé."); return; }
+    const activeFile = this.app.workspace.getActiveFile();
+    if (!activeFile || activeFile.extension !== "md") { new Notice("Sélectionnez un fichier Markdown."); return; }
+    new Notice("Compilation DOCX (Pandoc WASM)...");
+    try {
+      const { parentDir, fileStem, fullTex, content } = await this.convertToLatexMobile(activeFile);
+      const docxTex = this.vlatex.prepare_latex_for_docx_full(fullTex, this.settings.keepNavArrows, this.settings.defaultTableWidth || "0.95");
+      const relParentDir = parentDir || "";
+      const docxTexRel = (relParentDir ? relParentDir + "/" : "") + fileStem + "_docx.tex";
+      const docxRel = (relParentDir ? relParentDir + "/" : "") + fileStem + ".docx";
+      const docxPreamble = `\\documentclass{article}\n\\usepackage[utf8]{inputenc}\n\\usepackage[T1]{fontenc}\n\\usepackage{hyperref}\n\\usepackage{xcolor}\n\\hypersetup{ colorlinks=true, linkcolor=blue, urlcolor=blue, citecolor=blue }\n\\begin{document}\n`;
+      const docxTexEval = docxTex
+        .replace(/\\begin\{document\}/g, '').replace(/\\end\{document\}/g, '')
+        .replace(/\\documentclass\s*\[[^\]]*\]\s*\{[^}]*\}/g, '').replace(/\\documentclass\s*\{[^}]*\}/g, '')
+        .replace(/\\usepackage\s*(?:\[[^\]]*\])?\s*\{[^}]*\}/g, '').replace(/\\RequirePackage\s*(?:\[[^\]]*\])?\s*\{[^}]*\}/g, '')
+        .replace(/\\documentstyle\s*(?:\[[^\]]*\])?\s*\{[^}]*\}/g, '');
+      // Écrit le _docx.tex via adapter
+      await vaultMkdir(this.app, relParentDir || "/");
+      await vaultWriteText(this.app, docxTexRel, docxPreamble + docxTexEval + "\n\\end{document}\n");
+
+      const wasmEngine = await this.getPandocWasmEngine();
+      const wasmFS = new WasmFileSystem(this.app.vault, "");
+      const numberSectionsFlag = this.settings.enableDocxNumbering ? " --number-sections" : "";
+      const inputRel = ("/" + docxTexRel).replace(/\\/g, "/");
+      const outputRel = ("/" + docxRel).replace(/\\/g, "/");
+      let wasmCmd = `pandoc "${inputRel}" -o "${outputRel}" --mathml --resource-path=${relParentDir ? "/" + relParentDir.replace(/\\/g, "/") : "/"} --embed-resources --standalone --toc --toc-depth=6${numberSectionsFlag}`;
+
+      let resources = [];
+      const imgRe = /\\includegraphics(?:\[[^}]*\])?\{([^}]+)\}/g;
+      let imgMatch;
+      while ((imgMatch = imgRe.exec(docxTexEval)) !== null) {
+        const imgRel = imgMatch[1].replace(/^\.\//, "");
+        let full = (relParentDir ? relParentDir + "/" : "") + imgRel;
+        if (await vaultExists(this.app, full)) resources.push("/" + full);
+      }
+
+      console.log("[mergdown2tex][mobile] running Pandoc WASM:", wasmCmd);
+      const result = await runPandocWasm(wasmEngine, wasmFS, {
+        command: wasmCmd,
+        vaultDir: "",
+        resources,
+        embeds: [],
+      });
+      if (result.stderr) console.log("[mergdown2tex][mobile] pandoc stderr:", result.stderr);
+
+      // Post-process flèches / en-tête-pied / couleurs de tableau via WASM embarqué
+      try {
+        const docxBytes = await this.app.vault.adapter.readBinary(docxRel);
+        let out = docxBytes;
+        try { out = this.vlatex.modify_docx_arrows(out, docxTex); } catch (e) {}
+        try { out = this.vlatex.add_docx_header_footer(out, this.settings.headerContent || "", this.settings.footerContent || "", this.settings.enableHeader || false, this.settings.enableFooter || false); } catch (e) {}
+        try { out = this.vlatex.add_docx_table_colors(out, docxTex); } catch (e) {}
+        await this.app.vault.adapter.writeBinary(docxRel, out);
+      } catch (postErr) {
+        console.error("[mergdown2tex][mobile] post-process error:", postErr);
+      }
+      new Notice("✅ DOCX compilé sur mobile !");
+    } catch (e) {
+      console.error("[mergdown2tex][mobile] DOCX error:", e);
+      new Notice("❌ Erreur DOCX mobile: " + e.message);
+    }
+  }
+
   async compileDocx() {
+    // Sur mobile : chemin WASM dédié (aucun fs/podman requis).
+    if (!Platform.isDesktop) {
+      return this.compileDocxMobile();
+    }
     if (!this.vlatex) {
       new Notice("vLaTeX WASM non initialisé.");
       return;
@@ -1851,6 +2469,62 @@ class Markdown2TexPlugin extends Plugin {
         .replace(/\\RequirePackage\s*(?:\[[^\]]*\])?\s*\{[^}]*\}/g, '')
         .replace(/\\documentstyle\s*(?:\[[^\]]*\])?\s*\{[^}]*\}/g, '')
         .replace(/\\providecommand\{\\defaulttablewidth\}\{[^}]*\}/g, '');
+      // --- Correctif : matérialiser côté JS les images que le WASM (sans feature fs)
+      // --- n'a pas pu résoudre (MISSING IMAGE) -> vrais \includegraphics
+      {
+        const missRe = /\\texttt\{MISSING IMAGE: ([^}]+)\}/g;
+        let miss;
+        const missAll = [];
+        while ((miss = missRe.exec(docxTexEval)) !== null) missAll.push(miss);
+        for (const m of missAll) {
+          const t = (m[1] || "").trim();
+          if (/^https?:\/\//i.test(t)) {
+            try {
+              const key = crypto.createHash("sha256").update(t).digest("hex").slice(0, 16);
+              const cacheDir = path.join(parentDir, "embedded_images");
+              if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+              const localPath = path.join(cacheDir, `web_${key}.png`);
+              if (!fs.existsSync(localPath) || fs.statSync(localPath).size === 0) {
+                const resp = await requestUrl({ url: t, method: "GET", contentType: "application/octet-stream", responseType: "arraybuffer" });
+                const buf = resp.arrayBuffer ? Buffer.from(resp.arrayBuffer) : Buffer.from(resp.text || "", "binary");
+                fs.writeFileSync(localPath, buf);
+              }
+              const relPath = "embedded_images/" + path.basename(localPath);
+              docxTexEval = docxTexEval.replace(m[0], `\\includegraphics[width=0.95\\linewidth]{${relPath}}`);
+            } catch (e) { console.warn("[mergdown2tex] cannot download web image", t, e.message); }
+          }
+        }
+        docxTexEval = docxTexEval.replace(/\\texttt\{MISSING IMAGE: ([^}]+)\}/g, (full, target) => {
+          const t = (target || "").trim();
+          if (/^https?:\/\//i.test(t)) return full;
+          const bname = path.basename(t).split(/[?#]/)[0];
+          if (!bname) return full;
+          let abs = null;
+          try {
+            const dest = this.app?.metadataCache?.getFirstLinkpathDest ? this.app.metadataCache.getFirstLinkpathDest(bname, fileStem + ".md") : null;
+            if (dest) abs = path.join(vaultRoot, dest.path);
+          } catch (e) {}
+          if (!abs) {
+            const SKIP = new Set([".git", ".obsidian", "node_modules", "target", "pandoc_images", ".trash", "embedded_images", "web", "pkg", "pkg-node", "wasm-pkg", "rust-vlatex", "node-vlatex", "vlatex-desktop"]);
+            const walk = (base, depth) => {
+              if (depth > 8 || abs) return;
+              let ents;
+              try { ents = fs.readdirSync(base, { withFileTypes: true }); } catch { return; }
+              for (const e of ents) {
+                const p = path.join(base, e.name);
+                if (e.isDirectory()) { if (SKIP.has(e.name)) continue; walk(p, depth + 1); }
+                else if (e.name.toLowerCase() === bname.toLowerCase()) { abs = p; return; }
+              }
+            };
+            walk(vaultRoot, 0);
+          }
+          if (abs && fs.existsSync(abs)) {
+            const rel = path.relative(parentDir, abs).replace(/\\/g, "/");
+            return `\\includegraphics[width=0.95\\linewidth]{${rel}}`;
+          }
+          return full;
+        });
+      }
       const docxPreamble = `\\documentclass{article}\n\\usepackage[utf8]{inputenc}\n\\usepackage[T1]{fontenc}\n\\usepackage{hyperref}\n\\usepackage{xcolor}\n\\hypersetup{\n  colorlinks=true,\n  linkcolor=blue,\n  urlcolor=blue,\n  citecolor=blue\n}\n\\begin{document}\n`;
       fs.writeFileSync(docxTexPath, docxPreamble + docxTexEval + "\n\\end{document}\n", "utf-8");
 
@@ -1874,66 +2548,143 @@ class Markdown2TexPlugin extends Plugin {
         } catch (e) {}
       }
 
-      const pandocBin = this.settings.pandocPath || "pandoc";
+      
       const docxFileName = fileStem + ".docx";
       const docxTexFileName = fileStem + "_docx.tex";
       const relParentDir = path.relative(vaultRoot, parentDir);
 
       const numberSectionsFlag = this.settings.enableDocxNumbering ? " --number-sections" : "";
-      let pandocArgs = `podman run --rm -v "${vaultRoot}:/vault" vlatex-env ${pandocBin} "/vault/${relParentDir}/${docxTexFileName}" -o "/vault/${relParentDir}/${docxFileName}" --mathml --resource-path="/vault:/vault/${relParentDir}" --embed-resources --standalone --toc --toc-depth=6${numberSectionsFlag}`;
-
-      if (bibPaths.length > 0) {
-        const bibPath = bibPaths[0];
-        const relBibPath = path.relative(vaultRoot, bibPath);
-        pandocArgs += ` --bibliography="/vault/${relBibPath}" --citeproc`;
-      }
-      if (this.settings.cslPath) {
-        const cslAbs = path.isAbsolute(this.settings.cslPath)
-          ? this.settings.cslPath
-          : path.join(vaultRoot, this.settings.cslPath);
-        const relCsl = path.relative(vaultRoot, cslAbs);
-        pandocArgs += ` --csl="/vault/${relCsl}"`;
-      }
-
-      console.log("[mergdown2tex] docx cmd:", pandocArgs);
-      exec(pandocArgs, (error, stdout, stderr) => {
-        if (stdout) console.log("[mergdown2tex] pandoc stdout:", stdout);
-        if (error) {
-          console.log("[mergdown2tex] pandoc error:", error);
-          console.log("[mergdown2tex] pandoc stderr:", stderr);
-          new Notice("❌ Erreur pandoc: " + error.message);
-        } else {
-          console.log("[mergdown2tex] DOCX success");
-          let docxPath = path.join(parentDir, fileStem + ".docx");
-          try {
-            let docxBytes = fs.readFileSync(docxPath);
-            const arrowBytes = this.vlatex.modify_docx_arrows(docxBytes, docxTex);
-            docxBytes = arrowBytes;
-            console.log("[mergdown2tex] arrows: ok");
-            const hfBytes = this.vlatex.add_docx_header_footer(
-              docxBytes,
-              this.settings.headerContent || "",
-              this.settings.footerContent || "",
-              this.settings.enableHeader || false,
-              this.settings.enableFooter || false,
-            );
-            docxBytes = hfBytes;
-            console.log("[mergdown2tex] header/footer: ok");
-            const tcBytes = this.vlatex.add_docx_table_colors(docxBytes, docxTex);
-            docxBytes = tcBytes;
-            console.log("[mergdown2tex] table colors: ok");
-            fs.writeFileSync(docxPath, docxBytes);
-          } catch (postErr) {
-            console.error("[mergdown2tex] post-processing error:", postErr);
-          }
-          new Notice("✅ DOCX compilé!");
+      
+      const onDocxSuccess = () => {
+        console.log("[mergdown2tex] DOCX success");
+        let docxPath = path.join(parentDir, fileStem + ".docx");
+        try {
+          let docxBytes = fs.readFileSync(docxPath);
+          const arrowBytes = this.vlatex.modify_docx_arrows(docxBytes, docxTex);
+          docxBytes = arrowBytes;
+          console.log("[mergdown2tex] arrows: ok");
+          const hfBytes = this.vlatex.add_docx_header_footer(
+            docxBytes,
+            this.settings.headerContent || "",
+            this.settings.footerContent || "",
+            this.settings.enableHeader || false,
+            this.settings.enableFooter || false,
+          );
+          docxBytes = hfBytes;
+          console.log("[mergdown2tex] header/footer: ok");
+          const tcBytes = this.vlatex.add_docx_table_colors(docxBytes, docxTex);
+          docxBytes = tcBytes;
+          console.log("[mergdown2tex] table colors: ok");
+          fs.writeFileSync(docxPath, docxBytes);
+        } catch (postErr) {
+          console.error("[mergdown2tex] post-processing error:", postErr);
+        }
+        new Notice("✅ DOCX compilé!");
+        if (require('os').platform() !== 'android') {
           exec(
             `xdg-open "${path.join(parentDir, fileStem + ".docx")}"`,
             () => {},
           );
         }
-      });
-    } catch (err) ollama.com{
+      };
+
+      if (this.settings.useWasmPandoc) {
+        try {
+          const inputRelPath = path.relative(vaultRoot, docxTexPath).replaceAll("\\", "/");
+          const outputRelPath = path.relative(vaultRoot, path.join(parentDir, docxFileName)).replaceAll("\\", "/");
+          const wasmEngine = await this.getPandocWasmEngine();
+          const wasmFS = new WasmFileSystem(this.app.vault, vaultRoot);
+          
+          let wasmCmd = `pandoc "${inputRelPath}" -o "${outputRelPath}" --mathml --resource-path=".:${relParentDir.replaceAll("\\", "/")}" --embed-resources --standalone --toc --toc-depth=6${numberSectionsFlag}`;
+          
+          let resources = [];
+          try {
+            // Détection des images
+            const imgRe = /\\includegraphics(?:\[[^}]*\])?\{([^}]+)\}/g;
+            let imgMatch;
+            while ((imgMatch = imgRe.exec(docxTexEval)) !== null) {
+              const imgPath = imgMatch[1];
+              let absImgPath = path.isAbsolute(imgPath) ? imgPath : path.join(parentDir, imgPath);
+              if (fs.existsSync(absImgPath)) {
+                resources.push(absImgPath);
+              } else {
+                absImgPath = path.join(vaultRoot, imgPath);
+                if (fs.existsSync(absImgPath)) resources.push(absImgPath);
+              }
+            }
+          } catch (e) {
+            console.warn("Erreur détection images:", e);
+          }
+
+          if (bibPaths.length > 0) {
+            const bibPath = bibPaths[0];
+            const relBibPath = path.relative(vaultRoot, bibPath).replaceAll("\\", "/");
+            wasmCmd += ` --bibliography="${relBibPath}" --citeproc`;
+            resources.push(bibPath);
+          }
+          if (this.settings.cslPath) {
+            const cslAbs = path.isAbsolute(this.settings.cslPath) ? this.settings.cslPath : path.join(vaultRoot, this.settings.cslPath);
+            const relCsl = path.relative(vaultRoot, cslAbs).replaceAll("\\", "/");
+            wasmCmd += ` --csl="${relCsl}"`;
+            resources.push(cslAbs);
+          }
+
+          console.log("[mergdown2tex] running Pandoc WASM command:", wasmCmd);
+          const result = await runPandocWasm(wasmEngine, wasmFS, {
+            command: wasmCmd,
+            vaultDir: vaultRoot,
+            resources: resources,
+            embeds: []
+          });
+
+          if (result.stderr) {
+            console.log("[mergdown2tex] Pandoc WASM stderr:", result.stderr);
+          }
+          try {
+            if (globalThis.__mergdiag && globalThis.__mergdiag.length > 0) {
+              const diagPath = "mergdowntex-diag.txt";
+              const diagText = "=== RUN " + new Date().toISOString() + " ===\n" + globalThis.__mergdiag.join("\n") + "\n";
+              await wasmFS.vault.adapter.writeBinary(diagPath, new TextEncoder().encode(diagText));
+              console.log("[mergdown2tex] diagnostic écrit dans le vault:", diagPath);
+            }
+          } catch (diagErr) {
+            console.warn("[mergdown2tex] diag write failed:", diagErr.message);
+          }
+          globalThis.__mergdiag = [];
+          onDocxSuccess();
+        } catch (wasmErr) {
+          console.error("[mergdown2tex] Pandoc WASM error:", wasmErr);
+          new Notice("❌ Erreur Pandoc WASM: " + wasmErr.message);
+        }
+      } else {
+        const pandocBin = this.settings.pandocPath || "pandoc";
+        let pandocArgs = `podman run --rm -v "${vaultRoot}:/vault" vlatex-env ${pandocBin} "/vault/${relParentDir}/${docxTexFileName}" -o "/vault/${relParentDir}/${docxFileName}" --mathml --resource-path="/vault:/vault/${relParentDir}" --embed-resources --standalone --toc --toc-depth=6${numberSectionsFlag}`;
+
+        if (bibPaths.length > 0) {
+          const bibPath = bibPaths[0];
+          const relBibPath = path.relative(vaultRoot, bibPath);
+          pandocArgs += ` --bibliography="/vault/${relBibPath}" --citeproc`;
+        }
+        if (this.settings.cslPath) {
+          const cslAbs = path.isAbsolute(this.settings.cslPath) ? this.settings.cslPath : path.join(vaultRoot, this.settings.cslPath);
+          const relCsl = path.relative(vaultRoot, cslAbs);
+          pandocArgs += ` --csl="/vault/${relCsl}"`;
+        }
+
+        console.log("[mergdown2tex] docx cmd:", pandocArgs);
+        exec(pandocArgs, (error, stdout, stderr) => {
+          if (stdout) console.log("[mergdown2tex] pandoc stdout:", stdout);
+          if (error) {
+            console.log("[mergdown2tex] pandoc error:", error);
+            console.log("[mergdown2tex] pandoc stderr:", stderr);
+            new Notice("❌ Erreur pandoc: " + error.message);
+          } else {
+            onDocxSuccess();
+          }
+        });
+      }
+
+    } catch (err) {
       console.error("[mergdown2tex] docx error:", err);
       new Notice("❌ Erreur: " + err.message);
     }
@@ -1941,3 +2692,58 @@ class Markdown2TexPlugin extends Plugin {
 }
 
 module.exports = Markdown2TexPlugin;
+
+/* ==== Typst WASM loader (extrait de pandoc-gui, typst-ts-web-compiler) ==== */
+/* ============================================================================
+ * typst_loader.js — chargeur WASM du compilateur Typst, extrait VERBATIM du
+ * bundle esbuild « pandoc-gui / main.js » (plugin Obsidian pandoc-gui).
+ * Source: node_modules @myriaddreamin/typst-ts-web-compiler (pkg typst_ts_web_compiler).
+ *
+ * Exporte: Sp(wasmBytes, fonts[]) -> { compile(path, src, files) -> {pdf, diagnostics} },
+ *          Cp (installeur, requiert l'API Obsidian), uf/df/xp pour usage avancé.
+ * ========================================================================== */
+/* esbuild helper preamble (contains `s`, the export-namespace getter builder) */
+var e=Object.create,t=Object.defineProperty,n=Object.getOwnPropertyDescriptor,r=Object.getOwnPropertyNames,i=Object.getPrototypeOf,a=Object.prototype.hasOwnProperty,o=(e,t)=>()=>(t||(e((t={exports:{}}).exports,t),e=null),t.exports),s=(e,n)=>{let r={};for(var i in e)t(r,i,{get:e[i],enumerable:!0});return n||t(r,Symbol.toStringTag,{value:`Module`}),r},c=(e,i,o,s)=>{if(i&&typeof i==`object`||typeof i==`function`)for(var c=r(i),l=0,u=c.length,d;l<u;l++)d=c[l],!a.call(e,d)&&d!==o&&t(e,d,{get:(e=>i[e]).bind(null,d),enumerable:!(s=n(i,d))||s.enumerable});return e},l=(n,r,o)=>(o=n==null?{}:e(i(n)),c(r||!n||!n.__esModule||!a.call(n,`default`)?t(o,`default`,{value:n,enumerable:!0}):o,n));
+
+var Kd=class{loadedFonts=new Set;fetcher=fetch;setFetcher(e){this.fetcher=e}async loadFonts(e,t){let n=Function(`m`,`return import(m)`),r=this.fetcher||=await(async function(){let{fetchBuilder:e,FileSystemCache:t}=await n(`node-fetch-cache`),r=new t({cacheDirectory:`.cache/typst/fonts`}),i=e.withCache(r);return function(e,t){let n=setTimeout(()=>{console.warn(`font fetching is stucking:`,e)},15e3);return i(e,t).finally(()=>{clearTimeout(n)})}})(),i=t.filter(e=>e instanceof Uint8Array||typeof e==`object`&&`info`in e||!this.loadedFonts.has(e)&&(this.loadedFonts.add(e),!0)),a=await Promise.all(i.map(async t=>{if(t instanceof Uint8Array){await e.add_raw_font(t);return}if(typeof t==`object`&&`info`in t){await e.add_lazy_font(t,`blob`in t?t.blob:Jd(t));return}return new Uint8Array(await(await r(t)).arrayBuffer())}));for(let t of a)t&&await e.add_raw_font(t)}async build(e,t,n){let r={ref:this,builder:t,hooks:n};for(let t of e?.beforeBuild??[])await t(void 0,r);return n.latelyBuild&&n.latelyBuild(r),await t.build()}};
+
+async function qd(e,t,n,r){return await t.init(e?.getModule?.()),await new Kd().build(e,new n,r)};
+
+function Jd(e){return()=>{let t=new XMLHttpRequest;return t.overrideMimeType(`text/plain; charset=x-user-defined`),t.open(`GET`,e.url,!1),t.send(null),t.status===200&&(t.response instanceof String||typeof t.response==`string`)?Uint8Array.from(t.response,e=>e.charCodeAt(0)):new Uint8Array}};
+
+var Yd=Symbol.for(`reflexo-obj`),Xd;
+(function(e){e[e.PIXEL_PER_PT=3]=`PIXEL_PER_PT`})(Xd||={});
+
+var Zd=[`DejaVuSansMono-Bold.ttf`,`DejaVuSansMono-BoldOblique.ttf`,`DejaVuSansMono-Oblique.ttf`,`DejaVuSansMono.ttf`,`LibertinusSerif-Bold.otf`,`LibertinusSerif-BoldItalic.otf`,`LibertinusSerif-Italic.otf`,`LibertinusSerif-Regular.otf`,`LibertinusSerif-Semibold.otf`,`LibertinusSerif-SemiboldItalic.otf`,`NewCM10-Bold.otf`,`NewCM10-BoldItalic.otf`,`NewCM10-Italic.otf`,`NewCM10-Regular.otf`,`NewCMMath-Bold.otf`,`NewCMMath-Book.otf`,`NewCMMath-Regular.otf`],Qd=[`InriaSerif-Bold.ttf`,`InriaSerif-BoldItalic.ttf`,`InriaSerif-Italic.ttf`,`InriaSerif-Regular.ttf`,`Roboto-Regular.ttf`,`NotoSerifCJKsc-Regular.otf`],$d=[`TwitterColorEmoji.ttf`,`NotoColorEmoji-Regular-COLR.subset.ttf`];
+
+function ef(e){let t=[];if(e&&e?.assets!==!1&&e?.assets?.length&&e?.assets?.length>0){let n={text:`https://cdn.jsdelivr.net/gh/typst/typst-assets@v0.13.1/files/fonts/`,_:`https://cdn.jsdelivr.net/gh/typst/typst-dev-assets@v0.13.1/files/fonts/`},r=e.assetUrlPrefix??n;r=typeof r==`string`?{_:r}:{...n,...r};for(let e of Object.keys(r)){let t=r[e];t[t.length-1]!==`/`&&(r[e]=t+`/`)}let i=(e,t)=>t.map(t=>(r[e]||r._)+t);for(let n of e.assets)switch(n){case`text`:t.push(...i(n,Zd));break;case`cjk`:t.push(...i(n,Qd));break;case`emoji`:t.push(...i(n,$d))}}return t};
+
+function tf(e,t){let n=ef(t),r=async(r,{ref:i,builder:a})=>{t?.fetcher&&i.setFetcher(t.fetcher),await i.loadFonts(a,[...e,...n])};return r._preloadRemoteFontOptions=t,r._kind=`fontLoader`,r};
+
+var nf=e=>{let t=!1,n;return()=>t?n:(t=!0,n=e())},rf=class{wasmBin;initOnce;constructor(e){if(typeof e!=`function`)throw Error(`initFn is not a function`);this.initOnce=nf(async()=>{await e(this.wasmBin)})}async init(e){this.wasmBin=e,await this.initOnce()}},af;
+(function(e){e[e.vector=0]=`vector`,e[e.pdf=1]=`pdf`,e[e._dummy=2]=`_dummy`})(af||={});
+
+var of=class{[Yd];constructor(e){this[Yd]=e}reset(){this[Yd].reset()}current(){return this[Yd].current()}setAttachDebugInfo(e){this[Yd].set_attach_debug_info(e)}},sf;
+sf||={};
+
+var cf=class{[Yd];constructor(e){this[Yd]=e}compile(e){return this[Yd].compile(0,pf(e?.diagnostics))}compileHtml(e){return this[Yd].compile(1,pf(e?.diagnostics))}async query(e){return JSON.parse(this[Yd].query(0,e.selector,e.field))}title(){return this[Yd].title(0)}vector(e){return this[Yd].get_artifact(0,pf(e?.diagnostics))||{}}pdf(e){return this[Yd].get_artifact(1,pf(e?.diagnostics))||{}}},lf=e=>new rf(async t=>await e.default(t));
+
+function uf(){return new df}
+
+var df=class e{compiler;compilerJs;static defaultAssets=[`text`];constructor(){}async init(t){this.compilerJs=await(t?.getWrapper?.()||Promise.resolve().then(()=>up));let n=this.compilerJs.TypstCompilerBuilder,r={...t||{}},i=r.beforeBuild??=[],a=i.some(e=>e._preloadRemoteFontOptions!==void 0),o=i.some(e=>e._preloadRemoteFontOptions?.assets!==void 0),s=i.some(e=>e._preloadRemoteFontOptions?.assets===!1);if((!a||!o&&!s)&&i.push(tf([],{assets:e.defaultAssets})),!i.some(e=>e._kind===`fontLoader`))throw Error(`TypstCompiler: no font loader found, please use font loaders, e.g. loadFonts or preloadSystemFonts`);this.compiler=await qd(t,lf(this.compilerJs),n,{})}setFonts(e){this.compiler.set_fonts(e)}compile(e){return new Promise(t=>{let n=this.compiler.snapshot(e.root,e.mainFilePath,ff(e.inputs));if(`incrementalServer`in e){t(n.incr_compile(e.incrementalServer[Yd],pf(e.diagnostics)));return}t(n.get_artifact(e.format||af.vector,pf(e.diagnostics)))})}async runWithWorld(e,t){let n=this.compiler.snapshot(e.root,e.mainFilePath,ff(e.inputs)),r=await t(new cf(n));return n.free(),r}query(e){return this.runWithWorld(e,async t=>JSON.parse(await t.query(e)))}getSemanticTokenLegend(){return new Promise(e=>{e(this.compiler.get_semantic_token_legend())})}getSemanticTokens(e){return new Promise(t=>{this.compiler.reset(),t(this.compiler.get_semantic_tokens(e.offsetEncoding||`utf-16`,e.mainFilePath,e.resultId))})}async withIncrementalServer(e){let t=new of(this.compiler.create_incr_server());try{return await e(t)}finally{t[Yd].free()}}async getAst(e){return this.compiler.get_ast(e)}async reset(){await new Promise(e=>{this.compiler.reset(),e(void 0)})}addSource(e,t){if(arguments.length>2)throw Error(`use of addSource(path, source, isMain) is deprecated, please use addSource(path, source) instead`);this.compiler.add_source(e,t)}mapShadow(e,t){this.compiler.map_shadow(e,t)}unmapShadow(e){this.compiler.unmap_shadow(e)}resetShadow(){this.compiler.reset_shadow()}renderPageToCanvas(){throw Error(`Please use the api TypstRenderer.renderToCanvas in v0.4.0`)}};uf._impl=df;
+
+function ff(e){return e?Object.entries(e):void 0}
+
+function pf(e){switch(e){case`none`:return 1;case`unix`:return 2;default:return 3}}
+
+var q;function J(e){kf===Of.length&&Of.push(Of.length+1);let t=kf;return kf=Of[t],Of[t]=e,t}function mf(e,t){if(!(e instanceof t))throw Error(`expected instance of ${t.name}`)}var hf=typeof FinalizationRegistry>`u`?{register:()=>{},unregister:()=>{}}:new FinalizationRegistry(e=>e.dtor(e.a,e.b));function gf(e){let t=typeof e;if(t==`number`||t==`boolean`||e==null)return`${e}`;if(t==`string`)return`"${e}"`;if(t==`symbol`){let t=e.description;return t==null?`Symbol`:`Symbol(${t})`}if(t==`function`){let t=e.name;return typeof t==`string`&&t.length>0?`Function(${t})`:`Function`}if(Array.isArray(e)){let t=e.length,n=`[`;t>0&&(n+=gf(e[0]));for(let r=1;r<t;r++)n+=`, `+gf(e[r]);return n+=`]`,n}let n=/\[object ([^\]]+)\]/.exec(toString.call(e)),r;if(n&&n.length>1)r=n[1];else return toString.call(e);if(r==`Object`)try{return`Object(`+JSON.stringify(e)+`)`}catch{return`Object`}return e instanceof Error?`${e.name}: ${e.message}\n${e.stack}`:r}function _f(e){e<132||(Of[e]=kf,kf=e)}function vf(e,t){e>>>=0;let n=Y(),r=[];for(let i=e;i<e+4*t;i+=4)r.push(Q(n.getUint32(i,!0)));return r}function yf(e,t){return e>>>=0,wf().subarray(e/4,e/4+t)}function bf(e,t){return e>>>=0,Ef().subarray(e/1,e/1+t)}var xf=null;function Y(){return(xf===null||xf.buffer.detached===!0||xf.buffer.detached===void 0&&xf.buffer!==q.memory.buffer)&&(xf=new DataView(q.memory.buffer)),xf}function Sf(e,t){return e>>>=0,Lf(e,t)}var Cf=null;function wf(){return(Cf===null||Cf.byteLength===0)&&(Cf=new Uint32Array(q.memory.buffer)),Cf}var Tf=null;function Ef(){return(Tf===null||Tf.byteLength===0)&&(Tf=new Uint8Array(q.memory.buffer)),Tf}function X(e){return Of[e]}function Df(e,t){try{return e.apply(this,t)}catch(e){q.__wbindgen_export3(J(e))}}var Of=Array(128).fill(void 0);Of.push(void 0,null,!0,!1);var kf=Of.length;function Af(e){return e==null}function jf(e,t,n,r){let i={a:e,b:t,cnt:1,dtor:n},a=(...e)=>{i.cnt++;let t=i.a;i.a=0;try{return r(t,i.b,...e)}finally{i.a=t,a._wbg_cb_unref()}};return a._wbg_cb_unref=()=>{--i.cnt===0&&(i.dtor(i.a,i.b),i.a=0,hf.unregister(i))},hf.register(a,i,i),a}function Mf(e,t){let n=t(e.length*1,1)>>>0;return Ef().set(e,n/1),$=e.length,n}function Nf(e,t){let n=t(e.length*4,4)>>>0,r=Y();for(let t=0;t<e.length;t++)r.setUint32(n+4*t,J(e[t]),!0);return $=e.length,n}function Z(e,t,n){if(n===void 0){let n=Rf.encode(e),r=t(n.length,1)>>>0;return Ef().subarray(r,r+n.length).set(n),$=n.length,r}let r=e.length,i=t(r,1)>>>0,a=Ef(),o=0;for(;o<r;o++){let t=e.charCodeAt(o);if(t>127)break;a[i+o]=t}if(o!==r){o!==0&&(e=e.slice(o)),i=n(i,r,r=o+e.length*3,1)>>>0;let t=Ef().subarray(i+o,i+r),a=Rf.encodeInto(e,t);o+=a.written,i=n(i,r,o,1)>>>0}return $=o,i}function Q(e){let t=X(e);return _f(e),t}var Pf=new TextDecoder(`utf-8`,{ignoreBOM:!0,fatal:!0});Pf.decode();var Ff=2146435072,If=0;function Lf(e,t){return If+=t,If>=Ff&&(Pf=new TextDecoder(`utf-8`,{ignoreBOM:!0,fatal:!0}),Pf.decode(),If=t),Pf.decode(Ef().subarray(e,e+t))}var Rf=new TextEncoder;`encodeInto`in Rf||(Rf.encodeInto=function(e,t){let n=Rf.encode(e);return t.set(n),{read:e.length,written:n.length}});var $=0;function zf(e,t,n){q.__wasm_bindgen_func_elem_944(e,t,J(n))}function Bf(e,t,n,r){q.__wasm_bindgen_func_elem_37350(e,t,J(n),J(r))}var Vf=typeof FinalizationRegistry>`u`?{register:()=>{},unregister:()=>{}}:new FinalizationRegistry(e=>q.__wbg_incrserver_free(e>>>0,1)),Hf=typeof FinalizationRegistry>`u`?{register:()=>{},unregister:()=>{}}:new FinalizationRegistry(e=>q.__wbg_proxycontext_free(e>>>0,1)),Uf=typeof FinalizationRegistry>`u`?{register:()=>{},unregister:()=>{}}:new FinalizationRegistry(e=>q.__wbg_typstcompileworld_free(e>>>0,1)),Wf=typeof FinalizationRegistry>`u`?{register:()=>{},unregister:()=>{}}:new FinalizationRegistry(e=>q.__wbg_typstcompiler_free(e>>>0,1)),Gf=typeof FinalizationRegistry>`u`?{register:()=>{},unregister:()=>{}}:new FinalizationRegistry(e=>q.__wbg_typstcompilerbuilder_free(e>>>0,1)),Kf=typeof FinalizationRegistry>`u`?{register:()=>{},unregister:()=>{}}:new FinalizationRegistry(e=>q.__wbg_typstfontresolver_free(e>>>0,1)),qf=typeof FinalizationRegistry>`u`?{register:()=>{},unregister:()=>{}}:new FinalizationRegistry(e=>q.__wbg_typstfontresolverbuilder_free(e>>>0,1)),Jf=class e{static __wrap(t){t>>>=0;let n=Object.create(e.prototype);return n.__wbg_ptr=t,Vf.register(n,n.__wbg_ptr,n),n}__destroy_into_raw(){let e=this.__wbg_ptr;return this.__wbg_ptr=0,Vf.unregister(this),e}free(){let e=this.__destroy_into_raw();q.__wbg_incrserver_free(e,0)}set_attach_debug_info(e){q.incrserver_set_attach_debug_info(this.__wbg_ptr,e)}current(){try{let n=q.__wbindgen_add_to_stack_pointer(-16);q.incrserver_current(n,this.__wbg_ptr);var e=Y().getInt32(n+0,!0),t=Y().getInt32(n+4,!0);let r;return e!==0&&(r=bf(e,t).slice(),q.__wbindgen_export4(e,t*1,1)),r}finally{q.__wbindgen_add_to_stack_pointer(16)}}reset(){q.incrserver_reset(this.__wbg_ptr)}};Symbol.dispose&&(Jf.prototype[Symbol.dispose]=Jf.prototype.free);var Yf=class e{static __wrap(t){t>>>=0;let n=Object.create(e.prototype);return n.__wbg_ptr=t,Hf.register(n,n.__wbg_ptr,n),n}__destroy_into_raw(){let e=this.__wbg_ptr;return this.__wbg_ptr=0,Hf.unregister(this),e}free(){let e=this.__destroy_into_raw();q.__wbg_proxycontext_free(e,0)}constructor(e){let t=q.proxycontext_new(J(e));return this.__wbg_ptr=t>>>0,Hf.register(this,this.__wbg_ptr,this),this}get context(){return Q(q.proxycontext_context(this.__wbg_ptr))}untar(e,t){try{let r=q.__wbindgen_add_to_stack_pointer(-16),i=Mf(e,q.__wbindgen_export),a=$;q.proxycontext_untar(r,this.__wbg_ptr,i,a,J(t));var n=Y().getInt32(r+0,!0);if(Y().getInt32(r+4,!0))throw Q(n)}finally{q.__wbindgen_add_to_stack_pointer(16)}}};Symbol.dispose&&(Yf.prototype[Symbol.dispose]=Yf.prototype.free);var Xf=class e{static __wrap(t){t>>>=0;let n=Object.create(e.prototype);return n.__wbg_ptr=t,Uf.register(n,n.__wbg_ptr,n),n}__destroy_into_raw(){let e=this.__wbg_ptr;return this.__wbg_ptr=0,Uf.unregister(this),e}free(){let e=this.__destroy_into_raw();q.__wbg_typstcompileworld_free(e,0)}compile(e,t){try{let i=q.__wbindgen_add_to_stack_pointer(-16);q.typstcompileworld_compile(i,this.__wbg_ptr,e,t);var n=Y().getInt32(i+0,!0),r=Y().getInt32(i+4,!0);if(Y().getInt32(i+8,!0))throw Q(r);return Q(n)}finally{q.__wbindgen_add_to_stack_pointer(16)}}title(e){try{let i=q.__wbindgen_add_to_stack_pointer(-16);q.typstcompileworld_title(i,this.__wbg_ptr,e);var t=Y().getInt32(i+0,!0),n=Y().getInt32(i+4,!0),r=Y().getInt32(i+8,!0);if(Y().getInt32(i+12,!0))throw Q(r);let a;return t!==0&&(a=Sf(t,n).slice(),q.__wbindgen_export4(t,n*1,1)),a}finally{q.__wbindgen_add_to_stack_pointer(16)}}get_artifact(e,t){try{let i=q.__wbindgen_add_to_stack_pointer(-16);q.typstcompileworld_get_artifact(i,this.__wbg_ptr,e,t);var n=Y().getInt32(i+0,!0),r=Y().getInt32(i+4,!0);if(Y().getInt32(i+8,!0))throw Q(r);return Q(n)}finally{q.__wbindgen_add_to_stack_pointer(16)}}query(e,t,n){let r,i;try{let p=q.__wbindgen_add_to_stack_pointer(-16),m=Z(t,q.__wbindgen_export,q.__wbindgen_export2),h=$;var a=Af(n)?0:Z(n,q.__wbindgen_export,q.__wbindgen_export2),o=$;q.typstcompileworld_query(p,this.__wbg_ptr,e,m,h,a,o);var s=Y().getInt32(p+0,!0),c=Y().getInt32(p+4,!0),l=Y().getInt32(p+8,!0),u=Y().getInt32(p+12,!0),d=s,f=c;if(u)throw d=0,f=0,Q(l);return r=d,i=f,Sf(d,f)}finally{q.__wbindgen_add_to_stack_pointer(16),q.__wbindgen_export4(r,i,1)}}incr_compile(e,t){try{let i=q.__wbindgen_add_to_stack_pointer(-16);mf(e,Jf),q.typstcompileworld_incr_compile(i,this.__wbg_ptr,e.__wbg_ptr,t);var n=Y().getInt32(i+0,!0),r=Y().getInt32(i+4,!0);if(Y().getInt32(i+8,!0))throw Q(r);return Q(n)}finally{q.__wbindgen_add_to_stack_pointer(16)}}};Symbol.dispose&&(Xf.prototype[Symbol.dispose]=Xf.prototype.free);var Zf=class e{static __wrap(t){t>>>=0;let n=Object.create(e.prototype);return n.__wbg_ptr=t,Wf.register(n,n.__wbg_ptr,n),n}__destroy_into_raw(){let e=this.__wbg_ptr;return this.__wbg_ptr=0,Wf.unregister(this),e}free(){let e=this.__destroy_into_raw();q.__wbg_typstcompiler_free(e,0)}reset(){try{let t=q.__wbindgen_add_to_stack_pointer(-16);q.typstcompiler_reset(t,this.__wbg_ptr);var e=Y().getInt32(t+0,!0);if(Y().getInt32(t+4,!0))throw Q(e)}finally{q.__wbindgen_add_to_stack_pointer(16)}}set_fonts(e){try{let n=q.__wbindgen_add_to_stack_pointer(-16);mf(e,$f),q.typstcompiler_set_fonts(n,this.__wbg_ptr,e.__wbg_ptr);var t=Y().getInt32(n+0,!0);if(Y().getInt32(n+4,!0))throw Q(t)}finally{q.__wbindgen_add_to_stack_pointer(16)}}set_inputs(e){try{let n=q.__wbindgen_add_to_stack_pointer(-16);q.typstcompiler_set_inputs(n,this.__wbg_ptr,J(e));var t=Y().getInt32(n+0,!0);if(Y().getInt32(n+4,!0))throw Q(t)}finally{q.__wbindgen_add_to_stack_pointer(16)}}add_source(e,t){let n=Z(e,q.__wbindgen_export,q.__wbindgen_export2),r=$,i=Z(t,q.__wbindgen_export,q.__wbindgen_export2),a=$;return q.typstcompiler_add_source(this.__wbg_ptr,n,r,i,a)!==0}map_shadow(e,t){let n=Z(e,q.__wbindgen_export,q.__wbindgen_export2),r=$,i=Mf(t,q.__wbindgen_export),a=$;return q.typstcompiler_map_shadow(this.__wbg_ptr,n,r,i,a)!==0}unmap_shadow(e){let t=Z(e,q.__wbindgen_export,q.__wbindgen_export2),n=$;return q.typstcompiler_unmap_shadow(this.__wbg_ptr,t,n)!==0}reset_shadow(){q.typstcompiler_reset_shadow(this.__wbg_ptr)}get_loaded_fonts(){try{let r=q.__wbindgen_add_to_stack_pointer(-16);q.typstcompiler_get_loaded_fonts(r,this.__wbg_ptr);var e=Y().getInt32(r+0,!0),t=Y().getInt32(r+4,!0),n=vf(e,t).slice();return q.__wbindgen_export4(e,t*4,4),n}finally{q.__wbindgen_add_to_stack_pointer(16)}}get_ast(e){let t,n;try{let l=q.__wbindgen_add_to_stack_pointer(-16),u=Z(e,q.__wbindgen_export,q.__wbindgen_export2),d=$;q.typstcompiler_get_ast(l,this.__wbg_ptr,u,d);var r=Y().getInt32(l+0,!0),i=Y().getInt32(l+4,!0),a=Y().getInt32(l+8,!0),o=Y().getInt32(l+12,!0),s=r,c=i;if(o)throw s=0,c=0,Q(a);return t=s,n=c,Sf(s,c)}finally{q.__wbindgen_add_to_stack_pointer(16),q.__wbindgen_export4(t,n,1)}}get_semantic_token_legend(){try{let n=q.__wbindgen_add_to_stack_pointer(-16);q.typstcompiler_get_semantic_token_legend(n,this.__wbg_ptr);var e=Y().getInt32(n+0,!0),t=Y().getInt32(n+4,!0);if(Y().getInt32(n+8,!0))throw Q(t);return Q(e)}finally{q.__wbindgen_add_to_stack_pointer(16)}}get_semantic_tokens(e,t,n){try{let l=q.__wbindgen_add_to_stack_pointer(-16),u=Z(e,q.__wbindgen_export,q.__wbindgen_export2),d=$;var r=Af(t)?0:Z(t,q.__wbindgen_export,q.__wbindgen_export2),i=$,a=Af(n)?0:Z(n,q.__wbindgen_export,q.__wbindgen_export2),o=$;q.typstcompiler_get_semantic_tokens(l,this.__wbg_ptr,u,d,r,i,a,o);var s=Y().getInt32(l+0,!0),c=Y().getInt32(l+4,!0);if(Y().getInt32(l+8,!0))throw Q(c);return Q(s)}finally{q.__wbindgen_add_to_stack_pointer(16)}}snapshot(e,t,n){try{let d=q.__wbindgen_add_to_stack_pointer(-16);var r=Af(e)?0:Z(e,q.__wbindgen_export,q.__wbindgen_export2),i=$,a=Af(t)?0:Z(t,q.__wbindgen_export,q.__wbindgen_export2),o=$,s=Af(n)?0:Nf(n,q.__wbindgen_export),c=$;q.typstcompiler_snapshot(d,this.__wbg_ptr,r,i,a,o,s,c);var l=Y().getInt32(d+0,!0),u=Y().getInt32(d+4,!0);if(Y().getInt32(d+8,!0))throw Q(u);return Xf.__wrap(l)}finally{q.__wbindgen_add_to_stack_pointer(16)}}get_artifact(e,t){try{let i=q.__wbindgen_add_to_stack_pointer(-16),a=Z(e,q.__wbindgen_export,q.__wbindgen_export2),o=$;q.typstcompiler_get_artifact(i,this.__wbg_ptr,a,o,t);var n=Y().getInt32(i+0,!0),r=Y().getInt32(i+4,!0);if(Y().getInt32(i+8,!0))throw Q(r);return Q(n)}finally{q.__wbindgen_add_to_stack_pointer(16)}}compile(e,t,n,r){try{let u=q.__wbindgen_add_to_stack_pointer(-16);var i=Af(e)?0:Z(e,q.__wbindgen_export,q.__wbindgen_export2),a=$,o=Af(t)?0:Nf(t,q.__wbindgen_export),s=$;let d=Z(n,q.__wbindgen_export,q.__wbindgen_export2),f=$;q.typstcompiler_compile(u,this.__wbg_ptr,i,a,o,s,d,f,r);var c=Y().getInt32(u+0,!0),l=Y().getInt32(u+4,!0);if(Y().getInt32(u+8,!0))throw Q(l);return Q(c)}finally{q.__wbindgen_add_to_stack_pointer(16)}}query(e,t,n,r){let i,a;try{let g=q.__wbindgen_add_to_stack_pointer(-16),_=Z(e,q.__wbindgen_export,q.__wbindgen_export2),v=$;var o=Af(t)?0:Nf(t,q.__wbindgen_export),s=$;let y=Z(n,q.__wbindgen_export,q.__wbindgen_export2),b=$;var c=Af(r)?0:Z(r,q.__wbindgen_export,q.__wbindgen_export2),l=$;q.typstcompiler_query(g,this.__wbg_ptr,_,v,o,s,y,b,c,l);var u=Y().getInt32(g+0,!0),d=Y().getInt32(g+4,!0),f=Y().getInt32(g+8,!0),p=Y().getInt32(g+12,!0),m=u,h=d;if(p)throw m=0,h=0,Q(f);return i=m,a=h,Sf(m,h)}finally{q.__wbindgen_add_to_stack_pointer(16),q.__wbindgen_export4(i,a,1)}}create_incr_server(){try{let n=q.__wbindgen_add_to_stack_pointer(-16);q.typstcompiler_create_incr_server(n,this.__wbg_ptr);var e=Y().getInt32(n+0,!0),t=Y().getInt32(n+4,!0);if(Y().getInt32(n+8,!0))throw Q(t);return Jf.__wrap(e)}finally{q.__wbindgen_add_to_stack_pointer(16)}}incr_compile(e,t,n,r){try{let c=q.__wbindgen_add_to_stack_pointer(-16),l=Z(e,q.__wbindgen_export,q.__wbindgen_export2),u=$;var i=Af(t)?0:Nf(t,q.__wbindgen_export),a=$;mf(n,Jf),q.typstcompiler_incr_compile(c,this.__wbg_ptr,l,u,i,a,n.__wbg_ptr,r);var o=Y().getInt32(c+0,!0),s=Y().getInt32(c+4,!0);if(Y().getInt32(c+8,!0))throw Q(s);return Q(o)}finally{q.__wbindgen_add_to_stack_pointer(16)}}};Symbol.dispose&&(Zf.prototype[Symbol.dispose]=Zf.prototype.free);var Qf=class{__destroy_into_raw(){let e=this.__wbg_ptr;return this.__wbg_ptr=0,Gf.unregister(this),e}free(){let e=this.__destroy_into_raw();q.__wbg_typstcompilerbuilder_free(e,0)}constructor(){try{let n=q.__wbindgen_add_to_stack_pointer(-16);q.typstcompilerbuilder_new(n);var e=Y().getInt32(n+0,!0),t=Y().getInt32(n+4,!0);if(Y().getInt32(n+8,!0))throw Q(t);return this.__wbg_ptr=e>>>0,Gf.register(this,this.__wbg_ptr,this),this}finally{q.__wbindgen_add_to_stack_pointer(16)}}set_dummy_access_model(){try{let t=q.__wbindgen_add_to_stack_pointer(-16);q.typstcompilerbuilder_set_dummy_access_model(t,this.__wbg_ptr);var e=Y().getInt32(t+0,!0);if(Y().getInt32(t+4,!0))throw Q(e)}finally{q.__wbindgen_add_to_stack_pointer(16)}}set_access_model(e,t,n,r,i){return Q(q.typstcompilerbuilder_set_access_model(this.__wbg_ptr,J(e),J(t),J(n),J(r),J(i)))}set_package_registry(e,t){return Q(q.typstcompilerbuilder_set_package_registry(this.__wbg_ptr,J(e),J(t)))}add_raw_font(e){return Q(q.typstcompilerbuilder_add_raw_font(this.__wbg_ptr,J(e)))}add_lazy_font(e,t){return Q(q.typstcompilerbuilder_add_lazy_font(this.__wbg_ptr,J(e),J(t)))}build(){let e=this.__destroy_into_raw();return Q(q.typstcompilerbuilder_build(e))}};Symbol.dispose&&(Qf.prototype[Symbol.dispose]=Qf.prototype.free);var $f=class e{static __wrap(t){t>>>=0;let n=Object.create(e.prototype);return n.__wbg_ptr=t,Kf.register(n,n.__wbg_ptr,n),n}__destroy_into_raw(){let e=this.__wbg_ptr;return this.__wbg_ptr=0,Kf.unregister(this),e}free(){let e=this.__destroy_into_raw();q.__wbg_typstfontresolver_free(e,0)}};Symbol.dispose&&($f.prototype[Symbol.dispose]=$f.prototype.free);var ep=class{__destroy_into_raw(){let e=this.__wbg_ptr;return this.__wbg_ptr=0,qf.unregister(this),e}free(){let e=this.__destroy_into_raw();q.__wbg_typstfontresolverbuilder_free(e,0)}constructor(){try{let n=q.__wbindgen_add_to_stack_pointer(-16);q.typstfontresolverbuilder_new(n);var e=Y().getInt32(n+0,!0),t=Y().getInt32(n+4,!0);if(Y().getInt32(n+8,!0))throw Q(t);return this.__wbg_ptr=e>>>0,qf.register(this,this.__wbg_ptr,this),this}finally{q.__wbindgen_add_to_stack_pointer(16)}}get_font_info(e){try{let r=q.__wbindgen_add_to_stack_pointer(-16);q.typstfontresolverbuilder_get_font_info(r,this.__wbg_ptr,J(e));var t=Y().getInt32(r+0,!0),n=Y().getInt32(r+4,!0);if(Y().getInt32(r+8,!0))throw Q(n);return Q(t)}finally{q.__wbindgen_add_to_stack_pointer(16)}}add_raw_font(e){try{let n=q.__wbindgen_add_to_stack_pointer(-16);q.typstfontresolverbuilder_add_raw_font(n,this.__wbg_ptr,J(e));var t=Y().getInt32(n+0,!0);if(Y().getInt32(n+4,!0))throw Q(t)}finally{q.__wbindgen_add_to_stack_pointer(16)}}add_lazy_font(e,t){try{let r=q.__wbindgen_add_to_stack_pointer(-16);q.typstfontresolverbuilder_add_lazy_font(r,this.__wbg_ptr,J(e),J(t));var n=Y().getInt32(r+0,!0);if(Y().getInt32(r+4,!0))throw Q(n)}finally{q.__wbindgen_add_to_stack_pointer(16)}}build(){let e=this.__destroy_into_raw();return Q(q.typstfontresolverbuilder_build(e))}};Symbol.dispose&&(ep.prototype[Symbol.dispose]=ep.prototype.free);function tp(e){return Q(q.get_font_info(J(e)))}var np=new Set([`basic`,`cors`,`default`]);async function rp(e,t){if(typeof Response==`function`&&e instanceof Response){if(typeof WebAssembly.instantiateStreaming==`function`)try{return await WebAssembly.instantiateStreaming(e,t)}catch(t){if(e.ok&&np.has(e.type)&&e.headers.get(`Content-Type`)!==`application/wasm`)console.warn("`WebAssembly.instantiateStreaming` failed because your server does not serve Wasm with `application/wasm` MIME type. Falling back to `WebAssembly.instantiate` which is slower. Original error:\n",t);else throw t}let n=await e.arrayBuffer();return await WebAssembly.instantiate(n,t)}{let n=await WebAssembly.instantiate(e,t);return n instanceof WebAssembly.Instance?{instance:n,module:e}:n}}function ip(){let e={};return e.wbg={},e.wbg.__wbg_Error_52673b7de5a0ca89=function(e,t){return J(Error(Sf(e,t)))},e.wbg.__wbg_Number_2d1dcfcf4ec51736=function(e){return Number(X(e))},e.wbg.__wbg___wbindgen_bigint_get_as_i64_6e32f5e6aff02e1d=function(e,t){let n=X(t),r=typeof n==`bigint`?n:void 0;Y().setBigInt64(e+8,Af(r)?BigInt(0):r,!0),Y().setInt32(e+0,!Af(r),!0)},e.wbg.__wbg___wbindgen_boolean_get_dea25b33882b895b=function(e){let t=X(e),n=typeof t==`boolean`?t:void 0;return Af(n)?16777215:+!!n},e.wbg.__wbg___wbindgen_debug_string_adfb662ae34724b6=function(e,t){let n=Z(gf(X(t)),q.__wbindgen_export,q.__wbindgen_export2),r=$;Y().setInt32(e+4,r,!0),Y().setInt32(e+0,n,!0)},e.wbg.__wbg___wbindgen_in_0d3e1e8f0c669317=function(e,t){return X(e)in X(t)},e.wbg.__wbg___wbindgen_is_bigint_0e1a2e3f55cfae27=function(e){return typeof X(e)==`bigint`},e.wbg.__wbg___wbindgen_is_function_8d400b8b1af978cd=function(e){return typeof X(e)==`function`},e.wbg.__wbg___wbindgen_is_object_ce774f3490692386=function(e){let t=X(e);return typeof t==`object`&&!!t},e.wbg.__wbg___wbindgen_is_string_704ef9c8fc131030=function(e){return typeof X(e)==`string`},e.wbg.__wbg___wbindgen_is_undefined_f6b95eab589e0269=function(e){return X(e)===void 0},e.wbg.__wbg___wbindgen_jsval_eq_b6101cc9cef1fe36=function(e,t){return X(e)===X(t)},e.wbg.__wbg___wbindgen_jsval_loose_eq_766057600fdd1b0d=function(e,t){return X(e)==X(t)},e.wbg.__wbg___wbindgen_number_get_9619185a74197f95=function(e,t){let n=X(t),r=typeof n==`number`?n:void 0;Y().setFloat64(e+8,Af(r)?0:r,!0),Y().setInt32(e+0,!Af(r),!0)},e.wbg.__wbg___wbindgen_string_get_a2a31e16edf96e42=function(e,t){let n=X(t),r=typeof n==`string`?n:void 0;var i=Af(r)?0:Z(r,q.__wbindgen_export,q.__wbindgen_export2),a=$;Y().setInt32(e+4,a,!0),Y().setInt32(e+0,i,!0)},e.wbg.__wbg___wbindgen_throw_dd24417ed36fc46e=function(e,t){throw Error(Sf(e,t))},e.wbg.__wbg__wbg_cb_unref_87dfb5aaa0cbcea7=function(e){X(e)._wbg_cb_unref()},e.wbg.__wbg_call_3020136f7a2d6e44=function(){return Df(function(e,t,n){return J(X(e).call(X(t),X(n)))},arguments)},e.wbg.__wbg_call_78f94eb02ec7f9b2=function(){return Df(function(e,t,n,r,i){return J(X(e).call(X(t),X(n),X(r),X(i)))},arguments)},e.wbg.__wbg_call_abb4ff46ce38be40=function(){return Df(function(e,t){return J(X(e).call(X(t)))},arguments)},e.wbg.__wbg_done_62ea16af4ce34b24=function(e){return X(e).done},e.wbg.__wbg_entries_83c79938054e065f=function(e){return J(Object.entries(X(e)))},e.wbg.__wbg_error_7534b8e9a36f1ab4=function(e,t){let n,r;try{n=e,r=t,console.error(Sf(e,t))}finally{q.__wbindgen_export4(n,r,1)}},e.wbg.__wbg_error_85faeb8919b11cc6=function(e,t,n){console.error(X(e),X(t),X(n))},e.wbg.__wbg_getTimezoneOffset_45389e26d6f46823=function(e){return X(e).getTimezoneOffset()},e.wbg.__wbg_get_6b7bd52aca3f9671=function(e,t){let n=X(e)[t>>>0];return J(n)},e.wbg.__wbg_get_af9dab7e9603ea93=function(){return Df(function(e,t){return J(Reflect.get(X(e),X(t)))},arguments)},e.wbg.__wbg_get_with_ref_key_1dc361bd10053bfe=function(e,t){let n=X(e)[X(t)];return J(n)},e.wbg.__wbg_info_ce6bcc489c22f6f0=function(e){console.info(X(e))},e.wbg.__wbg_instanceof_ArrayBuffer_f3320d2419cd0355=function(e){let t;try{t=X(e)instanceof ArrayBuffer}catch{t=!1}return t},e.wbg.__wbg_instanceof_Map_084be8da74364158=function(e){let t;try{t=X(e)instanceof Map}catch{t=!1}return t},e.wbg.__wbg_instanceof_Uint8Array_da54ccc9d3e09434=function(e){let t;try{t=X(e)instanceof Uint8Array}catch{t=!1}return t},e.wbg.__wbg_isArray_51fd9e6422c0a395=function(e){return Array.isArray(X(e))},e.wbg.__wbg_isSafeInteger_ae7d3f054d55fa16=function(e){return Number.isSafeInteger(X(e))},e.wbg.__wbg_iterator_27b7c8b35ab3e86b=function(){let e=Symbol.iterator;return J(e)},e.wbg.__wbg_length_22ac23eaec9d8053=function(e){return X(e).length},e.wbg.__wbg_length_d45040a40c570362=function(e){return X(e).length},e.wbg.__wbg_new_1ba21ce319a06297=function(){return J({})},e.wbg.__wbg_new_25f239778d6112b9=function(){return J([])},e.wbg.__wbg_new_6421f6084cc5bc5a=function(e){return J(new Uint8Array(X(e)))},e.wbg.__wbg_new_8a6f238a6ece86ea=function(){return J(Error())},e.wbg.__wbg_new_b2db8aa2650f793a=function(e){return J(new Date(X(e)))},e.wbg.__wbg_new_df1173567d5ff028=function(e,t){return J(Error(Sf(e,t)))},e.wbg.__wbg_new_ff12d2b041fb48f1=function(e,t){try{var n={a:e,b:t};return J(new Promise((e,t)=>{let r=n.a;n.a=0;try{return Bf(r,n.b,e,t)}finally{n.a=r}}))}finally{n.a=n.b=0}},e.wbg.__wbg_new_from_slice_db0691b69e9d3891=function(e,t){return J(new Uint32Array(yf(e,t)))},e.wbg.__wbg_new_from_slice_f9c22b9153b26992=function(e,t){return J(new Uint8Array(bf(e,t)))},e.wbg.__wbg_new_no_args_cb138f77cf6151ee=function(e,t){return J(Function(Sf(e,t)))},e.wbg.__wbg_new_with_args_df9e7125ffe55248=function(e,t,n,r){return J(Function(Sf(e,t),Sf(n,r)))},e.wbg.__wbg_next_138a17bbf04e926c=function(e){let t=X(e).next;return J(t)},e.wbg.__wbg_next_3cfe5c0fe2a4cc53=function(){return Df(function(e){return J(X(e).next())},arguments)},e.wbg.__wbg_now_69d776cd24f5215b=function(){return Date.now()},e.wbg.__wbg_prototypesetcall_dfe9b766cdc1f1fd=function(e,t,n){Uint8Array.prototype.set.call(bf(e,t),X(n))},e.wbg.__wbg_proxycontext_new=function(e){return J(Yf.__wrap(e))},e.wbg.__wbg_push_7d9be8f38fc13975=function(e,t){return X(e).push(X(t))},e.wbg.__wbg_queueMicrotask_9b549dfce8865860=function(e){let t=X(e).queueMicrotask;return J(t)},e.wbg.__wbg_queueMicrotask_fca69f5bfad613a5=function(e){queueMicrotask(X(e))},e.wbg.__wbg_resolve_fd5bfbaa4ce36e1e=function(e){return J(Promise.resolve(X(e)))},e.wbg.__wbg_set_3f1d0b984ed272ed=function(e,t,n){X(e)[Q(t)]=Q(n)},e.wbg.__wbg_set_781438a03c0c3c81=function(){return Df(function(e,t,n){return Reflect.set(X(e),X(t),X(n))},arguments)},e.wbg.__wbg_set_7df433eea03a5c14=function(e,t,n){X(e)[t>>>0]=Q(n)},e.wbg.__wbg_stack_0ed75d68575b0f3c=function(e,t){let n=X(t).stack,r=Z(n,q.__wbindgen_export,q.__wbindgen_export2),i=$;Y().setInt32(e+4,i,!0),Y().setInt32(e+0,r,!0)},e.wbg.__wbg_static_accessor_GLOBAL_769e6b65d6557335=function(){let e=typeof global>`u`?null:global;return Af(e)?0:J(e)},e.wbg.__wbg_static_accessor_GLOBAL_THIS_60cf02db4de8e1c1=function(){let e=typeof globalThis>`u`?null:globalThis;return Af(e)?0:J(e)},e.wbg.__wbg_static_accessor_SELF_08f5a74c69739274=function(){let e=typeof self>`u`?null:self;return Af(e)?0:J(e)},e.wbg.__wbg_static_accessor_WINDOW_a8924b26aa92d024=function(){let e=typeof window>`u`?null:window;return Af(e)?0:J(e)},e.wbg.__wbg_then_4f95312d68691235=function(e,t){return J(X(e).then(X(t)))},e.wbg.__wbg_typstcompiler_new=function(e){return J(Zf.__wrap(e))},e.wbg.__wbg_typstfontresolver_new=function(e){return J($f.__wrap(e))},e.wbg.__wbg_value_57b7b035e117f7ee=function(e){let t=X(e).value;return J(t)},e.wbg.__wbindgen_cast_2241b6af4c4b2941=function(e,t){return J(Sf(e,t))},e.wbg.__wbindgen_cast_3334ea73b4b28ba3=function(e,t){return J(jf(e,t,q.__wasm_bindgen_func_elem_957,zf))},e.wbg.__wbindgen_cast_4625c577ab2ec9ee=function(e){return J(BigInt.asUintN(64,e))},e.wbg.__wbindgen_cast_9ae0607507abb057=function(e){return J(e)},e.wbg.__wbindgen_cast_d6cd19b81560fd6e=function(e){return J(e)},e.wbg.__wbindgen_object_clone_ref=function(e){return J(X(e))},e.wbg.__wbindgen_object_drop_ref=function(e){Q(e)},e}function ap(e,t){return q=e.exports,sp.__wbindgen_wasm_module=t,xf=null,Cf=null,Tf=null,q}function op(e){if(q!==void 0)return q;e!==void 0&&(Object.getPrototypeOf(e)===Object.prototype?{module:e}=e:console.warn("using deprecated parameters for `initSync()`; pass a single object instead"));let t=ip();return e instanceof WebAssembly.Module||(e=new WebAssembly.Module(e)),ap(new WebAssembly.Instance(e,t),e)}async function sp(e){if(q!==void 0)return q;e!==void 0&&(Object.getPrototypeOf(e)===Object.prototype?{module_or_path:e}=e:console.warn(`using deprecated parameters for the initialization function; pass a single object instead`)),e===void 0&&(e=cp(`typst_ts_web_compiler_bg.wasm`,void 0));let t=ip();(typeof e==`string`||typeof Request==`function`&&e instanceof Request||typeof URL==`function`&&e instanceof URL)&&(e=fetch(e));let{instance:n,module:r}=await rp(await e,t);return ap(n,r)}var cp=async function(e,t){throw Error(`Cannot import wasm module without importer: `+e+` `+t)};function lp(e){cp=e}var up=s({IncrServer:()=>Jf,ProxyContext:()=>Yf,TypstCompileWorld:()=>Xf,TypstCompiler:()=>Zf,TypstCompilerBuilder:()=>Qf,TypstFontResolver:()=>$f,TypstFontResolverBuilder:()=>ep,default:()=>dp,get_font_info:()=>tp,initSync:()=>op,setImportWasmModule:()=>lp}),dp=sp;typeof process<`u`&&process.versions!=null&&process.versions.node!=null&&lp(async function(e,t){let{readFileSync:n}=await Function(`m`,`return import(m)`)(`fs`);return await n(new URL(e,t)).buffer});
+
+var fp=`0.7.0`,pp=`v0.13.1`,mp=`https://cdn.jsdelivr.net/npm/@myriaddreamin/typst-ts-web-compiler@${fp}/pkg/typst_ts_web_compiler_bg.wasm`,hp=`https://cdn.jsdelivr.net/gh/typst`,gp=`typst.wasm`,_p=`fonts`,vp={base:{id:`base`,repo:`typst-assets@${pp}`,size:8703180.8,files:[`DejaVuSansMono-Bold.ttf`,`DejaVuSansMono-BoldOblique.ttf`,`DejaVuSansMono-Oblique.ttf`,`DejaVuSansMono.ttf`,`LibertinusSerif-Bold.otf`,`LibertinusSerif-BoldItalic.otf`,`LibertinusSerif-Italic.otf`,`LibertinusSerif-Regular.otf`,`LibertinusSerif-Semibold.otf`,`LibertinusSerif-SemiboldItalic.otf`,`NewCM10-Bold.otf`,`NewCM10-BoldItalic.otf`,`NewCM10-Italic.otf`,`NewCM10-Regular.otf`,`NewCMMath-Bold.otf`,`NewCMMath-Book.otf`,`NewCMMath-Regular.otf`]},emoji:{id:`emoji`,repo:`typst-dev-assets@${pp}`,size:4718592,files:[`NotoColorEmoji-Regular-COLR.subset.ttf`]}},yp=[`.ttf`,`.otf`,`.ttc`,`.otc`],bp=e=>e.map(({severity:e,message:t,path:n,range:r})=>[e,n&&r?`${n}:${r}`:n,t].filter(Boolean).join(`: `)).join(`
+`),xp=class{constructor(e){this.compiler=e}async compile(e,t,n={}){await this.compiler.reset();let r=e.startsWith(`/`)?e:`/${e}`;this.compiler.addSource(r,t);for(let[e,t]of Object.entries(n))this.compiler.mapShadow(e.startsWith(`/`)?e:`/${e}`,t);let i=await this.compiler.compile({mainFilePath:r,format:1,diagnostics:`full`});return{pdf:i.result??void 0,diagnostics:bp(i.diagnostics??[])}}};
+
+async function Sp(e,t){let n=uf();return await n.init({getModule:()=>e,getWrapper:()=>Promise.resolve(up),beforeBuild:[tf(t,{assets:!1})]}),new xp(n)}
+
+var Cp=class{#e;#t;constructor(e){this.plugin=e}get directory(){return`${this.plugin.manifest.dir.replaceAll(`\\`,`/`)}/${Pd}`}get filePath(){return`${this.directory}/${gp}`}get fontDirectory(){return`${this.directory}/${_p}`}async isInstalled(){return await this.plugin.app.vault.adapter.exists(this.filePath)}async install(e){let{adapter:t}=this.plugin.app.vault;await t.mkdir(this.directory),await t.mkdir(this.fontDirectory),e?.(`downloading`);let{arrayBuffer:n}=await(0,u.requestUrl)({url:mp});if(n.byteLength===0)throw Error(`The downloaded typst binary is empty`);return await this.installFonts(`base`,e),e?.(`writing`),await t.writeBinary(this.filePath,n),this.forget(),fp}async installFonts(e,t){let{adapter:n}=this.plugin.app.vault,r=vp[e];await n.mkdir(this.directory),await n.mkdir(this.fontDirectory);let i=0;t?.(`fonts`,0,r.files.length);for(let e of r.files){let{arrayBuffer:a}=await(0,u.requestUrl)({url:`${hp}/${r.repo}/files/fonts/${e}`});await n.writeBinary(`${this.fontDirectory}/${e}`,a),t?.(`fonts`,i+=1,r.files.length)}this.forget()}async removeFonts(e){let{adapter:t}=this.plugin.app.vault;for(let n of vp[e].files){let e=`${this.fontDirectory}/${n}`;await t.exists(e)&&await t.remove(e)}this.forget()}async hasFonts(e){return await this.plugin.app.vault.adapter.exists(`${this.fontDirectory}/${vp[e].files[0]}`)}async remove(){let{adapter:e}=this.plugin.app.vault;await e.exists(this.filePath)&&await e.remove(this.filePath);for(let e of Object.keys(vp))await this.removeFonts(e);this.forget()}forget(){this.#e=void 0,this.#t=void 0}async load(){if(this.#e)return this.#e;this.#t??=this.#n();try{return await this.#t}catch(e){throw this.#t=void 0,e}}async#n(){let{adapter:e}=this.plugin.app.vault;if(!await e.exists(this.filePath))throw Error(`Typst is not installed`);let t=await e.readBinary(this.filePath);return this.#e=await Sp(new Uint8Array(t),await this.#r()),this.#e}async#r(){let e=[];for(let t of await this.#i())try{e.push(new Uint8Array(await this.plugin.app.vault.adapter.readBinary(t)))}catch(e){console.warn(`Pandoc GUI: "${t}" could not be read as a font —`,e)}return e}async#i(){let{adapter:e}=this.plugin.app.vault,t=[this.fontDirectory,this.plugin.settings.typstFontsDir?.trim()],n=[];for(let r of t){if(!r||!await e.exists(r))continue;let{files:t}=await e.list(r);n.push(...t.filter(e=>yp.includes(e.slice(e.lastIndexOf(`.`)).toLowerCase())))}return n}async fontCount(){return(await this.#i()).length}async vaultFontCount(){let{adapter:e}=this.plugin.app.vault,t=this.plugin.settings.typstFontsDir?.trim();if(!t||!await e.exists(t))return 0;let{files:n}=await e.list(t);return n.filter(e=>yp.includes(e.slice(e.lastIndexOf(`.`)).toLowerCase())).length}};
+/* Pd : constante (nom de dossier "wasm") — extraite de la chaine var d'origine */
+var Pd=`wasm`;
+
