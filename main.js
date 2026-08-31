@@ -2064,6 +2064,11 @@ class Markdown2TexPlugin extends Plugin {
   }
 
   async convertToTex() {
+    // Sur mobile : le pipeline desktop utilise fs/path natifs (writeFileSync, podman...)
+    // qui n'existent pas. On bascule sur le pipeline adapter/WASM mobile.
+    if (!Platform.isDesktop) {
+      return this.convertToTexMobile();
+    }
     if (!this.vlatex) {
       new Notice("vLaTeX WASM non initialisé.");
       return null;
@@ -2203,6 +2208,26 @@ class Markdown2TexPlugin extends Plugin {
       });
     };
     runPass();
+  }
+
+  async convertToTexMobile() {
+    if (!this.vlatex) { new Notice("vLaTeX WASM non initialisé."); return null; }
+    const activeFile = this.app.workspace.getActiveFile();
+    if (!activeFile || activeFile.extension !== "md") { new Notice("Sélectionnez un fichier Markdown."); return null; }
+    new Notice("Conversion LaTeX (WASM mobile)...");
+    try {
+      const { parentDir, fileStem, fullTex } = await this.convertToLatexMobile(activeFile);
+      const texRel = (parentDir ? parentDir + "/" : "") + fileStem + ".tex";
+      try { await vaultMkdir(this.app, parentDir || "/"); } catch (e) {}
+      await vaultWriteText(this.app, texRel, fullTex);
+      console.log("[mergdown2tex][mobile] .tex écrit via adapter:", texRel, fullTex.length);
+      new Notice("✅ LaTeX généré: " + fileStem + ".tex (" + fullTex.length + " octets)");
+      return { texRel, fullTex };
+    } catch (e) {
+      console.error("[mergdown2tex][mobile] convertToTex error:", e);
+      new Notice("❌ Erreur conversion .tex mobile: " + e.message);
+      return null;
+    }
   }
 
   async getTypstCompiler() {
