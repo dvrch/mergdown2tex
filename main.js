@@ -2154,55 +2154,65 @@ class Markdown2TexPlugin extends Plugin {
 
   async getTypstCompiler() {
     if (this.typstCompiler) return this.typstCompiler;
+    // Dossier WASM DANS NOTRE plugin (auto-hébergé, aucune dépendance à pandoc-gui).
+    const dir = ((this.manifest && this.manifest.dir) || ".obsidian/plugins/mergdowntotex").replace(/\\/g, "/") + "/wasm";
+    const wasmRel = dir + "/typst.wasm";
+    const fontRelDir = dir + "/fonts";
     const a = adapterGet(this.app);
-    const relDir = ".obsidian/plugins/pandoc-gui/wasm";
+
     let wasmBytes = null;
-    // 1) typst.wasm : réutiliser celui de pandoc-gui s'il existe, sinon télécharger
     try {
-      if (a && typeof a.exists === "function" && await a.exists(relDir + "/typst.wasm")) {
-        wasmBytes = new Uint8Array(await a.readBinary(relDir + "/typst.wasm"));
+      if (await vaultExists(this.app, wasmRel)) {
+        wasmBytes = new Uint8Array(await vaultReadBinary(this.app, wasmRel));
       }
     } catch (e) { /* ignore */ }
     if (!wasmBytes || wasmBytes.length === 0) {
-      new Notice("Téléchargement de typst.wasm...");
+      new Notice("Téléchargement de typst.wasm dans le plugin...");
       const resp = await requestUrl({ url: mp, throw: false });
       if (resp.status < 200 || resp.status >= 300) throw new Error("Téléchargement typst.wasm échoué (HTTP " + resp.status + ")");
       wasmBytes = new Uint8Array(resp.arrayBuffer);
-      try { await this.app.vault.adapter.mkdir(relDir); await this.app.vault.adapter.writeBinary(relDir + "/typst.wasm", wasmBytes); } catch (e) {}
+      try { await vaultMkdir(this.app, wasmRel.split("/").slice(0, -1).join("/")); } catch (e) {}
+      try { await vaultWriteBinary(this.app, wasmRel, wasmBytes); } catch (e) {}
     }
-    // 2) fonts : réutiliser celles de pandoc-gui, sinon télécharger les "base"
+
+    // Rassemble les fonts : toute .ttf/.otf/.ttc/.otc présente dans NOTRE dossier fonts.
     let fonts = [];
-    const fontRelDir = relDir + "/fonts";
     try {
-      if (a && typeof a.list === "function") {
-        const listing = await a.list(fontRelDir);
-        const names = (listing && listing.files) || [];
-        for (const n of names) {
-          if (/\.(ttf|otf|ttc|otc)$/i.test(n)) {
-            try { fonts.push(new Uint8Array(await a.readBinary(fontRelDir + "/" + n))); } catch (e) {}
-          }
-        }
+      const names = await this.vaultListFontNames(fontRelDir);
+      for (const n of names) {
+        try { fonts.push(new Uint8Array(await vaultReadBinary(this.app, fontRelDir + "/" + n))); } catch (e) {}
       }
     } catch (e) { /* ignore */ }
-    if (fonts.length < 5) {
-      new Notice("Téléchargement des polices Typst (base)...");
+    if (fonts.length < 4) {
+      new Notice("Téléchargement des 17 polices Typst dans le plugin...");
       const files = (vp && vp.base && vp.base.files) || [];
-      try { await this.app.vault.adapter.mkdir(fontRelDir); } catch (e) {}
+      try { await vaultMkdir(this.app, fontRelDir); } catch (e) {}
       for (const file of files) {
         try {
           const resp = await requestUrl({ url: `${hp}/${vp.base.repo}/files/fonts/${file}`, throw: false });
           if (resp.status < 200 || resp.status >= 300) continue;
           const arr = new Uint8Array(resp.arrayBuffer);
           fonts.push(arr);
-          try { await this.app.vault.adapter.writeBinary(fontRelDir + "/" + file, arr); } catch (e) {}
+          try { await vaultWriteBinary(this.app, fontRelDir + "/" + file, arr); } catch (e) {}
         } catch (e) { console.warn("[mergdown2tex] font dl failed:", file, e.message); }
       }
     }
-    if (fonts.length === 0) throw new Error("Aucune police Typst disponible. Installez pandoc-gui ou téléchargez les polices Typst.");
+    if (fonts.length === 0) throw new Error("Aucune police Typst disponible. Connexion requise pour les télécharger dans le plugin.");
+
     new Notice("Chargement de Typst WASM...");
     this.typstCompiler = await Sp(wasmBytes, fonts);
     new Notice("Typst WASM initialisé !");
     return this.typstCompiler;
+  }
+
+  async vaultListFontNames(relDir) {
+    const a = adapterGet(this.app);
+    try {
+      const listing = a && typeof a.list === "function" ? await a.list(relDir) : null;
+      const names = (listing && (listing.files || listing)) || [];
+      if (Array.isArray(names)) return names.filter((n) => /\.(ttf|otf|ttc|otc)$/i.test(n));
+      return [];
+    } catch (e) { return []; }
   }
 
   async compilePdfMobile() {
@@ -2212,12 +2222,14 @@ class Markdown2TexPlugin extends Plugin {
     new Notice("Compilation PDF (Pandoc WASM + Typst)...");
     try {
       const { parentDir, fileStem, fullTex, content } = await this.convertToLatexMobile(activeFile);
-      const typCompiler = await this.getTypstCompiler();
 
       const texRel = (parentDir ? parentDir + "/" : "") + fileStem + ".tex";
+      try { await vaultMkdir(this.app, (parentDir || "/")); } catch (e) {}
       await vaultWriteText(this.app, texRel, fullTex);
+      new Notice("Fichier .tex écrit. Initialisation de Typst...");
 
       const wasmEngine = await this.getPandocWasmEngine();
+      const typCompiler = await this.getTypstCompiler();
       const wasmFS = new WasmFileSystem(this.app.vault, "");
       const numberSectionsFlag = this.settings.enableDocxNumbering ? " --number-sections" : "";
       const inputRel = ("/" + texRel).replace(/\\/g, "/");
