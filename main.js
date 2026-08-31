@@ -51,6 +51,59 @@ const crypto = (_nativeModules.crypto) || _nativeStub();
 const zlib = (_nativeModules.zlib) || null;
 const exec = (_nativeModules.exec) || _stubUnavailable("exec");
 
+// --- Shim Buffer (Obsidian mobile n'expose pas le global Node "Buffer") ---
+// Fournit uniquement les méthodes utilisées par le plugin (from / alloc), avec
+// décodage base64 natif, et retourne un Uint8Array compatible WebAssembly.
+if (typeof Buffer === "undefined") {
+  const _b64toBytes = (b64) => {
+    const bin = globalThis.atob ? globalThis.atob(b64) : null;
+    if (bin !== null) {
+      const out = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
+      return out;
+    }
+    // fallback conservateur (sans atob)
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let out = [];
+    let buffer = 0, bits = 0;
+    for (let i = 0; i < b64.length; i++) {
+      const c = b64[i];
+      if (c === "=") break;
+      const idx = chars.indexOf(c);
+      if (idx < 0) continue;
+      buffer = (buffer << 6) | idx;
+      bits += 6;
+      if (bits >= 8) {
+        bits -= 8;
+        out.push((buffer >> bits) & 0xff);
+      }
+    }
+    return new Uint8Array(out);
+  };
+  globalThis.Buffer = Object.assign(function BufferShim() { throw new Error("BufferShim: use Buffer.from/alloc"); }, {
+    from(data, encoding) {
+      if (data == null) return new Uint8Array(0);
+      if (typeof data === "string") {
+        if (encoding === "base64") return _b64toBytes(data);
+        const bytes = [];
+        for (let i = 0; i < data.length; i++) {
+          const code = data.charCodeAt(i);
+          if (code <= 0x7f) bytes.push(code);
+          else if (code <= 0x7ff) { bytes.push(0xc0 | (code >> 6)); bytes.push(0x80 | (code & 0x3f)); }
+          else { bytes.push(0xe0 | (code >> 12)); bytes.push(0x80 | ((code >> 6) & 0x3f)); bytes.push(0x80 | (code & 0x3f)); }
+        }
+        return new Uint8Array(bytes);
+      }
+      if (data instanceof Uint8Array) return data;
+      if (Array.isArray(data)) return new Uint8Array(data);
+      if (data && typeof data === "object" && data.byteLength !== undefined) return new Uint8Array(data);
+      return new Uint8Array(0);
+    },
+    alloc(size) { return new Uint8Array(size || 0); },
+    isBuffer(x) { return x instanceof Uint8Array; },
+  });
+}
+
 // --- Helpers d'accès fichier multiplateforme (PC + Android) ---
 // Sur desktop on utilise fs natif ; sur mobile on utilise app.vault.adapter.
 // Tous prennent un chemin RELATIF au vault (style "Dossier/fichier.tex").
