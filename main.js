@@ -1637,6 +1637,9 @@ class Markdown2TexPlugin extends Plugin {
    * Obsidian ne peut pas ouvrir les .tex, donc on part toujours du .md.
    */
   async texToMarkdown() {
+    if (typeof Platform !== "undefined" && !Platform.isDesktop) {
+      return this.texToMarkdownMobile();
+    }
     if (!this.vlatex) {
       new Notice("vLaTeX WASM non initialisé.");
       return;
@@ -1670,6 +1673,9 @@ class Markdown2TexPlugin extends Plugin {
    * auto-suffisant, servira de source pour convertToTex.
    */
   async expandToMd() {
+    if (typeof Platform !== "undefined" && !Platform.isDesktop) {
+      return this.expandToMdMobile();
+    }
     if (!this.vlatex) {
       new Notice("vLaTeX WASM non initialisé.");
       return;
@@ -1808,13 +1814,25 @@ class Markdown2TexPlugin extends Plugin {
       new Notice("Le fichier actif n'est pas un fichier Markdown.");
       return null;
     }
+    const mobile = !(typeof Platform !== "undefined" && Platform.isDesktop);
+    if (mobile) {
+      // Sur mobile, pas de FS natif ni de base path : on travaille en chemins
+      // RELATIFS au vault (style "Dossier/note.md"), écrits via app.vault/adapter.
+      const vaultRoot = "";
+      const mdPath = activeFile.path;
+      const parentDir = activeFile.parent ? activeFile.parent.path : "";
+      const fileStem = activeFile.basename;
+      const content = await this.app.vault.read(activeFile);
+      console.log("[mergdown2tex] active file (mobile):", mdPath);
+      return { vaultRoot, mdPath, parentDir, fileStem, content, activeFile, mobile: true };
+    }
     const vaultRoot = this.app.vault.adapter.getBasePath();
     const mdPath = path.join(vaultRoot, activeFile.path);
     const parentDir = path.dirname(mdPath);
     const fileStem = activeFile.basename;
     const content = await this.app.vault.read(activeFile);
     console.log("[mergdown2tex] active file:", mdPath);
-    return { vaultRoot, mdPath, parentDir, fileStem, content, activeFile };
+    return { vaultRoot, mdPath, parentDir, fileStem, content, activeFile, mobile: false };
   }
 
   processDataviewInline(content, sourceFile) {
@@ -2230,6 +2248,65 @@ class Markdown2TexPlugin extends Plugin {
     }
   }
 
+  async expandToMdMobile() {
+    if (!this.vlatex) { new Notice("vLaTeX WASM non initialisé."); return; }
+    const activeFile = this.app.workspace.getActiveFile();
+    if (!activeFile || activeFile.extension !== "md") { new Notice("Sélectionnez un fichier Markdown."); return; }
+    new Notice("Génération du Markdown étendu (WASM mobile)...");
+    try {
+      const content = await this.app.vault.read(activeFile);
+      const processed = this.processDataviewInline(content, activeFile);
+      const vfsJson = "{}";
+      const expanded = this.vlatex.expand_to_standalone_markdown(
+        processed,
+        "",
+        activeFile.path,
+        vfsJson,
+      );
+      const parentDir = activeFile.parent ? activeFile.parent.path : "";
+      const expandedRel = (parentDir ? parentDir + "/" : "") + activeFile.basename + ".expanded.md";
+      let file = this.app.vault.getAbstractFileByPath(expandedRel);
+      try {
+        if (file && file.constructor && file.constructor.name === "TFile") {
+          await this.app.vault.modify(file, expanded);
+        } else {
+          file = await this.app.vault.create(expandedRel, expanded);
+        }
+      } catch (e) {
+        await this.app.vault.create(expandedRel, expanded);
+      }
+      console.log("[mergdown2tex][mobile] .expanded.md écrit via adapter:", expandedRel);
+      new Notice("✅ Markdown étendu: " + activeFile.basename + ".expanded.md");
+    } catch (e) {
+      console.error("[mergdown2tex][mobile] expandToMd error:", e);
+      new Notice("❌ Erreur expand mobile: " + e.message);
+    }
+  }
+
+  async texToMarkdownMobile() {
+    if (!this.vlatex) { new Notice("vLaTeX WASM non initialisé."); return; }
+    const activeFile = this.app.workspace.getActiveFile();
+    if (!activeFile || activeFile.extension !== "md") { new Notice("Sélectionnez un fichier Markdown."); return; }
+    try {
+      const parentDir = activeFile.parent ? activeFile.parent.path : "";
+      const texRel = (parentDir ? parentDir + "/" : "") + activeFile.basename + ".tex";
+      if (!(await vaultExists(this.app, texRel))) {
+        new Notice("❌ Fichier LaTeX introuvable : " + activeFile.basename + ".tex\nConvertissez d'abord en LaTeX.");
+        return;
+      }
+      new Notice("Conversion LaTeX vers Markdown en cours...");
+      const texContent = await vaultReadText(this.app, texRel);
+      const markdown = this.vlatex.latex_to_markdown(texContent);
+      const mdOutRel = (parentDir ? parentDir + "/" : "") + activeFile.basename + "_conv.md";
+      await vaultWriteText(this.app, mdOutRel, markdown);
+      console.log("[mergdown2tex][mobile] .md écrit via adapter:", mdOutRel, markdown.length);
+      new Notice("✅ Markdown généré: " + activeFile.basename + "_conv.md (" + markdown.length + " octets)");
+    } catch (e) {
+      console.error("[mergdown2tex][mobile] tex->md error:", e);
+      new Notice("❌ Erreur: " + e.message);
+    }
+  }
+
   async getTypstCompiler() {
     if (this.typstCompiler) return this.typstCompiler;
     // Dossier WASM DANS NOTRE plugin (auto-hébergé, aucune dépendance à pandoc-gui).
@@ -2467,6 +2544,16 @@ class Markdown2TexPlugin extends Plugin {
         embeds: [],
       });
       if (result.stderr) console.log("[mergdown2tex][mobile] pandoc stderr:", result.stderr);
+      console.log("[mergdown2tex][mobile] pandoc written:", JSON.stringify(result.written));
+
+      // Rafraîchir le vault pour qu'Obsidian mobile voie le nouveau fichier.
+      try { this.app.vault.getAllLoadedFiles(); this.app.workspace.trigger("layout-change"); } catch (e) {}
+      try { if (this.app.vault.adapter.trigger) this.app.vault.adapter.trigger("modify", docxRel); } catch (e) {}
+
+      // Vérification explicite : le .docx doit exister après la conversion.
+      if (!(await vaultExists(this.app, docxRel))) {
+        throw new Error("Pandoc n'a pas produit le .docx (stderr: " + (result.stderr || "aucun") + "). Le fichier " + docxTexRel + " resté est le .tex intermédiaire.");
+      }
 
       // Post-process flèches / en-tête-pied / couleurs de tableau via WASM embarqué
       try {
@@ -2475,11 +2562,19 @@ class Markdown2TexPlugin extends Plugin {
         try { out = this.vlatex.modify_docx_arrows(out, docxTex); } catch (e) {}
         try { out = this.vlatex.add_docx_header_footer(out, this.settings.headerContent || "", this.settings.footerContent || "", this.settings.enableHeader || false, this.settings.enableFooter || false); } catch (e) {}
         try { out = this.vlatex.add_docx_table_colors(out, docxTex); } catch (e) {}
-        await this.app.vault.adapter.writeBinary(docxRel, out);
+        // Garde-fou : ne jamais écraser le .docx par un résultat non-ZIP (un échec WASM
+        // pourrait retourner un tableau vide/tronqué → fichier corrompu).
+        const isZip = out && typeof out.byteLength === "number" && out.byteLength > 4 &&
+          out[0] === 0x50 && out[1] === 0x4b && out[2] === 0x03 && out[3] === 0x04;
+        if (isZip) {
+          await this.app.vault.adapter.writeBinary(docxRel, out);
+        } else {
+          console.error("[mergdown2tex][mobile] post-process a retourné un non-ZIP, on garde le .docx de pandoc intact.");
+        }
       } catch (postErr) {
         console.error("[mergdown2tex][mobile] post-process error:", postErr);
       }
-      new Notice("✅ DOCX compilé sur mobile !");
+      new Notice("✅ DOCX compilé sur mobile ! (" + fileStem + ".docx)");
     } catch (e) {
       console.error("[mergdown2tex][mobile] DOCX error:", e);
       new Notice("❌ Erreur DOCX mobile: " + e.message);
