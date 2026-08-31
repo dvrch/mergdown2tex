@@ -198,6 +198,115 @@ function requirePathOrNull() {
   return (_nativeModules && _nativeModules.path) ? _nativeModules.path : null;
 }
 
+// ===========================================================================
+// Écrivain ZIP en pur JS (méthode STORE, sans compression) — fiable sur PC et
+// Android (aucune dépendance à zlib/archiver). Structure identique à un .zip :
+//   [entrée header + données + CRC32]... [central directory] [EOCD]
+// ===========================================================================
+const _crcTable = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+
+function zipCrc32(bytes, start = 0, end) {
+  let c = 0xffffffff;
+  const len = (end === undefined) ? bytes.length : end;
+  for (let i = start; i < len; i++) {
+    c = _crcTable[(c ^ bytes[i]) & 0xff] ^ (c >>> 8);
+  }
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+// Construit un fichier .zip binaire depuis un tableau d'entrées
+// [{ name: "Dossier/fichier.png", data: Uint8Array }].
+// Le chemin `name` est stocké en relatif sans barre initiale (style vault).
+function buildZip(entries) {
+  const parts = [];
+  const central = [];
+  let offset = 0;
+  const enc = (s) => new TextEncoder().encode(s);
+
+  const u16 = (v) => [v & 0xff, (v >>> 8) & 0xff];
+  const u32 = (v) => [v & 0xff, (v >>> 8) & 0xff, (v >>> 16) & 0xff, (v >>> 24) & 0xff];
+
+  for (const entry of entries) {
+    const nameBytes = enc(entry.name);
+    const data = entry.data;
+    const crc = zipCrc32(data);
+    const size = data.length;
+    const nameLen = nameBytes.length;
+    const localExtraLen = 0;
+    const localHead = new Uint8Array(30);
+    localHead.set([0x50, 0x4b, 0x03, 0x04]);                       // local file header signature
+    localHead[4] = 20;                                              // version needed
+    localHead[5] = 0;
+    localHead[6] = 0x00; localHead[7] = 0x08;                        // general purpose bit flag (UTF-8 names)
+    localHead[8] = 0x00; localHead[9] = 0x00;                        // method: 0 = STORE
+    localHead.set(u16(0), 10);                                       // mod time (0)
+    localHead.set(u16(0), 12);                                       // mod date (0)
+    localHead.set(u32(crc), 14);                                     // CRC-32
+    localHead.set(u32(size), 18);                                    // compressed size
+    localHead.set(u32(size), 22);                                    // uncompressed size
+    localHead.set(u16(nameLen), 26);                                 // name len
+    localHead.set(u16(localExtraLen), 28);                           // extra len
+
+    parts.push(localHead);
+    parts.push(nameBytes);
+    parts.push(data);
+
+    const localBegin = offset;
+    const localSize = 30 + nameLen + size;
+    offset += localSize;
+
+    const centralHead = new Uint8Array(46);
+    centralHead.set([0x50, 0x4b, 0x01, 0x02]);                      // central directory header
+    centralHead[4] = 20; centralHead[5] = 0;                         // version made by
+    centralHead[6] = 20; centralHead[7] = 0;                         // version needed
+    centralHead.set([0x00, 0x08], 8);                                // general purpose bit flag
+    centralHead.set([0x00, 0x00], 10);                               // method STORE
+    centralHead.set(u16(0), 12); centralHead.set(u16(0), 14);        // time/date
+    centralHead.set(u32(crc), 16);                                   // CRC-32
+    centralHead.set(u32(size), 20); centralHead.set(u32(size), 24);  // sizes
+    centralHead.set(u16(nameLen), 28);                               // name len
+    centralHead.set(u16(0), 30);                                     // extra len
+    centralHead.set(u16(0), 32);                                     // comment len
+    centralHead.set(u16(0), 34);                                     // disk number
+    centralHead.set(u16(0), 36);                                     // internal attrs
+    centralHead.set(u32(0), 38);                                     // external attrs
+    centralHead.set(u32(localBegin), 42);                            // local header offset
+
+    central.push(centralHead);
+    central.push(nameBytes);
+  }
+
+  const centralDirOffset = offset;
+
+  // End of central directory record
+  const centralSize = central.reduce((a, c) => a + c.length, 0);
+  const eocd = new Uint8Array(22);
+  eocd.set([0x50, 0x4b, 0x05, 0x06]);                      // EOCD signature
+  eocd.set(u16(0), 4);                                      // disk number
+  eocd.set(u16(0), 6);                                      // disk with central dir
+  eocd.set(u16(entries.length), 8);                         // entries on this disk
+  eocd.set(u16(entries.length), 10);                        // total entries
+  eocd.set(u32(centralSize), 12);                           // central dir size
+  eocd.set(u32(centralDirOffset), 16);                      // central dir offset
+  eocd.set(u16(0), 20);                                     // comment len
+
+  const all = [...parts, ...central, eocd];
+  const total = all.reduce((a, c) => a + c.length, 0);
+  const out = new Uint8Array(total);
+  let o = 0;
+  for (const p of all) { out.set(p, o); o += p.length; }
+  return out;
+}
+
+
 // === WASM Base64 Placeholder ===
 // En développement, on charge le wasm depuis le disque.
 // En release, bundle-release.js remplace ce placeholder par le vrai Base64.
@@ -1675,6 +1784,14 @@ class Markdown2TexPlugin extends Plugin {
         await this.expandToMd();
       },
     });
+
+    this.addCommand({
+      id: "mergdown2tex-zip-related",
+      name: "MergDown2TeX: ZIP des ressources liées de la note (_exp.zip)",
+      callback: async () => {
+        await this.zipRelatedResources();
+      },
+    });
   }
 
   /**
@@ -1840,6 +1957,148 @@ class Markdown2TexPlugin extends Plugin {
     }
 
     return { processed, vfs };
+  }
+
+  // =========================================================================
+  // ZIP "structure liée" : isole les ressources (embeds, images, liens, bib,
+  // blocs mermaid bruts) qui concourent au fichier actif, dans l'ordre logique
+  // de leurs dossiers du vault. N'inclut AUCUN artefact généré (.tex/.pdf/.docx).
+  // Fonctionne sur PC et Android via getFirstLinkpathDest + app.vault.adapter.
+  // =========================================================================
+  async collectRelatedResources(activeFile, depth = 0, seen = new Set()) {
+    if (depth > 10) return new Map();
+    const files = new Map(); // relVaultPath -> Uint8Array
+    if (!activeFile || activeFile.extension !== "md") return files;
+
+    const store = (relPath, data) => {
+      const key = relPath.replace(/^\/+/, "").replace(/\\/g, "/");
+      if (key && !files.has(key)) files.set(key, data);
+    };
+
+    // Le .md source lui-même (texte brut) et ses blocs mermaid bruts
+    let content = "";
+    try { content = await this.app.vault.read(activeFile); } catch (e) {}
+    const srcRel = activeFile.path.replace(/^\/+/, "");
+    store(srcRel, new TextEncoder().encode(content));
+
+    // Blocs mermaid -> fichiers .mmd bruts (texte), comme dans le markdown
+    const mermaidRegex = /```mermaid\s*\n([\s\S]+?)```/g;
+    let mm;
+    let mmIdx = 0;
+    while ((mm = mermaidRegex.exec(content)) !== null) {
+      const mmdName = `mermaid_diagrams/${activeFile.basename}_diagram_${mmIdx}.mmd`;
+      store(mmdName, new TextEncoder().encode(mm[1]));
+      mmIdx++;
+    }
+
+    const baseRelDir = (activeFile.parent && activeFile.parent.path
+      ? activeFile.parent.path.replace(/^\/+/, "")
+      : "");
+
+    const addByDest = async (fileRef, sourcePath) => {
+      let dest = null;
+      try { dest = this.app.metadataCache.getFirstLinkpathDest(fileRef, sourcePath); } catch (e) {}
+      if (!dest || !dest.path) return;
+      const rel = dest.path.replace(/^\/+/, "").replace(/\\/g, "/");
+      if (files.has(rel) || seen.has(rel)) return;
+      seen.add(rel);
+      // Lecture binaire (images) ou texte (notes)
+      const isMd = dest.extension === "md";
+      let data;
+      try {
+        if (isMd) {
+          data = new TextEncoder().encode(await this.app.vault.read(dest));
+          store(rel, data);
+          // Récursion sur les embeds de cette note
+          const sub = await this.collectRelatedResources(dest, depth + 1, seen);
+          for (const [k, v] of sub) if (!files.has(k)) files.set(k, v);
+        } else {
+          data = await vaultReadBinary(this.app, rel);
+          if (data && data.length > 0) store(rel, data);
+        }
+      } catch (e) { /* skip inaccessible */ }
+    };
+
+    // 1) Wikilinks / embeds natifs : ![[note]]  et  [[note]]
+    const wikiRe = /!?\[\[([^\]|]+)(?:#[^\]|]*)?(?:\|[^\]\n]*)?\]\]/g;
+    let wm;
+    while ((wm = wikiRe.exec(content)) !== null) {
+      const fileRef = wm[1].trim();
+      if (!fileRef) continue;
+      await addByDest(fileRef, activeFile.path);
+    }
+
+    // 2) Images/liens markdown classiques : ![alt](path)  et  [text](path)
+    const mdLinkRe = /!?\[[^\]]*\]\(([^)]+)\)/g;
+    let lm;
+    const baseDirForRel = baseRelDir;
+    while ((lm = mdLinkRe.exec(content)) !== null) {
+      let target = lm[1].trim();
+      if (/^[a-z]+:/i.test(target)) continue;          // URL externe (http/https/data/...)
+      target = target.split(/[?#]/)[0];                 // retire ancre/query
+      if (!target) continue;
+      let rel;
+      if (target.startsWith("/")) {
+        rel = target.replace(/^\/+/, "");
+      } else {
+        rel = (baseDirForRel ? baseDirForRel + "/" : "") + target;
+      }
+      rel = rel.replace(/\\/g, "/").replace(/^\.\//, "");
+      const clean = rel.split("/").map((s) => (s === ".." || s === "." ? "" : s)).filter(Boolean).join("/");
+      if (!clean) continue;
+      let dest = null;
+      try { dest = this.app.metadataCache.getFirstLinkpathDest(target, activeFile.path); } catch (e) {}
+      const finalRel = dest && dest.path ? dest.path.replace(/^\/+/, "") : clean;
+      const isMd = (dest && dest.extension === "md") || finalRel.toLowerCase().endsWith(".md");
+      let data;
+      try {
+        if (isMd && dest) {
+          data = new TextEncoder().encode(await this.app.vault.read(dest));
+          store(finalRel, data);
+          const sub = await this.collectRelatedResources(dest, depth + 1, seen);
+          for (const [k, v] of sub) if (!files.has(k)) files.set(k, v);
+        } else {
+          data = await vaultReadBinary(this.app, finalRel);
+          if (data && data.length > 0) store(finalRel, data);
+        }
+      } catch (e) { /* skip */ }
+    }
+
+    return files;
+  }
+
+  async zipRelatedResources() {
+    const activeFile = this.app.workspace.getActiveFile();
+    if (!activeFile || activeFile.extension !== "md") {
+      new Notice("Sélectionnez un fichier Markdown.");
+      return;
+    }
+    new Notice("Collecte des ressources liées...");
+    try {
+      const seen = new Set();
+      const files = await this.collectRelatedResources(activeFile, 0, seen);
+
+      // Nom du zip : <nom_fichier>_exp.zip, dans le même dossier que le fichier
+      const parentRel = (activeFile.parent && activeFile.parent.path
+        ? activeFile.parent.path.replace(/^\/+/, "")
+        : "");
+      const zipName = activeFile.basename + "_exp.zip";
+      const zipRel = (parentRel ? parentRel + "/" : "") + zipName;
+
+      const entries = [];
+      for (const [name, data] of files) entries.push({ name, data });
+
+      const zipBytes = buildZip(entries);
+
+      await vaultMkdir(this.app, parentRel || "/");
+      await vaultWriteBinary(this.app, zipRel, zipBytes);
+      try { this.app.workspace.trigger("layout-change"); } catch (e) {}
+      new Notice(`✅ ZIP créé : ${zipName} (${entries.length} fichiers, ${(zipBytes.length / 1024).toFixed(0)} Ko)`);
+      console.log("[mergdown2tex] zip written:", zipRel, zipBytes.length, "entries:", entries.length);
+    } catch (e) {
+      console.error("[mergdown2tex] zip error:", e);
+      new Notice("❌ Erreur ZIP: " + e.message, 6000);
+    }
   }
 
   async loadSettings() {
