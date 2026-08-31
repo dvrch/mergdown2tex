@@ -1053,6 +1053,17 @@ class Markdown2TexSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
+      .setName("Moteur Typst WASM (PDF)")
+      .setDesc("Compilation PDF via pandoc.wasm + typst.wasm. Si typst.wasm (ou les polices) manquent, cliquez pour télécharger automatiquement depuis GitHub.")
+      .addButton((btn) => {
+        btn.setButtonText("Statut & installer").onClick(async () => {
+          const ok = await this.plugin.ensureTypstWasm();
+          new Notice(ok ? "Typst WASM : installé et prêt ✅" : "Typst WASM : introuvable après installation ❌", 4000);
+          this.display();
+        });
+      });
+
+    new Setting(containerEl)
       .setName("Chemin de la bibliographie (.bib)")
       .setDesc(
         "Chemin absolu ou relatif depuis la racine du vault vers votre fichier .bib. Laissé vide pour chercher automatiquement.",
@@ -1266,16 +1277,51 @@ class Markdown2TexPlugin extends Plugin {
     }
   }
 
+  pandocWasmRel() {
+    // Chemin unique du pandoc.wasm auto-hébergé (dossier wasm/, cohérent avec le build).
+    return ".obsidian/plugins/" + this.manifest.id + "/wasm/pandoc.wasm";
+  }
+
   async pandocWasmExists() {
-    const rel = ".obsidian/plugins/" + this.manifest.id + "/pandoc.wasm";
+    const rel = this.pandocWasmRel();
     const a = adapterGet(this.app);
     if (a && typeof a.exists === "function") {
       // Mobile ou desktop : écoute via l'adapter (app.vault.adapter)
       try { return await a.exists(rel); } catch (e) { /* fallback fs */ }
     }
     try {
-      return fs.existsSync(path.join(this.getPluginDir(), "pandoc.wasm"));
+      return fs.existsSync(path.join(this.getPluginDir(), "wasm", "pandoc.wasm"));
     } catch (e) {
+      return false;
+    }
+  }
+
+  typstWasmRel() {
+    // Chemin unique du typst.wasm auto-hébergé (dossier wasm/, cohérent avec le build).
+    return ".obsidian/plugins/" + this.manifest.id + "/wasm/typst.wasm";
+  }
+
+  async typstWasmExists() {
+    const rel = this.typstWasmRel();
+    const a = adapterGet(this.app);
+    if (a && typeof a.exists === "function") {
+      try { return await a.exists(rel); } catch (e) { /* fallback fs */ }
+    }
+    try {
+      return fs.existsSync(path.join(this.getPluginDir(), "wasm", "typst.wasm"));
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async ensureTypstWasm() {
+    if (await this.typstWasmExists()) return true;
+    // Force le téléchargement via getTypstCompiler (qui remplit wasm/typst.wasm + fonts).
+    try {
+      const c = await this.getTypstCompiler();
+      return !!c && (await this.typstWasmExists());
+    } catch (e) {
+      new Notice("Échec installation Typst: " + e.message, 5000);
       return false;
     }
   }
@@ -1289,7 +1335,7 @@ class Markdown2TexPlugin extends Plugin {
     const arrBuf = resp.arrayBuffer;
     const wasmBytes = this.extractWasmFromZip(arrBuf, release.browser_download_url);
     const pluginDir = this.getPluginDir();
-    const outPath = path.join(pluginDir, "pandoc.wasm");
+    const outPath = path.join(pluginDir, "wasm", "pandoc.wasm");
     const adapter = this.app.vault.adapter;
     if (adapter.getBasePath || adapter.getFullPath) {
       const rel = path.relative(this.app.vault.adapter.getBasePath ? this.app.vault.adapter.getBasePath() : adapter.getFullPath("/"), outPath).replace(/\\/g, "/");
@@ -1496,7 +1542,7 @@ class Markdown2TexPlugin extends Plugin {
 
   async getPandocWasmEngine() {
     if (this.pandocWasmEngine) return this.pandocWasmEngine;
-    const rel = ".obsidian/plugins/" + this.manifest.id + "/pandoc.wasm";
+    const rel = this.pandocWasmRel();
     let wasmBytes = null;
     const a = adapterGet(this.app);
     if (a && typeof a.readBinary === "function") {
@@ -1511,7 +1557,7 @@ class Markdown2TexPlugin extends Plugin {
     // Desktop fallback fs
     if (!wasmBytes) {
       const pluginDir = this.getPluginDir();
-      const wasmPath = path.join(pluginDir, "pandoc.wasm");
+      const wasmPath = path.join(pluginDir, "wasm", "pandoc.wasm");
       if (!fs.existsSync(wasmPath)) {
         new Notice("pandoc.wasm absent — téléchargement automatique en cours...", 5000);
         const ok = await this.ensurePandocWasm();
