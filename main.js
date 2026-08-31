@@ -2263,7 +2263,7 @@ class Markdown2TexPlugin extends Plugin {
         activeFile.path,
         vfsJson,
       );
-      const parentDir = activeFile.parent ? activeFile.parent.path : "";
+      const parentDir = (activeFile.parent ? activeFile.parent.path : "").replace(/^\/+/, "");
       const expandedRel = (parentDir ? parentDir + "/" : "") + activeFile.basename + ".expanded.md";
       let file = this.app.vault.getAbstractFileByPath(expandedRel);
       try {
@@ -2288,7 +2288,7 @@ class Markdown2TexPlugin extends Plugin {
     const activeFile = this.app.workspace.getActiveFile();
     if (!activeFile || activeFile.extension !== "md") { new Notice("Sélectionnez un fichier Markdown."); return; }
     try {
-      const parentDir = activeFile.parent ? activeFile.parent.path : "";
+      const parentDir = (activeFile.parent ? activeFile.parent.path : "").replace(/^\/+/, "");
       const texRel = (parentDir ? parentDir + "/" : "") + activeFile.basename + ".tex";
       if (!(await vaultExists(this.app, texRel))) {
         new Notice("❌ Fichier LaTeX introuvable : " + activeFile.basename + ".tex\nConvertissez d'abord en LaTeX.");
@@ -2487,7 +2487,9 @@ class Markdown2TexPlugin extends Plugin {
   async convertToLatexMobile(activeFile, vaultRoot, mdPath) {
     // Pipeline LaTeX simplifié pour mobile : utilise UNIQUEMENT le WASM embarqué
     // et app.vault.adapter (aucun fs/podman/mermaid).
-    const parentDir = activeFile.parent ? activeFile.parent.path : "";
+    // NB: sur Android, activeFile.parent.path peut commencer par "/" ; on normalise
+    // pour éviter des chemins "///Dossier avec espace/..." qui cassent les args pandoc.
+    const parentDir = (activeFile.parent ? activeFile.parent.path : "").replace(/^\/+/, "");
     const fileStem = activeFile.basename;
     const content = await this.app.vault.read(activeFile);
     let processed = this.processDataviewInline(content, activeFile);
@@ -2516,44 +2518,102 @@ class Markdown2TexPlugin extends Plugin {
         .replace(/\\documentclass\s*\[[^\]]*\]\s*\{[^}]*\}/g, '').replace(/\\documentclass\s*\{[^}]*\}/g, '')
         .replace(/\\usepackage\s*(?:\[[^\]]*\])?\s*\{[^}]*\}/g, '').replace(/\\RequirePackage\s*(?:\[[^\]]*\])?\s*\{[^}]*\}/g, '')
         .replace(/\\documentstyle\s*(?:\[[^\]]*\])?\s*\{[^}]*\}/g, '');
-      // Écrit le _docx.tex via adapter
+      // Écrit le _docx.tex via adapter (le contenu finalisé/neutralisé est écrit
+      // juste avant les tentatives pandoc, après la neutralisation des images).
       await vaultMkdir(this.app, relParentDir || "/");
-      await vaultWriteText(this.app, docxTexRel, docxPreamble + docxTexEval + "\n\\end{document}\n");
 
       const wasmEngine = await this.getPandocWasmEngine();
       const wasmFS = new WasmFileSystem(this.app.vault, "");
       const numberSectionsFlag = this.settings.enableDocxNumbering ? " --number-sections" : "";
       const inputRel = ("/" + docxTexRel).replace(/\\/g, "/");
       const outputRel = ("/" + docxRel).replace(/\\/g, "/");
-      let wasmCmd = `pandoc "${inputRel}" -o "${outputRel}" --mathml --resource-path=${relParentDir ? "/" + relParentDir.replace(/\\/g, "/") : "/"} --embed-resources --standalone --toc --toc-depth=6${numberSectionsFlag}`;
 
-      let resources = [];
+      // --- Neutralisation mobile : images inexistantes ---
+      // Sur mobile, les diagrammes mermaid et certaines images embeeds ne sont pas
+      // matérialisés (pas de mmdc/fs). Un \includegraphics{image_absente} fait échouer
+      // pandoc avec « withBinaryFile: does not exist » (fatal avec --toc).
+      // On remplace ces appels par une description en italique, et on ne fournit à
+      // pandoc que les images réellement présentes.
       const imgRe = /\\includegraphics(?:\[[^}]*\])?\{([^}]+)\}/g;
       let imgMatch;
+      const missing = [];   // chemins non trouvés
+      const found = [];     // chemins trouvés (présents dans le vault)
       while ((imgMatch = imgRe.exec(docxTexEval)) !== null) {
         const imgRel = imgMatch[1].replace(/^\.\//, "");
         let full = (relParentDir ? relParentDir + "/" : "") + imgRel;
-        if (await vaultExists(this.app, full)) resources.push("/" + full);
+        if (await vaultExists(this.app, full)) {
+          found.push("/" + full);
+        } else {
+          missing.push(imgMatch[0]);
+        }
       }
+      let docxTexForPandoc = docxTexEval;
+      if (missing.length > 0) {
+        console.log("[mergdown2tex][mobile] images absentes neutralisées:", missing.length);
+        docxTexForPandoc = docxTexEval.replace(
+          /\\begin\{figure\}(?:\[[^\]]*\])?\s*(?:\\centering\s*)?(?:\\includegraphics(?:\[[^}]*\])?\{[^}]+\})\s*(?:\\caption\{[^}]*\})?\s*\\label\{[^}]*\}\s*\\end\{figure\}/g,
+          (m) => "\\emph{(diagramme non disponible sur mobile)}",
+        ).replace(/\\includegraphics(?:\[[^}]*\])?\{[^}]+\}/g, "\\emph{(image non disponible sur mobile)}");
+      }
+      const resources = found;
 
-      console.log("[mergdown2tex][mobile] running Pandoc WASM:", wasmCmd);
-      const result = await runPandocWasm(wasmEngine, wasmFS, {
-        command: wasmCmd,
-        vaultDir: "",
-        resources,
-        embeds: [],
-      });
-      if (result.stderr) console.log("[mergdown2tex][mobile] pandoc stderr:", result.stderr);
-      console.log("[mergdown2tex][mobile] pandoc written:", JSON.stringify(result.written));
+      let result = null;
+      let lastErr = "";
+      let lastCmd = "";
+      // Tentatives successives : on retire progressivement les options pouvant
+      // poser problème sur mobile (toc, embed-resources, standalone, mathml).
+      const cmdVariants = [
+        { toc: true, emb: true, std: true, math: true },
+        { toc: false, emb: true, std: true, math: true },
+        { toc: false, emb: false, std: true, math: true },
+        { toc: false, emb: false, std: false, math: false },
+      ];
+      // Réécrit le docxTexRel avec le contenu neutralisé AVANT les tentatives.
+      await vaultWriteText(this.app, docxTexRel, docxPreamble + docxTexForPandoc + "\n\\end{document}\n");
+      for (const v of cmdVariants) {
+        const flags = (numberSectionsFlag ? " --number-sections" : "") +
+          (v.toc ? " --toc --toc-depth=6" : "") +
+          (v.emb ? " --embed-resources" : "") +
+          (v.std ? " --standalone" : "") +
+          (v.math ? " --mathml" : "");
+        const resPath = relParentDir ? "/" + relParentDir.replace(/\\/g, "/") : "/";
+        const cmd = `pandoc "${inputRel}" -o "${outputRel}" --resource-path="${resPath}"${flags}`;
+        lastCmd = cmd;
+        console.log("[mergdown2tex][mobile] running Pandoc WASM:", cmd);
+        try {
+          result = await runPandocWasm(wasmEngine, wasmFS, { command: cmd, vaultDir: "", resources, embeds: [] });
+          if (result.stderr) console.log("[mergdown2tex][mobile] pandoc stderr:", result.stderr);
+          const produced = await vaultExists(this.app, docxRel);
+          console.log("[mergdown2tex][mobile] variante:", JSON.stringify(v), "written:", JSON.stringify(result.written || []), "produced:", produced);
+          if (result && result.written && Array.isArray(result.written) && result.written.length > 0 && !produced) {
+            // pandoc a écrit quelque part (chemin virtuel) mais le vault ne le voit pas
+            console.log("[mergdown2tex][mobile] pandoc a écrit mais fichier invisible dans le vault:", JSON.stringify(result.written));
+          }
+          if (produced) break;
+          lastErr = result.stderr || "aucun stderr, fichier non produit";
+          result = null;
+          try { await this.app.vault.adapter.remove(docxRel); } catch (e) {}
+        } catch (runErr) {
+          lastErr = runErr.message;
+          result = null;
+        }
+      }
+      if (!result) {
+        // Aucune tentative n'a produit un .docx : on lève avec TOUT le détail.
+        // On écrit aussi un diagnostic dans le vault (trace des lectures/écritures
+        // WasmFileSystem) pour comprendre pourquoi pandoc n'a rien produit.
+        try {
+          const diag = (globalThis.__mergdiag || []).join("\n");
+          const diagText = "=== DOCX mobile " + new Date().toISOString() + " ===\ncmd=" + lastCmd + "\n" + diag + "\n";
+          await vaultWriteText(this.app, (relParentDir ? relParentDir + "/" : "") + "mergdowntex-diag.txt", diagText);
+        } catch (de) { console.warn("[mergdown2tex][mobile] diag write failed:", de.message); }
+        globalThis.__mergdiag = [];
+        throw new Error("Pandoc n'a pas produit le .docx. stderr: " + lastErr + ". Fichier " + docxTexRel + " = .tex intermédiaire. Diagnostic écrit dans mergdowntex-diag.txt");
+      }
 
       // Rafraîchir le vault pour qu'Obsidian mobile voie le nouveau fichier.
-      try { this.app.vault.getAllLoadedFiles(); this.app.workspace.trigger("layout-change"); } catch (e) {}
+      try { this.app.workspace.trigger("layout-change"); } catch (e) {}
       try { if (this.app.vault.adapter.trigger) this.app.vault.adapter.trigger("modify", docxRel); } catch (e) {}
-
-      // Vérification explicite : le .docx doit exister après la conversion.
-      if (!(await vaultExists(this.app, docxRel))) {
-        throw new Error("Pandoc n'a pas produit le .docx (stderr: " + (result.stderr || "aucun") + "). Le fichier " + docxTexRel + " resté est le .tex intermédiaire.");
-      }
 
       // Post-process flèches / en-tête-pied / couleurs de tableau via WASM embarqué
       try {
@@ -2568,13 +2628,15 @@ class Markdown2TexPlugin extends Plugin {
           out[0] === 0x50 && out[1] === 0x4b && out[2] === 0x03 && out[3] === 0x04;
         if (isZip) {
           await this.app.vault.adapter.writeBinary(docxRel, out);
+          new Notice("✅ DOCX compilé sur mobile ! (" + fileStem + ".docx)");
         } else {
           console.error("[mergdown2tex][mobile] post-process a retourné un non-ZIP, on garde le .docx de pandoc intact.");
+          new Notice("✅ DOCX généré (sans post-process) : " + fileStem + ".docx");
         }
       } catch (postErr) {
         console.error("[mergdown2tex][mobile] post-process error:", postErr);
+        new Notice("✅ DOCX généré (sans post-process) : " + fileStem + ".docx");
       }
-      new Notice("✅ DOCX compilé sur mobile ! (" + fileStem + ".docx)");
     } catch (e) {
       console.error("[mergdown2tex][mobile] DOCX error:", e);
       new Notice("❌ Erreur DOCX mobile: " + e.message);
