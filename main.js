@@ -3112,10 +3112,23 @@ class Markdown2TexPlugin extends Plugin {
     // Fallback : sonder les noms de polices connues via getFiles()/read.
     if (out.size < 4) {
       const known = ["LibertinusSerif-Regular.otf","LibertinusSerif-Bold.otf","LibertinusSerif-Italic.otf","LibertinusSerif-Semibold.otf","DejaVuSans.ttf","DejaVuSans-Bold.ttf","DejaVuSerif.ttf","DejaVuSansMono.ttf","NewCMMath-Regular.otf","NewCMMath-Bold.otf","NewCMMath-Italic.otf","NewCMMath-Book.otf"];
-      for (const name  fixLatexCrossRefs(tex) {
+      for (const name of known) {
+        if (await vaultExists(this.app, relDir + "/" + name)) out.add(name);
+      }
+    }
+    return out;
+  }
+
+  fixLatexCrossRefs(tex) {
     if (!tex) return tex;
-    const toLiteral = (id) => "[" + id + "]"; 
-    
+    const toLiteral = (id) => "[" + id + "]";
+
+    // STRIP \hypertarget from inside equation environments
+    // (Pandoc's math parser crashes on unexpected control sequences inside math)
+    tex = tex.replace(/\\begin\{(equation\*?|align\*?|gather\*?|aligned|split)\}([\s\S]*?)\\end\{\1\}/g, (full) => {
+      return full.replace(/\\hypertarget\{[^}]+\}\{\}/g, "");
+    });
+
     const counts = {};
     const labelRe = /\\label\{([^}]+)\}/g;
     const definedLabels = new Set();
@@ -3124,12 +3137,12 @@ class Markdown2TexPlugin extends Plugin {
       const id = m[1];
       counts[id] = (counts[id] || 0) + 1;
     }
-    
+
     tex = tex.replace(/\\label\{([^}]+)\}/g, (full, id) => {
       if (counts[id] > 1) {
         counts[id] -= 1;
         const newId = id + "_" + (counts[id] + 1);
-        definedLabels.add(newId); 
+        definedLabels.add(newId);
         return "\\label{" + newId + "}";
       }
       definedLabels.add(id);
@@ -3156,7 +3169,7 @@ class Markdown2TexPlugin extends Plugin {
       }
       return full;
     });
-    
+
     tex = tex.replace(/\\hyperref\[([^\]}]+)\]\{([^}]*)\}/g, (full, id, label) => {
       if (!definedLabels.has(id)) {
         return label && label.trim() ? label : id;
@@ -3170,22 +3183,7 @@ class Markdown2TexPlugin extends Plugin {
       }
       return full;
     });
-    
-    return tex;
-  }([^}]*)\}|\\namecref\{([^}]*)\}|\\namedref\{([^}]*)\}|\\pageref\{([^}]*)\}/g, (full, a, b, c, d, e, f, g2, h, i) => {
-      const ids = [a, b, c, d, e, f, g2, h, i].filter((s) => s).flatMap((s) => s.split(",").map((x) => x.trim()).filter(Boolean));
-      if (!ids.some(isBlockId)) return full; // laisser les refs normales
-      return ids.map((id) => (isBlockId(id) ? toLiteral(id) : id)).join(", ");
-    });
-    tex = tex.replace(/\\hyperref\[([^\]}]+)\]\{([^}]*)\}/g, (full, id, label) => {
-      if (!isBlockId(id)) return full;
-      const inner = label && label.trim() ? label : id;
-      return inner;
-    });
-    // retire les \label de bloc : leurs références sont neutralisées, donc ce
-    // sont des labels morts dans le .typ — les retirer supprime les doublons
-    // (« occurs multiple times ») et les labels hors-float incorrects.
-    tex = tex.replace(/\\label\{([^}]+)\}/g, (full, id) => (isBlockId(id) ? "" : full));
+
     return tex;
   }
 
