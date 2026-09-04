@@ -2,6 +2,11 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [2.0.1] — 2026-09-04
+
+### Corrigé
+- Publication Obsidian : `main.js` et `manifest.json` exposés **à la racine** du dépôt (structure requise par `obsidian-releases`), release générée par GitHub Actions avec les notes du changelog.
+
 ## [2.0.0] — 2026-09-04
 
 ### Ajouté
