@@ -1,7 +1,7 @@
 {
   "id": "mergdowntotex",
   "name": "mergdowntotex",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "minAppVersion": "1.0.1",
   "description": "Merge & doc. export everything — embeds, Zotero/Pandoc citations, Mermaid, equations, cross-refs — into a unique .tex file. Compile to PDF, DOCX, or InDesign. WASM engine, zero build step.",
   "author": "DJONTSO",

@@ -6,6 +6,8 @@ on:
 
 permissions:
   contents: write
+  id-token: write
+  attestations: write
 
 concurrency:
   group: release
@@ -29,6 +31,16 @@ jobs:
             on {print}
           ' CHANGELOG.md > notes.md || true
           test -s notes.md || echo "See [CHANGELOG](https://dvrch.github.io/mergdown2tex/) for details." > notes.md
+
+      - name: Attest build provenance (main.js)
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: main.js
+
+      - name: Attest build provenance (manifest.json)
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: manifest.json
 
       - name: Create Release
         env:
