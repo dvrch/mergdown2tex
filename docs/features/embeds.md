@@ -28,8 +28,11 @@ graph TD
 
 **Output:**
 ```latex
-\input{important_note}
+// Le contenu de « Important Note » est expansé inline dans le document.
 ```
+
+!!! note "Expansion inline"
+    Contrairement à un simple `\input{}`, MergDown2TeX **intègre directement le contenu** de la note embarquée dans le `.tex` (avec hiérarchie de sections ajustée). C'est ce qui permet de tout réunir dans un seul fichier autonome, y compris les blocs numérotés et les références croisées.
 
 ### Embed with heading
 
@@ -40,7 +43,7 @@ graph TD
 
 **Output:**
 ```latex
-\input{important_note#methods}
+// Contenu de la section « Methods » de la note, intégré.
 ```
 
 ### Embed with block
@@ -52,7 +55,7 @@ graph TD
 
 **Output:**
 ```latex
-\input{important_note#^block-id}
+// Contenu du bloc référencé, intégré avec son ancre (si présente).
 ```
 
 ---
@@ -225,6 +228,43 @@ graph TD
     D -->|Yes| C
     D -->|No| E[Download if URL]
 ```
+
+---
+
+## Standalone expanded Markdown (.expanded.md)
+
+MergDown2TeX peut produire un fichier Markdown **autonome** dans lequel tous les embeds sont **résolus** (le contenu des notes est intégré, plus aucune `![[…]]` restante).
+
+### Commande
+
+`MergDown2TeX: Générer le Markdown étendu (.expanded.md)`
+
+### Fichier produit
+
+Un fichier `NOM.expanded.md` est généré dans le dossier `.private/` du document. Ce fichier est **auto-contenu** :
+
+- Embeds `![[Note]]` → contenu intégré
+- Wikilinks `[[Note]]` → lien résolu
+- Images → chemins relatifs corrects
+
+### Marqueurs de navigation
+
+Le fichier étendu inclut des **marqueurs de retour** pour faciliter la navigation dans le document final :
+
+- **Flèches ↓↑** : indiquent les points d'ancrage (entrée/sortie) des blocs et sections
+- **Marqueurs `BACKLINK`** : signalent les références inverses, pour retrouver d'où provient un contenu embarqué
+
+```markdown
+...contenu de la note embarquée...
+^table--block-1
+↑ BACKLINK → [[source note]]
+```
+
+Ces marqueurs sont ensuite utilisés pour la numérotation des blocs (`table--block-NNN`, `eq--block-NNN`, `figure--block-NNN`) et pour les références croisées dans le PDF/DOCX — voir [Cross-References](cross-references.md).
+
+### ZIP des ressources liées
+
+La commande `MergDown2TeX: ZIP des ressources liées de la note (_exp.zip)` archive toutes les ressources référencées (images, `.bib`, etc.) dans un fichier `_exp.zip`, pratique pour partager un document complet autonome.
 
 ---
 

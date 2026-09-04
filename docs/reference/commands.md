@@ -1,112 +1,88 @@
-# Commands
+# Commandes
 
-MergDown2TeX provides the following commands.
-
----
-
-## Command palette
-
-Open with `Ctrl/Cmd + P` and type "MergDown2TeX".
+MergDown2TeX fournit les commandes suivantes, accessibles via la palette de commandes (`Ctrl/Cmd + P`).
 
 ---
 
-## Available commands
+## Commandes disponibles
 
-| Command | Description |
+| Commande | Description |
 |---|---|
-| `MergDown2TeX: Convertir la note active en LaTeX (.tex)` | Generate `.tex` file |
-| `MergDown2TeX: Convertir et compiler en PDF` | Generate PDF |
-| `MergDown2TeX: Convertir et compiler en DOCX (Word)` | Generate Word document |
+| `Convertir la note active en LaTeX (.tex)` | Génère le fichier `.tex` |
+| `Convertir et compiler en PDF` | Génère le PDF (pipeline automatique) |
+| `Convertir et compiler en DOCX (Word)` | Génère le Word (Pandoc WASM) |
+| `Générer le Markdown étendu (.expanded.md)` | Produit un `.private/.expanded.md` autonome |
+| `Reconvertir le .tex (jumeau) de la note active en Markdown` | `.tex` → Markdown |
+| `Compile le .tex jumeau en PDF (reprend le .tex produit)` | `.tex` → PDF |
+| `Compile le .tex jumeau en DOCX (reprend le .tex produit)` | `.tex` → DOCX |
+| `Convertit le .tex jumeau en .typ (reprend le .tex produit)` | `.tex` → Typst |
+| `Compile le .typ jumeau en PDF (reprend le .typ produit)` | `.typ` → PDF |
+| `Aperçu PDF côte-à-côte (mode interactif md → pdf)` | Aperçu côte-à-côte |
+| `ZIP des ressources liées de la note (_exp.zip)` | Archive les ressources liées |
 
 ---
 
-## Keyboard shortcuts
+## Raccourcis clavier
 
-### Default shortcuts
+### Raccourcis par défaut
 
 | Action | Windows/Linux | macOS |
 |---|---|---|
-| Command palette | `Ctrl + P` | `Cmd + P` |
-| Convert to LaTeX | `Ctrl + Shift + L` | `Cmd + Shift + L` |
-| Compile to PDF | `Ctrl + Shift + P` | `Cmd + Shift + P` |
-| Compile to DOCX | `Ctrl + Shift + W` | `Cmd + Shift + W` |
+| Palette de commandes | `Ctrl + P` | `Cmd + P` |
 
-### Custom shortcuts
+### Raccourcis personnalisés
 
-1. Open Obsidian
-2. Go to **Settings** → **Hotkeys**
-3. Search "MergDown2TeX"
-4. Set custom shortcuts
+1. Ouvrez Obsidian
+2. **Paramètres** → **Raccourcis**
+3. Recherchez "MergDown2TeX"
+4. Définissez vos raccourcis
 
 ---
 
-## Ribbon buttons
+## Bouton du ruban
 
-### Available buttons
-
-| Button | Action | Description |
-|---|---|---|
-| :material-file-document: | Convert to LaTeX | Generate `.tex` file |
-| :material-file-pdf-box: | Compile to PDF | Generate PDF |
-| :material-file-word: | Compile to DOCX | Generate Word document |
+| Bouton | Action |
+|---|---|
+| :material-file-pdf: (PDF) | `Aperçu PDF côte-à-côte (md → pdf)` |
 
 ---
 
-## Usage examples
+## Exemples d'utilisation
 
-### Convert to LaTeX
+### Convertir en LaTeX
 
-1. Open any note
-2. Run command: `MergDown2TeX: Convertir la note active en LaTeX (.tex)`
-3. `.tex` file appears in same folder
+1. Ouvrez une note
+2. Commande : `Convertir la note active en LaTeX (.tex)`
+3. Le `.tex` apparaît dans le même dossier
 
-### Compile to PDF
+### Compiler en PDF
 
-1. Open any note
-2. Run command: `MergDown2TeX: Convertir et compiler en PDF`
-3. PDF file appears in same folder
+1. Ouvrez une note
+2. Commande : `Convertir et compiler en PDF`
+3. Le PDF apparaît dans le même dossier (pipeline Typst ou pdflatex selon la config)
 
-### Compile to DOCX
+### Compiler en DOCX
 
-1. Open any note
-2. Run command: `MergDown2TeX: Convertir et compiler en DOCX (Word)`
-3. DOCX file appears in same folder
+1. Ouvrez une note
+2. Commande : `Convertir et compiler en DOCX (Word)`
+3. Le DOCX apparaît dans le même dossier (via Pandoc WASM)
 
----
+### Générer le Markdown étendu
 
-## Batch operations
+1. Ouvrez une note
+2. Commande : `Générer le Markdown étendu (.expanded.md)`
+3. Un fichier `.private/*.expanded.md` **autonome** est produit (embeds résolus, flèches ↓↑, marqueurs BACKLINK) — voir [Embeds](../features/embeds.md)
 
-### Convert multiple notes
+### ZIP des ressources liées
 
-```bash
-#!/bin/bash
-# batch-convert.sh
-
-for file in *.md; do
-    # Convert to LaTeX
-    pandoc "$file" -o "${file%.md}.tex"
-done
-```
-
-### Compile all PDFs
-
-```bash
-#!/bin/bash
-# batch-compile.sh
-
-for file in *.tex; do
-    # Compile
-    pdflatex "$file"
-    bibtex "${file%.tex}"
-    pdflatex "$file"
-    pdflatex "$file"
-done
-```
+1. Ouvrez une note
+2. Commande : `ZIP des ressources liées de la note (_exp.zip)`
+3. Un `.zip` complet des ressources liées est créé (utile pour partager le document complet)
 
 ---
 
-## Next steps
+## Étapes suivantes
 
-- [Settings](settings.md) - Configuration options
-- [Architecture](architecture.md) - Technical details
-- [Troubleshooting](../troubleshooting.md) - Common issues
+- [Réglages](settings.md) - Options de configuration
+- [Architecture](architecture.md) - Détails techniques
+- [Dépannage](../troubleshooting.md) - Problèmes courants

@@ -13,8 +13,8 @@ Common issues and solutions.
 - Commands not available
 
 **Solutions:**
-1. Check all 3 files are in the same folder
-2. Verify folder name matches `manifest.json`
+1. Check the 2 files (`main.js`, `manifest.json`) are in the same folder (`.obsidian/plugins/mergdowntotex/`)
+2. Verify folder name matches `manifest.json` (`mergdowntotex`)
 3. Restart Obsidian
 4. Check Obsidian console (`Ctrl/Cmd + Shift + I`)
 
@@ -25,10 +25,13 @@ Common issues and solutions.
 - Plugin crashes on startup
 
 **Solutions:**
-1. Check `vlatex_bg.wasm` file size (~2.1 MB)
-2. Re-download if corrupted
+1. Check `main.js` file size (~8.6 MB) — a smaller file = dev build **without** the embedded WASM engine
+2. Re-download the release if the file seems corrupted
 3. Verify file permissions
 4. Check Obsidian console for errors
+
+!!! info "The WASM engine is embedded"
+    The Markdown → LaTeX engine is embedded **inside** `main.js` (Base64). There is no separate `vlatex_bg.wasm` to download. The large binaries `pandoc.wasm` (~59 MB) and `typst.wasm` (~28 MB) are auto-downloaded into `wasm/` for DOCX/PDF compilation only.
 
 ### Settings not saving
 
@@ -71,6 +74,47 @@ podman: command not found
 **Solution:**
 1. Install Podman: https://podman.io/getting-started/installation
 2. Or use Docker instead
+3. **Or use the Typst pipeline**: enable *PDF PC via Wasm+Typst* in settings (no Install required)
+
+### pandoc.wasm / typst.wasm missing
+
+**Error:**
+```
+pandoc.wasm absent — téléchargement automatique en cours...
+```
+or
+```
+Échec installation Typst: ...
+```
+
+**Solution:**
+1. Wait for the automatic download at first export (layers ~59 MB + ~28 MB, requires internet)
+2. Or click the manual download button in the settings (*Moteur Pandoc WASM (DOCX)* / *Moteur Typst WASM (PDF)*)
+3. Verify `wasm/` folder exists next to `main.js`
+
+### DOCX compilation error (Pandoc WASM)
+
+**Error:**
+```
+❌ Erreur Pandoc WASM: ...
+```
+
+**Solution:**
+1. Verify `pandoc.wasm` is present in `wasm/`
+2. Re-download via the settings button
+3. Check the console for the detailed message
+
+### Typst compilation error (PDF)
+
+**Error:**
+```
+❌ Compilation Typst échouée : ...
+```
+
+**Solution:**
+1. Enable *Garder le .typ* in settings and inspect the intermediate `.typ` file
+2. Verify `typst.wasm` and fonts are installed (download button in settings)
+3. Simplify the document if the error is a Typst syntax issue
 
 ### Compilation timeout
 

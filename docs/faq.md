@@ -24,20 +24,23 @@ Yes! MergDown2TeX works with Obsidian sync. The generated `.tex` files are synce
 
 ### Do I need to install anything?
 
-- **For conversion:** No (WASM engine runs in Obsidian)
-- **For PDF/DOCX compilation:** Yes (TeX Live + Podman/Docker)
+- **For conversion:** No (WASM engine is embedded in `main.js`, runs in Obsidian)
+- **For DOCX compilation:** No (uses `pandoc.wasm`, auto-downloaded at first export)
+- **For PDF compilation:** No for the default **Pandoc WASM + Typst** pipeline (auto-downloaded, works on PC **and** mobile). Only the optional native LaTeX route needs Podman/Docker + TeX Live.
 
 ### How do I install the plugin?
 
-1. Download `main.js`, `manifest.json`, `vlatex_bg.wasm` from [Releases](https://github.com/dvrch/mergdown2tex/releases)
-2. Copy to `.obsidian/plugins/mergdown2tex/`
+1. Download `main.js`, `manifest.json` from [Releases](https://github.com/dvrch/mergdown2tex/releases)
+2. Copy to `.obsidian/plugins/mergdowntotex/`
 3. Enable in Settings → Community Plugins
 
-### Why 3 files?
+### Why 2 files only?
 
-- `main.js` - Plugin code + WASM bindings (merged)
+- `main.js` - Plugin + embedded WASM converter engine (~8.6 MB, Base64)
 - `manifest.json` - Obsidian metadata
-- `vlatex_bg.wasm` - Rust converter engine
+
+!!! tip "Auto-downloaded binaries"
+    `pandoc.wasm` (~59 MB) and `typst.wasm` (~28 MB) are **auto-downloaded** into `wasm/` at the first DOCX/PDF export (or via the manual button in settings). They are not part of the release.
 
 ---
 
@@ -91,23 +94,29 @@ Yes! `$math$` and `$$math$$` are converted to LaTeX equations.
 
 ### Do I need TeX Live?
 
-Yes, for PDF compilation. You can install it via the included Dockerfile.
+Only for the **optional** native LaTeX PDF pipeline (pdflatex + Podman/Docker). The default **Pandoc WASM + Typst** pipeline requires nothing.
 
 ### Do I need Pandoc?
 
-Yes, for DOCX compilation. It's included in the Dockerfile.
+No. DOCX compilation uses **`pandoc.wasm`**, auto-downloaded at first export.
 
-### How do I build the container?
+### How do I produce the PDF?
+
+Two pipelines:
+
+- **Pandoc WASM + Typst** (default on mobile; enable *PDF PC via Wasm+Typst* on PC) — no install
+- **pdflatex + Podman** (PC, native LaTeX):
 
 ```bash
-podman build -t mergdown2tex-env -f Dockerfile .
+podman build -t vlatex-env -f Dockerfile.vlatex .
 ```
 
 ### How long does compilation take?
 
 - **Markdown → LaTeX:** 0.24s
-- **LaTeX → PDF:** 30-60s
-- **LaTeX → DOCX:** 5-10s
+- **LaTeX → PDF (Typst):** a few seconds
+- **LaTeX → PDF (pdflatex + Podman):** 30-60s
+- **LaTeX → DOCX (Pandoc WASM):** ~5s
 
 ---
 
@@ -115,20 +124,20 @@ podman build -t mergdown2tex-env -f Dockerfile .
 
 ### Plugin not appearing?
 
-- Check all 3 files are in the same folder
+- Check the 2 files (`main.js`, `manifest.json`) are in the same folder (`.obsidian/plugins/mergdowntotex/`)
 - Verify folder name matches `manifest.json`
 - Restart Obsidian
 
 ### WASM not loading?
 
-- Check `vlatex_bg.wasm` file size (~2.1 MB)
+- Check `main.js` file size (~8.6 MB) — smaller = dev build without embedded engine
 - Re-download if corrupted
 - Check Obsidian console for errors
 
-### Compilation failed?
+### DOCX / PDF compilation failed?
 
-- Check Podman/Docker is installed
-- Verify container is built
+- Verify `pandoc.wasm` / `typst.wasm` are present in `wasm/` (auto-downloaded at first export)
+- Check Podman/Docker is installed + container built (for the native LaTeX pipeline only)
 - Check timeout settings
 
 ---

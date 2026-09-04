@@ -83,7 +83,7 @@ graph LR
 
     ---
 
-    One click to PDF via TeX Live + Podman
+    One click to PDF — Pandoc WASM + Typst (default, mobile OK) *or* TeX Live + Podman
 
     [:octicons-arrow-right-24: Learn more](compilation/pdf.md)
 
@@ -97,9 +97,9 @@ graph LR
 sequenceDiagram
     participant U as User
     participant O as Obsidian
-    participant W as WASM Engine
-    participant T as TeX Live
-    participant P as Podman
+    participant W as WASM Engine (embedded)
+    participant T as Typst WASM
+    participant L as TeX Live (Podman, PC)
 
     U->>O: Click "Compile to PDF"
     O->>W: Send markdown content
@@ -107,10 +107,14 @@ sequenceDiagram
     W->>W: Resolve wikilinks
     W->>W: Convert to LaTeX
     W->>O: Return .tex file
-    O->>P: Launch container
-    P->>T: Run pdflatex (3x)
-    T->>P: Generate PDF
-    P->>O: Return PDF
+    alt Typst pipeline (default / mobile)
+        O->>T: pandoc.wasm + typst.wasm
+        T->>O: Generate PDF
+    else native LaTeX (PC, optional)
+        O->>L: Launch container (vlatex-env)
+        L->>L: pdflatex x3
+        L->>O: Generate PDF
+    end
     O->>U: Open PDF
 ```
 
@@ -160,8 +164,8 @@ We use the formula $E = mc^2$.
 
 ## Install in 3 steps
 
-1. **Download** `main.js`, `manifest.json`, `vlatex_bg.wasm` from [Releases](https://github.com/dvrch/mergdown2tex/releases)
-2. **Copy** to `.obsidian/plugins/mergdown2tex/`
+1. **Download** `main.js`, `manifest.json` from [Releases](https://github.com/dvrch/mergdown2tex/releases)
+2. **Copy** to `.obsidian/plugins/mergdowntotex/` (the WASM engine is embedded in `main.js`; `pandoc.wasm`/`typst.wasm` auto-download at first export)
 3. **Enable** in Settings → Community Plugins
 
 ---
@@ -170,9 +174,10 @@ We use the formula $E = mc^2$.
 
 | Step | What you need |
 |---|---|
-| Markdown → LaTeX | **None** (WASM runs in Obsidian) |
-| LaTeX → PDF | TeX Live + Podman |
-| LaTeX → DOCX | **None** (Pandoc WASM runs in Obsidian) |
+| Markdown → LaTeX | **None** (WASM embedded in `main.js`) |
+| LaTeX → PDF (default) | **None** (Pandoc WASM + Typst, auto-downloaded) |
+| LaTeX → PDF (native) | TeX Live + Podman/Docker (optional, PC) |
+| LaTeX → DOCX | **None** (Pandoc WASM, auto-downloaded) |
 
 ---
 

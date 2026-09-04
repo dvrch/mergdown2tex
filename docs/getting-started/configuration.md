@@ -212,17 +212,20 @@ imageFolder: assets/images
 
 ## Compilation settings
 
+!!! info "Default PDF/DOCX pipeline is WASM-based"
+    By default, **DOCX** uses `pandoc.wasm` and **PDF** uses Pandoc WASM + Typst (works on PC and mobile, no install). Podman/pdflatex below is **optional**, only needed for native-LaTeX PDF output on a PC — see [Compilation PDF](../compilation/pdf.md). Set *PDF PC via Wasm+Typst* to use the WASM pipeline on PC too.
+
 ### Podman path
 
 | Setting | Default | Description |
 |---|---|---|
-| `podmanPath` | `podman` | Path to Podman executable |
+| `podmanPath` | `podman` | Path to Podman executable (native-LaTeX PDF, PC only) |
 
 ### Container name
 
 | Setting | Default | Description |
 |---|---|---|
-| `containerName` | `mergdown2tex-env` | Container image name |
+| `containerName` | `vlatex-env` | Container image name (native-LaTeX PDF, PC only) |
 
 ### Timeout
 

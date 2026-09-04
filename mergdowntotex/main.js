@@ -3502,6 +3502,204 @@ class Markdown2TexPlugin extends Plugin {
     return out;
   }
 
+  // Lecture des dimensions intrinsèques d'une image (PNG / JPEG / SVG) depuis le
+  // vault, pour un redimensionnement à l'échelle. Retourne {w,h} ou null.
+  async _imageDims(fsLike, pathLike) {
+    const pngSize = (buf) => {
+      if (!buf || buf.length < 24) return null;
+      const sig = [137, 80, 78, 71, 13, 10, 26, 10];
+      for (let i = 0; i < 8; i++) if (buf[i] !== sig[i]) return null;
+      const w = buf.readUInt32BE ? buf.readUInt32BE(16) : null;
+      const h = buf.readUInt32BE ? buf.readUInt32BE(20) : null;
+      return (w && h) ? { w, h } : null;
+    };
+    const svgSize = (str) => {
+      const vb = str.match(/viewBox\s*=\s*["']\s*([\d.\s,-]+)\s*["']/i);
+      if (vb) { const p = vb[1].trim().split(/[\s,]+/).map(Number); if (p.length >= 4 && p[2] > 0 && p[3] > 0) return { w: p[2], h: p[3] }; }
+      return null;
+    };
+    const jpegSize = (buf) => {
+      try {
+        if (!buf || buf.length < 4 || buf[0] !== 0xFF) return null;
+        let i = 2;
+        while (i < buf.length - 1) {
+          if (buf[i] !== 0xFF) { i++; continue; }
+          const marker = buf[i + 1];
+          if (marker === 0xd8 || (marker >= 0xd0 && marker <= 0xd7)) { i += 2; continue; }
+          if (marker === 0xFF) { i += 2; continue; }
+          if (buf.length < i + 4) break;
+          const len = (buf[i + 2] << 8) + buf[i + 3];
+          if (marker >= 0xc0 && marker <= 0xcf && marker !== 0xc4 && marker !== 0xc8 && marker !== 0xcc) {
+            if (buf.length < i + 9) break;
+            const h = (buf[i + 5] << 8) + buf[i + 6];
+            const w = (buf[i + 7] << 8) + buf[i + 8];
+            return { w, h };
+          }
+          i += 2 + len;
+        }
+      } catch (e) {}
+      return null;
+    };
+    try {
+      if (this.app && this.app.vault && this.app.vault.adapter && this.app.vault.adapter.readBinary) {
+        // Resout le chemin relatif de facon robuste : tel quel, puis sous le
+        // dossier de la note active, puis par recherche de basename dans le vault.
+        const base = (p) => String(p || "").replace(/\\/g, "/").replace(/^\/+/, "").trim();
+        const cands = [];
+        const add = (p) => { if (p && cands.indexOf(p) === -1) cands.push(p); };
+        add(base(pathLike));
+        try {
+          const act = this.app.workspace && this.app.workspace.getActiveFile && this.app.workspace.getActiveFile();
+          if (act && act.path) { const dir = act.path.split("/").slice(0, -1).join("/"); if (dir) add(dir + "/" + base(pathLike)); }
+        } catch (e) {}
+        try {
+          // Recherche par basename dans tout le vault (dernier recours).
+          if (this.app.vault.getFiles) {
+            const bn = String(pathLike || "").split("/").pop().toLowerCase();
+            if (bn) { const hit = this.app.vault.getFiles().find(f => f.name.toLowerCase() === bn); if (hit) add(hit.path); }
+          }
+        } catch (e) {}
+        for (const rel of cands) {
+          let buf = null, str = null;
+          if (/\.png$/i.test(rel)) { try { buf = await this.app.vault.adapter.readBinary(rel); } catch (e) { buf = null; } if (buf) { const d = pngSize(new Uint8Array(buf)); if (d) return d; } }
+          else if (/\.svg$/i.test(rel)) { try { str = await this.app.vault.adapter.read(rel); } catch (e) { str = null; } if (str) { const d = svgSize(str); if (d) return d; } }
+          else if (/\.jpe?g$/i.test(rel)) { try { buf = await this.app.vault.adapter.readBinary(rel); } catch (e) { buf = null; } if (buf) { const d = jpegSize(new Uint8Array(buf)); if (d) return d; } }
+        }
+      } else if (fsLike && fsLike.readFileSync) {
+        const p = pathLike;
+        if (/\.png$/i.test(p)) { try { const b = fsLike.readFileSync(p); return pngSize(b); } catch (e) {} }
+        if (/\.svg$/i.test(p)) { try { const s = fsLike.readFileSync(p, "utf8"); return svgSize(s); } catch (e) {} }
+        if (/\.jpe?g$/i.test(p)) { try { const b = fsLike.readFileSync(p); return jpegSize(b); } catch (e) {} }
+      }
+    } catch (e) {}
+    return null;
+  }
+
+  // Redimensionnement des images à l'échelle pour ne PAS déborder de la feuille :
+  //   - image paysage (large >= haute) -> largeur = 100 % de la zone de texte ;
+  //   - image portrait (haute > large)  -> hauteur = 78 vh (≈78 % de la hauteur de
+  //     page), largeur auto (l'aspect est conservé).
+  // On lit les dimensions intrinsèques (PNG/JPEG/SVG) via le vault et on réécrit
+  // chaque appel `image(...)`. Les images dont on ne peut pas lire les dimensions
+  // sont laissées telles quelles (pandoc les sort à width:95 %, sans risque).
+  async fitImages(typ) {
+    if (!typ || typeof typ !== "string") return typ;
+    const n = typ.length;
+    // Repère chaque appel `image("...", ...)`.
+    const calls = [];
+    const re = /image\(\s*"([^"]+)"/g;
+    let m;
+    while ((m = re.exec(typ)) !== null) calls.push({ path: m[1], idx: m.index });
+    if (calls.length === 0) return typ;
+    // Dimensions en cache par chemin.
+    const dimCache = {};
+    let changed = 0;
+    let ps = null;
+    try { if (typeof require !== "undefined") ps = require("fs"); } catch (e) { ps = null; }
+    // On traite de la fin vers le début pour garder les indices stables.
+    for (let ci = calls.length - 1; ci >= 0; ci--) {
+      const c = calls[ci];
+      const s = c.idx + "image".length;
+      let j = s; while (j < n && /\s/.test(typ[j])) j++;
+      if (typ[j] !== "(") continue;
+      let d = 0, k = j;
+      for (; k < n; k++) { const cc = typ[k]; if (cc === "(") d++; else if (cc === ")") { d--; if (d === 0) break; } }
+      if (k >= n) continue;
+      const call = typ.slice(c.idx, k + 1);
+      let dims = dimCache[c.path];
+      if (!dims) { try { dims = await this._imageDims(ps, c.path); } catch (e) { dims = null; } dimCache[c.path] = dims; }
+      if (!dims) continue;
+      const { w, h } = dims;
+      if (!(w > 0 && h > 0)) continue;
+      // Construit la nouvelle image avec la bonne dimension.
+      const imgFnArgs = call.replace(/,\s*height\s*:[^,)]*/g, "").replace(/,\s*width\s*:[^,)]*/g, "")
+        .replace(/\)\s*$/, "");
+      const sizing = (w >= h) ? "width: 100%" : "height: 78vh";
+      const newCall = /\)\s*$/.test(call) ? imgFnArgs + ", " + sizing + ")" : call;
+      typ = typ.slice(0, c.idx) + newCall + typ.slice(k + 1);
+      changed++;
+    }
+    if (changed > 0) console.log("[mergdown2tex][typst] " + changed + " image(s) redimensionnée(s) à l'échelle (hauteur si portrait, largeur si paysage)");
+    return typ;
+  }
+
+  // Page de garde isolée : le bloc de titre pandoc (\maketitle) était fusionné
+  // au contenu. On le sort sur sa propre page, centré verticalement+horizontalement.
+  isolateTitlePage(typ) {
+    if (!typ || typeof typ !== "string") return typ;
+    const escT = (s) => String(s || "").replace(/[#&()[\]{}*_\\~<>]/g, (c) => "\\" + c).replace(/\s+/g, " ").trim();
+    const re = /\n#block\[\n#block\[\n#strong\[([^\]]*)\]([\s\S]*?)\n\]\n\]\n(?=#outline)/;
+    const m = re.exec(typ);
+    if (!m) return typ;
+    const title = escT(m[1]);
+    const lines = (m[2] || "").split("\n").map(s => s.trim()).filter(Boolean);
+    const author = escT(lines.filter(l => !l.startsWith("#") && !l.startsWith("/")).join(", "));
+    const cover = [
+      "#pagebreak()",
+      "#place(center + horizon)[",
+      "  #set text(size: 2.4em, weight: \"bold\")",
+      "  #align(center)[#title]",
+      "  #v(1em)",
+      "  #set text(size: 1.3em, weight: \"regular\")",
+      "  #align(center)[#author]",
+      "]",
+      "#pagebreak()",
+      "",
+    ].join("\n");
+    return typ.slice(0, m.index) + "\n" + cover + typ.slice(m.index + m[0].length);
+  }
+
+  // Tableaux longs multi-pages : les `#figure(... kind: table)` sont des floats
+  // qui ne se coupent PAS entre deux pages dans Typst. On les extrait du float en
+  // un `#table` nu (qui se coupe naturellement sur plusieurs pages, Typst >= 0.12),
+  // en gardant la légende comme un petit titre au-dessus et le label <tab:...>
+  // intact (les références croisées restent valides).
+  unwrapTableFigures(typ) {
+    if (!typ || typeof typ !== "string") return typ;
+    const out = [];
+    let i = 0, n = typ.length, changed = 0;
+    while (i < n) {
+      const fi = typ.indexOf("#figure(", i);
+      if (fi === -1) { out.push(typ.slice(i)); break; }
+      out.push(typ.slice(i, fi));
+      let d = 0, k = fi + "#figure".length;
+      while (k < n && /\s/.test(typ[k])) k++;
+      if (typ[k] !== "(") { out.push(typ.slice(fi)); i = fi + 1; continue; }
+      for (; k < n; k++) { const c = typ[k]; if (c === "(") d++; else if (c === ")") { d--; if (d === 0) break; } }
+      if (k >= n) { out.push(typ.slice(fi)); i = fi + 1; continue; }
+      const call = typ.slice(fi, k + 1);
+      if (/kind\s*:\s*table/.test(call) && /#table\(/.test(call)) {
+        // Caption
+        const capm = call.match(/caption\s*:\s*\[([^\]]*)\]/);
+        const caption = (capm ? capm[1].trim() : "").replace(/\s+/g, " ");
+        // Contenu #table(...) équilibré
+        const ti = call.indexOf("#table(");
+        let d2 = 0, k2 = ti + "#table".length;
+        while (k2 < call.length && /\s/.test(call[k2])) k2++;
+        let s2 = ti;
+        for (; k2 < call.length; k2++) { const cc = call[k2]; if (cc === "(") d2++; else if (cc === ")") { d2--; if (d2 === 0) break; } }
+        const tableContent = call.slice(s2, k2 + 1);
+        const innerTable = "#table(" + tableContent.slice("#table(".length, -1) + ")";
+        const escCap = String(caption || "").replace(/[\[\]#]/g, (c) => "\\" + c);
+        const block = caption
+          ? [
+              "#block[",
+              "  #text(weight: \"bold\", size: 0.95em, fill: rgb(\"#444444\"))[Table : " + escCap + "]",
+              "  #v(4pt)",
+              "  #align(center)[" + innerTable + "]",
+              "]",
+            ].join("\n")
+          : "#align(center)[" + innerTable + "]";
+        out.push(block);
+        i = k + 1; changed++;
+      } else {
+        out.push(call); i = k + 1;
+      }
+    }
+    if (changed > 0) console.log("[mergdown2tex][typst] " + changed + " tableau(x) passé(s) en mode multi-pages (extraits du float #figure)");
+    return out.join("");
+  }
+
   // SANS sa caption parce que le WASM ne lit pas ce frontmatter. Ici on :
   //  1) lit chaque fichier figure__block_*.md, extrait caption_long/ caption_short ;
   //  2) associe la légende au label correspondant dans le .typ ;
@@ -3740,11 +3938,11 @@ class Markdown2TexPlugin extends Plugin {
     if (!typ || typeof typ !== "string") return typ;
     opts = opts || {};
     // 1) Emojis : remplacer \twemoji{nom} par le glyphe Unicode.
-    if (opts.emojis !== false) typ = this.fixTwemoji(typ);
+    if (opts.emojis !== false) { try { typ = this.fixTwemoji(typ); } catch (et) { console.warn("[mergdown2tex][typst] fixTwemoji échec:", (et && et.message) || et); } }
     // 1bis) Citations + bibliographie réalisées manuellement (pandoc.wasm n'a
     // pas citeproc ici) : conversion des placeholders `#strong[cle?]` en texte
     // lisible + régénération de la section `= Bibliographie`.
-    if (opts.bibFix !== false) typ = this.fixCitationsBibliography(typ, opts.bibEntries);
+    if (opts.bibFix !== false) { try { typ = this.fixCitationsBibliography(typ, opts.bibEntries); } catch (cb) { console.warn("[mergdown2tex][typst] fixCitationsBibliography échec:", (cb && cb.message) || cb); } }
     // 1ter) Légendes des blocs figure (format figure-gallery `%% caption_long %%`) :
     // le WASM/le template typst sort l'image sans sa caption. On lit les fichiers
     // figure__block_*.md et on enveloppe les images dans #figure(caption: [...]).
@@ -3815,22 +4013,41 @@ class Markdown2TexPlugin extends Plugin {
       } catch (tae) { console.warn("[mergdown2tex][typst] alignement tableaux échec:", (tae && tae.message) || tae); }
     }
     if (opts.figureStyle !== false) {
-      // MISE EN FORME standard des figures images, « comme Word/LaTeX » : image
-      // centrée, largeur 90 % max, fond léger + bordure + ombrage + coins arrondis.
-      // On utilise des SET rules (pas une fonction de remplacement) pour ne PAS
-      // écraser le body/légende de la figure — une fonction de remplacement
-      // `it => { ... block(...) ... it.caption }` ne retourne que la dernière
-      // expression, ce qui SUPPRIMAIT les images du document.
+      // MISE EN FORME standard des figures images : centrage. On utilise une SET
+      // rule (pas une fonction de remplacement) pour ne PAS écraser le body/
+      // légende de la figure — une fonction de remplacement `it => { ... block(...)
+      // ... it.caption }` ne retourne que la dernière expression (le body est
+      // perdu), ce qui SUPPRIMAIT les images du document. `set block(...)` et
+      // `shadow` sur un figure ne sont pas fiablement supportés en Typst < 0.12,
+      // donc on se limite au centrage (sûr sur toutes les versions).
       try {
-        if (typ.indexOf("figure.where(kind: image): set") === -1) {
+        if (typ.indexOf("figure.where(kind: image): set") === -1 && typ.indexOf("figure.where(kind: image): it =>") === -1) {
           const figStyle = [
             "#show figure.where(kind: image): set align(center)",
-            "#show figure.where(kind: image): set block(width: 90%, inset: 6pt, radius: 6pt, stroke: 0.6pt + rgb(\"#cccccc\"), shadow: (x: 2pt, y: 2pt, blur: 5pt, color: rgb(\"#0000001f\")))",
             "",
           ].join("\n");
           typ = figStyle + typ;
         }
       } catch (fse) { console.warn("[mergdown2tex][typst] style figure échec:", (fse && fse.message) || fse); }
+    }
+    // 1quinquies) Page de garde isolée : on sort le bloc de titre pandoc (\maketitle)
+    // du flot du document pour le placer seul, centré, sur sa propre page.
+    if (opts.titlePage !== false) {
+      try { typ = this.isolateTitlePage(typ); }
+      catch (tpe) { console.warn("[mergdown2tex][typst] isolateTitlePage échec:", (tpe && tpe.message) || tpe); }
+    }
+    // 1sexies) Redimensionnement des images à l'échelle (mermaid SVG portrait
+    // surtout) pour ne pas déborder de la feuille : hauteur si portrait, largeur
+    // si paysage.
+    if (opts.fitImages !== false) {
+      try { typ = await this.fitImages(typ); }
+      catch (fme) { console.warn("[mergdown2tex][typst] fitImages échec:", (fme && fme.message) || fme); }
+    }
+    // 1septies) Tableaux longs multi-pages : sortir les `#figure(... kind: table)`
+    // de leur float (qui ne se coupe pas) pour qu'ils s'étendent sur plusieurs pages.
+    if (opts.multipageTables !== false) {
+      try { typ = this.unwrapTableFigures(typ); }
+      catch (ute) { console.warn("[mergdown2tex][typst] unwrapTableFigures échec:", (ute && ute.message) || ute); }
     }
     // DEBUG : capturer le typ real pour savoir si la regex emoji matche.
     try {
@@ -3869,6 +4086,21 @@ class Markdown2TexPlugin extends Plugin {
     // DEBUG : écrire le .typ final (celui qui part vers typst.compile) pour
     // inspection de la biblio / 1er titre / emojis. Utile car pandoc écrit le
     // .typ dans le FS wasm éphémère et ne le sauve jamais dans le vault.
+    try {
+      const dbgFinal = "POSTPROCESS_DONE: " +
+        "linkColor=" + (typ.indexOf("3366cc") !== -1) +
+        " eqNum=" + (typ.indexOf("math.equation(numbering:") !== -1) +
+        " figStyle=" + (typ.indexOf("figure.where(kind: image)") !== -1) +
+        " wrapBare=" + (typ.indexOf("wrapBareImages") !== -1) +
+        " figCaption=" + (typ.indexOf("captionBareImageFigures") !== -1) +
+        " tableAlign=" + (typ.indexOf("show table: set align") !== -1) +
+        " titlePage=" + (typ.indexOf("place(center + horizon)") !== -1) +
+        " fitImg=" + (typ.indexOf("height: 78vh") !== -1) +
+        " mpTables=" + (typ.indexOf("Table : ") !== -1 && typ.indexOf("kind: table") === -1);
+      console.log("[mergdown2tex][typst] " + dbgFinal);
+      if (this.app && this.app.vault)
+        this.app.vault.adapter.write(".obsidian/plugins/mergdowntotex/dbg_typ.txt", dbgFinal).catch(() => {});
+    } catch (e) {}
     try {
       if (this.app && this.app.vault)
         this.app.vault.adapter.write(".obsidian/plugins/mergdowntotex/dbg_typ_full.typ", typ).catch(() => {});

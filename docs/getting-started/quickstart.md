@@ -95,10 +95,11 @@ Click the **PDF** button in the ribbon.
 
 !!! info "Compilation process"
     The plugin:
-    1. Converts markdown to LaTeX (WASM engine)
-    2. Launches Podman container
-    3. Runs pdflatex 3 times (for references)
-    4. Returns PDF file
+    1. Converts markdown to LaTeX (WASM engine, embedded)
+    2. Produces the PDF via one of two pipelines:
+       - **Pandoc WASM + Typst** (default on mobile, and on PC if enabled) — no external install
+       - **pdflatex + Podman** (PC, native LaTeX) — requires the `vlatex-env` container
+    3. For DOCX, it uses **Pandoc WASM** directly (no Pandoc CLI required)
 
 ---
 

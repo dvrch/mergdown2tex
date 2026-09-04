@@ -13,6 +13,9 @@ graph TD
     C --> D[Include in LaTeX]
 ```
 
+!!! info "Rendu client-side"
+    Le rendu Mermaid est effectué **dans Obsidian** via le bundle `mermaid.min.js` (auto-déployé dans `resources/`). **Aucun `mmdc`, Node.js ni installation externe n'est requis** — cela fonctionne aussi sur **mobile**. Si le rendu Mermaid bloque la compilation, désactivez-le dans les réglages (*Rendu Mermaid*).
+
 ---
 
 ## Syntax

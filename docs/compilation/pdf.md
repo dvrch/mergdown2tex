@@ -1,214 +1,176 @@
-# PDF Compilation
+# Compilation PDF
 
-MergDown2TeX compiles LaTeX to PDF using Podman.
+MergDown2TeX produit un PDF de **deux façons** selon l'appareil et la configuration :
+
+1. **Pandoc WASM + Typst** — recommandé, fonctionne partout (desktop **et** mobile), aucune installation externe.
+2. **pdflatex + Podman/Docker** — rendu LaTeX natif, réservé au PC.
 
 ---
 
-## How it works
+## Comment ça marche
 
 ```mermaid
 graph TD
     A[Note] --> B[WASM Engine]
     B --> C[.tex File]
-    C --> D[Podman Container]
-    D --> E[pdflatex x3]
-    E --> F[PDF File]
+    C --> D{Mode PDF}
+    D -->|Pandoc WASM + Typst| E[typst.wasm]
+    E --> F[PDF]
+    D -->|pdflatex + Podman| G[Podman Container]
+    G --> H[pdflatex x3]
+    H --> F[PDF]
 ```
 
 ---
 
-## Requirements
+## Mode 1 : Pandoc WASM + Typst (auto, mobile + desktop)
 
-- **Podman** or **Docker**
-- **TeX Live** (inside container)
+C'est le mode utilisé **par défaut sur mobile** et sur PC lorsqu'aucun Podman/pdflatex n'est disponible.
 
----
+### Principe
 
-## Build container
+1. Le moteur WASM convertit le Markdown en `.tex`
+2. `pandoc.wasm` convertit le `.tex` en `.typ` (Typst)
+3. `typst.wasm` compile le `.typ` en **PDF**
 
-### Download Dockerfile
+### Exigences
 
-```bash
-# From GitHub release
-curl -L -o Dockerfile https://github.com/dvrch/mergdown2tex/releases/download/v1.0.0/Dockerfile
-```
+- **Aucune** : `pandoc.wasm` et `typst.wasm` sont auto-téléchargés dans `wasm/` au premier lancement.
 
-### Build image
+### Activer sur PC
 
-```bash
-# With Podman
-podman build -t mergdown2tex-env -f Dockerfile .
+Dans les réglages, activez **`PDF PC via Wasm+Typst`** pour utiliser ce pipeline sur le PC (utile si vous n'avez ni pdflatex ni Podman). Les erreurs de compilation sont affichées à l'écran.
 
-# With Docker
-docker build -t mergdown2tex-env -f Dockerfile .
-```
+### Garder le `.typ`
 
-### Verify
+Par défaut, le fichier `.typ` n'existe que temporairement en mémoire. Activez **`Garder le .typ à côté du .tex/PDF`** pour le sauvegarder dans le même dossier (utile pour l'inspecter ou le modifier).
 
-```bash
-# List images
-podman images | grep mergdown2tex-env
+### Compiler un `.typ` existant
 
-# Test
-podman run --rm mergdown2tex-env pdflatex --version
-```
+- `MergDown2TeX: Compile le .typ jumeau en PDF (reprend le .typ produit)`
 
 ---
 
-## Compile PDF
+## Mode 2 : pdflatex + Podman/Docker (PC, LaTeX natif)
 
-### Option A: Command Palette
+Ce mode produit un rendu LaTeX **natif** (même résultat qu'un compilateur TeX classique).
 
-1. Open command palette (`Ctrl/Cmd + P`)
-2. Type "MergDown2TeX"
-3. Select **"MergDown2TeX: Convertir et compiler en PDF"**
+### Exigences
 
-### Option B: Button
+- **Podman** ou **Docker**
+- **TeX Live** (dans le conteneur)
 
-Click the **PDF** button in the ribbon.
-
-### Option C: Bash script
+### Construire le conteneur
 
 ```bash
-#!/bin/bash
-# compile.sh
+# Avec Podman
+podman build -t vlatex-env -f Dockerfile.vlatex .
 
-INPUT="document.tex"
-CONTAINER="mergdown2tex-env"
-
-# Copy file to container
-podman cp "$INPUT" "$CONTAINER:/vault/"
-
-# Compile
-podman exec "$CONTAINER" pdflatex -interaction=nonstopmode "$INPUT"
-podman exec "$CONTAINER" bibtex "${INPUT%.tex}"
-podman exec "$CONTAINER" pdflatex -interaction=nonstopmode "$INPUT"
-podman exec "$CONTAINER" pdflatex -interaction=nonstopmode "$INPUT"
-
-# Copy back
-podman cp "$CONTAINER:/vault/${INPUT%.tex}.pdf" .
+# Avec Docker
+docker build -t vlatex-env -f Dockerfile.vlatex .
 ```
 
----
-
-## Compilation process
-
-### 1. pdflatex (first pass)
+### Vérifier
 
 ```bash
-pdflatex -interaction=nonstopmode document.tex
+podman run --rm vlatex-env pdflatex --version
 ```
 
-- Generates `.aux` file
-- Resolves references
-
-### 2. bibtex
-
-```bash
-bibtex document
-```
-
-- Processes bibliography
-- Generates `.bbl` file
-
-### 3. pdflatex (second pass)
-
-```bash
-pdflatex -interaction=nonstopmode document.tex
-```
-
-- Incorporates bibliography
-- Updates references
-
-### 4. pdflatex (third pass)
-
-```bash
-pdflatex -interaction=nonstopmode document.tex
-```
-
-- Final pass
-- Resolves all references
+### Processus de compilation
 
 ```mermaid
-graph TD
+graph LR
     A[document.tex] --> B[pdflatex #1]
     B --> C[.aux + .log]
-    C --> D[bibtex]
+    C --> D[bibtex / biber]
     D --> E[.bbl]
     E --> F[pdflatex #2]
     F --> G[pdflatex #3]
     G --> H[document.pdf]
 ```
 
+Les commandes correspondent à :
+
+```bash
+pdflatex -interaction=nonstopmode -shell-escape document.tex
+bibtex document          # ou : biber document
+pdflatex -interaction=nonstopmode -shell-escape document.tex
+pdflatex -interaction=nonstopmode -shell-escape document.tex
+```
+
 ---
 
-## Output files
+## Compiler le PDF
 
-| File | Description |
+### Option A : Palette de commandes
+
+1. Ouvrez la palette (`Ctrl/Cmd + P`)
+2. Sélectionnez **`MergDown2TeX: Convertir et compiler en PDF`**
+
+Le plugin choisit automatiquement le pipeline adapté (Typst si pas de Podman/pdflatex, ou selon le réglage `PDF PC via Wasm+Typst`).
+
+### Option B : Depuis un `.tex` existant
+
+- `MergDown2TeX: Compile le .tex jumeau en PDF (reprend le .tex produit)`
+
+### Option C : Aperçu interactif
+
+- `MergDown2TeX: Aperçu PDF côte-à-côte (mode interactif md → pdf)` — ou le bouton **PDF** du ruban
+
+---
+
+## Options du PDF
+
+- `-interaction=nonstopmode`
+- `-shell-escape` (mode natif)
+- Navigation bidirectionnelle des citations (flèches ↑↓), voir [Cross-References](../features/cross-references.md)
+- Ancres de blocs (`^table--block-…`, `^eq--block-…`, `^figure--block-…`) correctement numérotées et référencées
+
+---
+
+## Fichiers de sortie (mode natif)
+
+| Fichier | Description |
 |---|---|
-| `document.pdf` | Final PDF |
-| `document.log` | Compilation log |
-| `document.aux` | Auxiliary file |
-| `document.bbl` | Bibliography |
-| `document.blg` | BibTeX log |
-| `document.out` | Hyperref links |
-| `document.toc` | Table of contents |
+| `document.pdf` | PDF final |
+| `document.log` | Journal de compilation |
+| `document.aux` | Fichier auxiliaire |
+| `document.bbl` | Bibliographie |
+| `document.blg` | Journal BibTeX |
+| `document.out` | Liens hyperref |
+| `document.toc` | Table des matières |
+
+*(En mode Typst, ces fichiers auxiliaires LaTeX ne sont pas générés — seul le `.pdf`, et éventuellement le `.typ`.)*
 
 ---
 
-## Troubleshooting
+## Dépannage
 
-### Container not found
+### "podman: command not found" (mode natif)
 
-**Error:**
-```
-Error: no such container: mergdown2tex-env
-```
+Installez Podman, ou activez **`PDF PC via Wasm+Typst`** dans les réglages pour utiliser le pipeline Typst (aucune installation).
 
-**Solution:**
-- Build container: `podman build -t mergdown2tex-env -f Dockerfile .`
-- Or start existing: `podman start mergdown2tex-env`
+### "vlatex-env: image not found" (mode natif)
 
-### Compilation failed
-
-**Error:**
-```
-pdflatex: command not found
+```bash
+podman build -t vlatex-env -f Dockerfile.vlatex .
 ```
 
-**Solution:**
-- Rebuild container with TeX Live
-- Check Dockerfile includes `texlive-latex-base`
+### "Typst wrote no PDF" (mode Typst)
 
-### Permission denied
+- Consultez les diagnostics affichés par le plugin
+- Activez **`Garder le .typ`** pour inspecter le fichier Typst intermédiaire
+- Vérifiez que `typst.wasm` et les polices sont bien installés (bouton de téléchargement dans les réglages)
 
-**Error:**
-```
-Permission denied
-```
+### La compilation PDF échoue sur mobile
 
-**Solution:**
-- Use `--privileged` flag:
-  ```bash
-  podman run --rm --privileged mergdown2tex-env pdflatex document.tex
-  ```
-
-### Timeout
-
-**Error:**
-```
-Compilation timeout
-```
-
-**Solution:**
-- Increase timeout in settings
-- Simplify document
-- Check for infinite loops
+- Vérifiez que `pandoc.wasm` et `typst.wasm` sont téléchargés (connexion internet requise au premier lancement)
+- Réduisez la complexité du document si nécessaire
 
 ---
 
-## Next steps
+## Étapes suivantes
 
-- [DOCX Compilation](docx.md) - Word document output
-- [LaTeX Compilation](latex.md) - Manual compilation
-- [Configuration](../getting-started/configuration.md) - Customize settings
+- [Compilation DOCX](docx.md) - Document Word
+- [Compilation LaTeX](latex.md) - Compilation manuelle
+- [Configuration](../getting-started/configuration.md) - Personnaliser les réglages
