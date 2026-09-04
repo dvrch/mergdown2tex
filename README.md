@@ -2,10 +2,10 @@
 
 ![mergdown2tex Logo](docs/assets/logo-horizontal.png)
 
-# mergdowntotex
+# MergDown2TeX
 
-> **Merge everything. Convert anywhere.**  
-> WASM engine runs inside Obsidian. No build step required.
+> **Merge everything. Convert anywhere.**
+> Moteur WASM embarqué dans Obsidian. Aucune étape de compilation, aucun binaire à installer.
 
 [![Obsidian](https://img.shields.io/badge/Obsidian-Plugin-blue)](https://obsidian.md)
 [![License](https://img.shields.io/badge/license-MIT-blue)](LICENSE)
@@ -17,24 +17,26 @@
 
 ## What it does
 
-mergdown2tex takes your Obsidian note and transforms it into a **publication-ready** LaTeX document. Everything is merged automatically:
+MergDown2TeX transforme une note Obsidian en un document **prêt à publier** (LaTeX, PDF, DOCX, InDesign). Tout est fusionné automatiquement :
 
-| Input | Output |
+| Entrée | Sortie |
 |---|---|
-| `[[Wikilinks]]` | `\hyperref[...]{}` cross-references |
-| `![[Embedded notes]]` | Recursive expansion |
+| `[[Wikilinks]]` | `\hyperref[...]{}` références croisées |
+| `![[Notes embarquées]]` | Expansion récursive contenue |
 | `![[image.png]]` | `\includegraphics{}` |
-| `@citation` | `\citep{}` + bidirectional arrows (↑↓) |
-| `$math$` / `$$math$$` | LaTeX equations |
-| Mermaid diagrams | Auto-rendered to PNG |
-| `> [!note]` callouts | `tcolorbox` environments |
-| Footnotes, tables, lists | Full LaTeX support |
+| `@citation` | `\citep{}` + flèches bidirectionnelles (↑↓) |
+| `$math$` / `$$math$$` | Équations LaTeX |
+| Blocs Mermaid | Rendu automatique en PNG (client-side) |
+| `> [!note]` admonitions | environnements `tcolorbox` |
+| Note de bas de page, tableaux, listes | Support LaTeX complet |
+| Ancres de blocs (`^table--block-…`) | Objets Word/LaTeX numérotés et référencés |
 
-**Output formats:**
-- **PDF** via TeX Live + Podman
-- **DOCX** via Pandoc
-- **.tex** for manual editing
-- **InDesign** compatible output
+**Formats de sortie :**
+- **PDF** — Pandoc WASM + Typst (par défaut, fonctionne sur mobile) *ou* pdflatex + Podman (PC, LaTeX natif)
+- **DOCX** — Pandoc WASM embarqué
+- **.typ** — intermédiaire Typst
+- **.expanded.md** — Markdown étendu autonome (embeds/liens résolus)
+- **InDesign** compatible
 
 ---
 
@@ -43,29 +45,29 @@ mergdown2tex takes your Obsidian note and transforms it into a **publication-rea
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  Obsidian Note                                          │
-│  ├── [[Note A]]          ──→  \input{note_a}           │
+│  ├── [[Note A]]          ──→  \hyperref + expansion    │
 │  ├── ![[Note B]]         ──→  recursive expansion      │
 │  ├── ![[image.png]]      ──→  \includegraphics{}       │
 │  ├── @citation           ──→  \citep{} + arrows ↑↓     │
 │  ├── $math$              ──→  LaTeX equation            │
-│  └── ```mermaid```       ──→  rendered PNG              │
+│  └── ```mermaid```       ──→  PNG (bundle embarqué)     │
 └─────────────────────────────────────────────────────────┘
                         │
                         ▼
 ┌─────────────────────────────────────────────────────────┐
-│  WASM Engine (inside Obsidian)                          │
-│  ├── Markdown → LaTeX conversion (pure Rust)            │
-│  ├── Embed expansion (filesystem)                       │
-│  ├── Citation extraction + navigation                   │
-│  └── Mermaid → PNG rendering                            │
+│  WASM Engine (embarqué dans main.js, Base64)            │
+│  ├── Markdown → LaTeX conversion (moteur Rust/WASM)     │
+│  ├── Embed expansion + wikilinks + ancres de blocs      │
+│  ├── Citation extraction + navigation (↑↓)              │
+│  └── Mermaid → PNG (mermaid.min.js embarqué)            │
 └─────────────────────────────────────────────────────────┘
                         │
                         ▼
 ┌─────────────────────────────────────────────────────────┐
-│  Output Files                                           │
-│  ├── document.tex    (LaTeX source)                     │
-│  ├── document.pdf    (compiled PDF)                     │
-│  └── document.docx   (Word document)                    │
+│  Compilation (auto, sans installation)                  │
+│  ├── pandoc.wasm   : .tex → .docx                       │
+│  ├── typst.wasm    : .typ → .pdf                        │
+│  └── (option) pdflatex + Podman : .tex → .pdf (PC)      │
 └─────────────────────────────────────────────────────────┘
 ```
 
@@ -73,106 +75,128 @@ mergdown2tex takes your Obsidian note and transforms it into a **publication-rea
 
 ## Dependencies
 
-| Step | What you need | Status |
+| Étape | Ce qu'il faut | Statut |
 |---|---|---|
-| Markdown → LaTeX | WASM engine | **None** (runs in Obsidian) |
-| LaTeX → PDF | TeX Live + Podman | Required |
-| LaTeX → DOCX | Pandoc | Required |
+| Markdown → LaTeX | Aucun (moteur WASM embarqué dans `main.js`) | **Aucune** |
+| LaTeX → PDF (défaut) | `pandoc.wasm` + `typst.wasm` (auto-téléchargés) | **Aucune** |
+| LaTeX → PDF (natif, option PC) | TeX Live + Podman/Docker | Optionnelle |
+| LaTeX → DOCX | `pandoc.wasm` (auto-téléchargé) | **Aucune** |
+| Rendu Mermaid | Bundle embarqué dans `main.js` | **Aucune** |
 
-### For PDF/DOCX compilation
+`pandoc.wasm` (~59 MB), `typst.wasm` (~28 MB) et leurs polices sont **auto-téléchargés** dans `wasm/` au premier export (bouton manuel dans les réglages sinon).
 
-Install the LaTeX environment using the included Dockerfile:
-
-```bash
-# Build the container (one time)
-podman build -t mergdown2tex-env -f Dockerfile .
-
-# Or use Docker
-docker build -t mergdown2tex-env -f Dockerfile .
-```
-
-The container includes:
-- TeX Live (full)
-- Pandoc
-- Python3 + Pygments (for minted)
-- All required LaTeX packages
+> **PDF natif LaTeX (optionnel, PC)** — construit le conteneur :
+> ```bash
+> podman build -t vlatex-env -f Dockerfile.vlatex .
+> # ou : docker build -t vlatex-env -f Dockerfile.vlatex .
+> ```
 
 ---
 
 ## Install
 
-### Manual install
+### Manuel
 
-1. Download `main.js` and `manifest.json` from [Releases](https://github.com/dvrch/mergdown2tex/releases)
-2. Copy to `.obsidian/plugins/mergdown2tex/`
-3. Enable in **Settings → Community Plugins**
+1. Télécharge `main.js` et `manifest.json` depuis [Releases](https://github.com/dvrch/mergdown2tex/releases)
+2. Copie-les dans `.obsidian/plugins/mergdowntotex/`
+3. Active dans **Settings → Community Plugins**
 
-### Folder structure
+`main.js` (~8.6 MB) embarque le moteur de conversion **et** le bundle Mermaid en Base64. Les moteurs `pandoc.wasm`/`typst.wasm` sont auto-téléchargés au premier export.
+
+### Structure du plugin (release et vault exemple)
 
 ```
-.obsidian/
-└── plugins/
-    └── mergdown2tex/
-        ├── main.js          ~2.8 MB   ← plugin + WASM embarqué
-        └── manifest.json     351 B    ← metadata
+mergdowntotex/                        ← dossier du plugin (id = mergdowntotex)
+├── main.js          ~8.6 MB          ← plugin + moteur WASM + mermaid (Base64)
+├── manifest.json     351 B           ← métadonnées
+├── wasm/                             ← auto-téléchargé (pandoc.wasm, typst.wasm, fonts)
+└── resources/                        ← ressources (CSL/BIB auto-hébergés)
 ```
+
+> **Vault exemple** : `example_vault/full_manual_repport_exp.zip` contient un vault prêt à l'emploi avec le plugin déjà installé (`.obsidian/plugins/mergdowntotex/`). Cette installation est **strictement identique** à celle de la release (mêmes `main.js`, `manifest.json`, `wasm/`, `resources/`).
 
 ---
 
 ## Commands
 
-| Command | Action |
+| Commande | Action |
 |---|---|
-| `mergdown2tex: Convert to LaTeX` | Generate `.tex` file |
-| `mergdown2tex: Compile to PDF` | Generate PDF |
-| `mergdown2tex: Compile to DOCX` | Generate Word document |
+| `Convertir la note active en LaTeX (.tex)` | Génère le `.tex` |
+| `Convertir et compiler en PDF` | Génère le PDF (pipeline auto) |
+| `Convertir et compiler en DOCX (Word)` | Génère le Word (Pandoc WASM) |
+| `Générer le Markdown étendu (.expanded.md)` | Génère le Markdown autonome |
+| `Reconvertir le .tex (jumeau) en Markdown` | `.tex` → Markdown |
+| `Compile le .tex jumeau en PDF` | `.tex` → PDF |
+| `Compile le .tex jumeau en DOCX` | `.tex` → DOCX |
+| `Convertit le .tex jumeau en .typ` | `.tex` → Typst |
+| `Compile le .typ jumeau en PDF` | `.typ` → PDF |
+| `Aperçu PDF côte-à-côte (md → pdf)` | Aperçu interactif |
+| `ZIP des ressources liées (_exp.zip)` | Archive les ressources |
+
+*Raccourci rapide : bouton PDF dans le ruban.*
 
 ---
 
-## Settings
+## Why MergDown2TeX?
 
-| Setting | Default | Description |
-|---|---|---|
-| `documentclass` | `report` | LaTeX document class |
-| `fontsize` | `12pt` | Font size |
-| `bibliography` | `""` | Path to `.bib` file |
-| `customPreamble` | `""` | Custom LaTeX preamble |
-| `useMinted` | `true` | Syntax highlighting with minted |
-| `useTcolorbox` | `true` | Callouts as tcolorbox |
-| `mermaidDpi` | `150` | Mermaid diagram resolution |
+| | Pandoc Plugin | Pandoc CLI | Pandoc GUI | **MergDown2TeX** |
+|---|---|---|---|---|
+| Installation requise | Pandoc + TeX Live | Pandoc + TeX Live | Pandoc + TeX Live (GUI) | **Aucune (WASM embarqué)** |
+| Résolution Wikilinks | ❌ | ❌ | ❌ | ✅ |
+| Expansion des embeds | ❌ | ❌ | ❌ | ✅ |
+| Flèches de citation (↑↓) | ❌ | ❌ | ❌ | ✅ |
+| Mermaid → PNG | ❌ | ❌ | ❌ | ✅ |
+| Ancres de blocs / objets Word | ❌ | ❌ | ❌ | ✅ |
+| Preamble personnalisé | Partiel | Manuel | Manuel | ✅ |
+| Sortie InDesign | ❌ | ❌ | ❌ | ✅ |
+| **Mobile (iOS/Android)** | ⚠️ | ⚠️ | ⚠️ | ✅ |
+| PAPER libre / zero-install | ⚠️ | ⚠️ | ⚠️ | ✅ |
+
+*Pandoc GUI (plugin Obsidian `pandoc-gui`) fournit une interface de conversion mais requiert toujours Pandoc + un environnement LaTeX externe et ne résout pas les wikilinks/embeds Obsidian natifs.*
 
 ---
 
-## Why mergdown2tex?
+## vlatex & le moteur WASM
 
-| | Pandoc Plugin | Pandoc CLI | **mergdown2tex** |
-|---|---|---|---|
-| Install required | Pandoc + TeX Live | Pandoc + TeX Live | **WASM only** |
-| Wikilink resolution | ❌ | ❌ | ✅ |
-| Embed expansion | ❌ | ❌ | ✅ |
-| Citation arrows (↑↓) | ❌ | ❌ | ✅ |
-| Mermaid → PNG | ❌ | ❌ | ✅ |
-| Custom preamble | Partial | Manual | ✅ |
+Le moteur de conversion (et son outillage) est développé dans le projet **vlatex**. Pour en savoir plus sur `vlatex` / `vlatex wasm` et son intégration avec Obsidian :
+
+> **[https://dvrch.github.io/vlatex/obsidian/](https://dvrch.github.io/vlatex/obsidian/)**
 
 ---
 
 ## Architecture
 
-**Release** (2 files — installés par Obsidian) :
+**Release** (2 fichiers) :
 
 ```
-main.js          ~2.8 MB   ← plugin + WASM embarqué (Base64)
-manifest.json     351 B    ← metadata
+mergdowntotex/
+├── main.js          ~8.6 MB   ← plugin + moteur WASM (Base64) + mermaid (Base64)
+└── manifest.json     351 B    ← metadata
 ```
+
+`main.js` embarque :
+- le **moteur de conversion** WASM (Markdown → LaTeX), encodé en Base64 (`WASM_BASE64`) ;
+- le **bundle Mermaid** (`mermaid.min.js`), encodé en Base64 (`MERMAID_BASE64`) pour le rendu client-side, y compris sur mobile.
+
+Les moteurs **`pandoc.wasm`/`typst.wasm`** (trop volumineux pour être embarqués) sont auto-téléchargés dans `wasm/` au premier export.
 
 **Développement** (dans le repo) :
 
 ```
-main.js             56 KB   ← plugin + WASM bindings
-vlatex_bg.wasm     2.1 MB   ← WASM séparé (loaded from disk)
-manifest.json       351 B   ← metadata
+mergdowntotex/
+├── main.js          ~8.6 MB   ← même fichier que la release
+├── manifest.json     351 B
+├── wasm/
+│   ├── pandoc.wasm   ~59 MB
+│   ├── typst.wasm    ~28 MB
+│       └── fonts/
+└── resources/
+    └── csl/                     ← styles de citation auto-hébergés
+```
+
+> **Mermaid** : le bundle `mermaid.min.js` est **embarqué en Base64 dans `main.js`** (`MERMAID_BASE64`) — il n'est pas distribué séparément dans `resources/`.
 scripts/
-└── bundle-release.js        ← encode WASM → Base64 → injecte dans main.js
+└── bundle-release.js            ← encode WASM → Base64 → injecte dans main.js
 ```
 
 **Build release automatisé** par GitHub Actions :
@@ -183,26 +207,25 @@ graph LR
     B --> C[bundle-release.js]
     C --> D[main.js + WASM]
     D --> E[Release]
-    D --> F[Attestations]
 ```
 
-**Zero build step. WASM embarqué dans main.js à la release.**
+**Zero build step. Moteur WASM embarqué dans main.js à la release.**
 
 ---
 
 ## Troubleshooting
 
-### "WASM module not loaded"
-- Ensure `vlatex_bg.wasm` is in the same folder as `main.js`
-- Restart Obsidian
+### « WASM module not loaded »
+- Vérifie que `main.js` fait bien ~8.6 MB (un fichier plus petit = build dev sans moteur embarqué)
+- Re-télécharge la release si le fichier semble corrompu
+- Redémarre Obsidian
 
-### "Podman not found"
-- Install Podman: https://podman.io/getting-started/installation
-- Or use Docker instead
+### `pandoc.wasm` / `typst.wasm` introuvable
+- Lance un export, ou clique sur le bouton de téléchargement dans les réglages
+- Vérifie la connexion internet (59 MB + 28 MB)
 
-### "Compilation failed"
-- Check that the container is built: `podman images | grep mergdown2tex-env`
-- Rebuild if needed: `podman build -t mergdown2tex-env -f Dockerfile .`
+### « podman: command not found » (PDF natif)
+- Installe Podman/Docker, **ou** active *PDF PC via Wasm+Typst* dans les réglages (aucune installation)
 
 ---
 
