@@ -172,7 +172,7 @@ We use the formula $E = mc^2$.
 |---|---|
 | Markdown → LaTeX | **None** (WASM runs in Obsidian) |
 | LaTeX → PDF | TeX Live + Podman |
-| LaTeX → DOCX | Pandoc |
+| LaTeX → DOCX | **None** (Pandoc WASM runs in Obsidian) |
 
 ---
 
@@ -180,7 +180,7 @@ We use the formula $E = mc^2$.
 
 | | Pandoc Plugin | Pandoc CLI | **MergDown2TeX** |
 |---|---|---|---|
-| Install required | Pandoc + TeX Live | Pandoc + TeX Live | **WASM only** |
+| Install required | Pandoc + TeX Live | Pandoc + TeX Live | **WASM only (Pandoc via WASM)** |
 | Wikilink resolution | ❌ | ❌ | ✅ |
 | Embed expansion | ❌ | ❌ | ✅ |
 | Citation arrows (↑↓) | ❌ | ❌ | ✅ |
