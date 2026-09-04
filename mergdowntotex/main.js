@@ -4476,8 +4476,13 @@ listBibCslSources(ext) {
     if (this._mermaidLoadAttempted) return this._mermaidModule;
     this._mermaidLoadAttempted = true;
     // 3) charger mermaid.min.js depuis resources/ (téléchargé si absent)
-    // On injecte une balise <script> (compilation native, NON-bloquante pour le
-    // thread) plutôt qu'un `new Function` qui gèlerait le pipeline sur mobile.
+    // Pas de balise <script> dynamique (interdite par la charte Obsidian) :
+    // le module est évalué directement. Le code du bundle est un IIFE esbuild
+    // qui expose window.mermaid (vérifié en Node). L'évaluation est SYNCHRONE
+    // mais ne dure qu'un court instant (elle ne fait que MONTER le module, elle
+    // ne rend AUCUN diagramme — le rendu, lui, est entouré d'un timeout dur dans
+    // renderMermaidMobile). On l'exécute dans un setTimeout(0) pour ne pas
+    // bloquer le rendu de l'UI, puis on vérifie window.mermaid.
     try {
       let code = null;
       if (await this.mermaidExists()) {
@@ -4499,45 +4504,20 @@ listBibCslSources(ext) {
         console.warn("[mergdown2tex] mermaid.min.js introuvable après téléchargement");
         return null;
       }
-      console.log("[mergdown2tex] chargement mermaid.min.js local via <script> (len=" + code.length + ")…");
-      const blobUrl = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
+      console.log("[mergdown2tex] évaluation du module mermaid.min.js local (len=" + code.length + ")…");
       let mod = null;
-      const script = document.createElement("script");
-      script.src = blobUrl;
-      script.async = true;
       try {
-        await new Promise((resolve, reject) => {
-          const to = setTimeout(() => reject(new Error("timeout chargement script mermaid")), 20000);
-          script.onload = () => { clearTimeout(to); resolve(); };
-          script.onerror = () => { clearTimeout(to); reject(new Error("erreur chargement script mermaid (CSP/blob bloqué?)")); };
-          document.head.appendChild(script);
-        });
-      } catch (scriptErr) {
-        console.warn("[mergdown2tex] mermaid <script> échec (" + (scriptErr.message || scriptErr) + ") — tentative eval fallback…");
-      }
-      mod = window.mermaid || globalThis.mermaid;
-      if (!mod) {
-        // Le `<script>` (blob URL) peut être bloqué par la CSP d'Obsidian sans
-        // déclencher onload/onerror. Dernier recours : évaluer directement le code
-        // du bundle. Ce code est un IIFE esbuild qui expose window.mermaid (vérifié
-        // en Node). L'évaluation est SYNCHRONE mais ne dure qu'un court instant
-        // (elle ne fait que MONTER le module, elle ne rend AUCUN diagramme — le
-        // rendu, lui, est entouré d'un timeout dur dans renderMermaidMobile). On
-        // l'exécute dans un setTimeout(0) pour ne pas bloquer le rendu de l'UI, et
-        // on revérifie window.mermaid juste après.
-        try {
-          await new Promise((resolve) => setTimeout(resolve, 0));
-          let evaled = null;
-          try { evaled = (0, eval)(code); } catch (_e) { console.warn("[mergdown2tex] mermaid eval fallback échec: " + (_e && _e.message || _e)); evaled = null; }
-          const viaEval = window.mermaid || globalThis.mermaid;
-          if (viaEval) { mod = viaEval; console.log("[mergdown2tex] mermaid chargé via eval fallback (le <script> était bloqué par CSP)"); }
-          else console.warn("[mergdown2tex] mermaid : ni <script> ni eval n'exposent window.mermaid");
-        } catch (_e2) {
-          console.warn("[mergdown2tex] mermaid eval fallback exception: " + (_e2 && _e2.message || _e2));
-        }
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        let evaled = null;
+        try { evaled = (0, eval)(code); } catch (_e) { console.warn("[mergdown2tex] mermaid eval échec: " + (_e && _e.message || _e)); evaled = null; }
+        mod = window.mermaid || globalThis.mermaid;
+        if (!mod) console.warn("[mergdown2tex] mermaid : l'évaluation n'expose pas window.mermaid");
+        else console.log("[mergdown2tex] mermaid chargé via évaluation directe (pas de balise <script> dynamique)");
+      } catch (_e2) {
+        console.warn("[mergdown2tex] mermaid eval exception: " + (_e2 && _e2.message || _e2));
       }
       this._mermaidModule = mod || null;
-      if (mod) this._mermaidSource = (this._mermaidSource || "local;script-or-eval");
+      if (mod) this._mermaidSource = (this._mermaidSource || "local;eval");
       if (this._mermaidModule && typeof this._mermaidModule.initialize === "function") {
         try { await this._withTimeout(this._mermaidModule.initialize({ startOnLoad: false, theme: "default", securityLevel: "loose" }), 15000, "mermaid.initialize timeout"); }
         catch (ie) { console.warn("[mergdown2tex] mermaid initialize échec/timeout: " + (ie && ie.message || ie)); }
@@ -4589,7 +4569,7 @@ listBibCslSources(ext) {
   // rendu une fenêtre de temps maximale (TIMEOUT_MS) et on libère le thread
   // (await/raf) entre chaque diagramme. Si le temps est dépassé, on abandonne
   // proprement pour que le pipeline PDF/typst ne se fige JAMAIS, surtout sur
-  // téléphone où le new Function du gros bundle (3.5 MB) est très lent.
+  // téléphone où l'évaluation du gros bundle (3.5 MB) demande du temps.
   // Neutralise synchroniquement TOUS les blocs mermaid (ouverts/fermés) par un
   // texte de secours, SANS toucher au WASM. C'est le filet de sécurité qui
   // garantit qu'aucun bloc mermaid brut n'atteint markdown_to_latex_with_vfs

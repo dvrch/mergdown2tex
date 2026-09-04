@@ -1,8 +1,8 @@
+# mergdowntotex
+
 <div align="center">
 
 ![mergdown2tex Logo](docs/assets/logo-horizontal.png)
-
-# MergDown2TeX
 
 > **Merge everything. Convert anywhere.**
 > Moteur WASM embarqué dans Obsidian. Aucune étape de compilation, aucun binaire à installer.
