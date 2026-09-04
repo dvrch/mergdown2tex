@@ -3614,7 +3614,7 @@ class Markdown2TexPlugin extends Plugin {
       // Construit la nouvelle image avec la bonne dimension.
       const imgFnArgs = call.replace(/,\s*height\s*:[^,)]*/g, "").replace(/,\s*width\s*:[^,)]*/g, "")
         .replace(/\)\s*$/, "");
-      const sizing = (w >= h) ? "width: 100%" : "height: 78vh";
+      const sizing = (w >= h) ? "width: 100%" : "height: 78%";
       const newCall = /\)\s*$/.test(call) ? imgFnArgs + ", " + sizing + ")" : call;
       typ = typ.slice(0, c.idx) + newCall + typ.slice(k + 1);
       changed++;
@@ -3638,10 +3638,10 @@ class Markdown2TexPlugin extends Plugin {
       "#pagebreak()",
       "#place(center + horizon)[",
       "  #set text(size: 2.4em, weight: \"bold\")",
-      "  #align(center)[#title]",
+      "  #align(center)[" + title + "]",
       "  #v(1em)",
       "  #set text(size: 1.3em, weight: \"regular\")",
-      "  #align(center)[#author]",
+      "  #align(center)[" + author + "]",
       "]",
       "#pagebreak()",
       "",
@@ -3698,6 +3698,21 @@ class Markdown2TexPlugin extends Plugin {
     }
     if (changed > 0) console.log("[mergdown2tex][typst] " + changed + " tableau(x) passé(s) en mode multi-pages (extraits du float #figure)");
     return out.join("");
+  }
+
+  // Filet de sécurité : le writer typst de pandoc émet des dimensions en `vh`
+  // (ex: `height: 78vh` pour une image portrait) que le typst.wasm embarqué
+  // (v0.14, sans support des `vh` fractions de page) REJETTE, faisant échouer
+  // la compilation tout entière. On remplace donc inconditionnellement tout
+  // `Nvh` restant par `N%` (équivalent cible), indépendamment du fait que
+  // fitImages ait pu lire les dimensions ou pas.
+  sanitizeVhUnits(typ) {
+    if (!typ || typeof typ !== "string") return typ;
+    const before = typ;
+    let n = 0;
+    typ = typ.replace(/\b(\d+(?:\.\d+)?)\s*vh\b/g, (_m, val) => { n++; return val + "%"; });
+    if (n > 0) console.log("[mergdown2tex][typst] " + n + " unité(s) `vh` non prises en charge remplacée(s) par des `%` protégées");
+    return typ;
   }
 
   // SANS sa caption parce que le WASM ne lit pas ce frontmatter. Ici on :
@@ -4049,6 +4064,11 @@ class Markdown2TexPlugin extends Plugin {
       try { typ = this.unwrapTableFigures(typ); }
       catch (ute) { console.warn("[mergdown2tex][typst] unwrapTableFigures échec:", (ute && ute.message) || ute); }
     }
+    // 1septies-bis) Filet de sécurité : éliminer tout `vh` résiduel (issu du
+    // writer pandoc) que le typst.wasm embarqué rejette, sinon la compilation
+    // entière échoue. Inconditionnel et APRÈS toutes les transformations.
+    try { typ = this.sanitizeVhUnits(typ); }
+    catch (sve) { console.warn("[mergdown2tex][typst] sanitizeVhUnits échec:", (sve && sve.message) || sve); }
     // DEBUG : capturer le typ real pour savoir si la regex emoji matche.
     try {
       const dbg = "POSTPROCESS_RAN: emojis=" + (opts.emojis !== false) + " toc=" + (opts.toc !== false) +
@@ -4095,8 +4115,10 @@ class Markdown2TexPlugin extends Plugin {
         " figCaption=" + (typ.indexOf("captionBareImageFigures") !== -1) +
         " tableAlign=" + (typ.indexOf("show table: set align") !== -1) +
         " titlePage=" + (typ.indexOf("place(center + horizon)") !== -1) +
-        " fitImg=" + (typ.indexOf("height: 78vh") !== -1) +
-        " mpTables=" + (typ.indexOf("Table : ") !== -1 && typ.indexOf("kind: table") === -1);
+        " fitImg=" + (typ.indexOf("height: 78%") !== -1) +
+        " vhLeft=" + ((typ.match(/\b\d+(?:\.\d+)?\s*vh\b/g) || []).length) +
+        " mpTables=" + (typ.indexOf("Table : ") !== -1)
+        ;
       console.log("[mergdown2tex][typst] " + dbgFinal);
       if (this.app && this.app.vault)
         this.app.vault.adapter.write(".obsidian/plugins/mergdowntotex/dbg_typ.txt", dbgFinal).catch(() => {});
