@@ -6,8 +6,6 @@ on:
 
 permissions:
   contents: write
-  id-token: write
-  attestations: write
 
 concurrency:
   group: release
@@ -20,24 +18,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v5
-        with:
-          node-version: '20'
-
-      - name: Bundle release (embed WASM in main.js)
-        run: node scripts/bundle-release.js
-
-      - name: Attest build provenance (main.js)
-        uses: actions/attest-build-provenance@v1
-        with:
-          subject-path: build/main.js
-
-      - name: Attest build provenance (manifest.json)
-        uses: actions/attest-build-provenance@v1
-        with:
-          subject-path: build/manifest.json
-
       - name: Create Release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -46,4 +26,4 @@ jobs:
           gh release create "$TAG" \
             --title "$TAG" \
             --notes "See [CHANGELOG](https://dvrch.github.io/mergdown2tex/) for details." \
-            build/main.js build/manifest.json
+            main.js manifest.json
