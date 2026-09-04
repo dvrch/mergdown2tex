@@ -148,6 +148,47 @@ Hyperlink not found
 
 ---
 
+## Block Cross-References (DOCX Support)
+
+MergDown2TeX now supports cross-referencing blocks like Tables, Equations, and Figures, with proper hypertargets and labels functioning correctly in DOCX outputs.
+
+### Adding Anchors to Blocks
+
+To enable cross-referencing, add a specific anchor directly after the block. The anchor must be on the immediate next non-empty line.
+
+**Tables:**
+```markdown
+| Col 1 | Col 2 |
+|-------|-------|
+| Val 1 | Val 2 |
+^table--block-my-table
+```
+
+**Equations:**
+```markdown
+$$
+E = mc^2
+$$
+^eq--block-einstein
+```
+
+**Figures:**
+```markdown
+![Image](path/to/image.png)
+^figure--block-my-figure
+```
+
+### Referencing Blocks
+
+You can reference these blocks anywhere in your Markdown using standard Obsidian internal links:
+- `[[#^table--block-my-table]]`
+- `[[#^eq--block-einstein]]`
+- `[[#^figure--block-my-figure]]`
+
+These will automatically be compiled into proper LaTeX `\label{...}` and `\hypertarget{...}` tags, ensuring correct numbering and cross-referencing in generated PDF and DOCX files.
+
+---
+
 ## Next steps
 
 - [Citations](citations.md) - Citation features

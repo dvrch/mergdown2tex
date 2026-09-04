@@ -1062,7 +1062,7 @@ var td=class e{static read_bytes(t,n){let r=new e;return r.buf=t.getUint32(n,!0)
 `);for(let[e,n]of i.entries())e<i.length-1?t(n):r=n})}constructor(e){super(),this.ino=gd.issue_ino(),this.write=e}},wd=new TextEncoder,Td=e=>new TextDecoder(`utf-8`).decode(e),Ed=[`stdin`,`stdout`,`stderr`,`warnings`];
 class PandocWasmEngine {#e;#t;#n;constructor(e,t,n){this.#e=e.exports,this.#t=t,this.#n=n}static async load(t){let n=[`pandoc.wasm`,`+RTS`,`-H64m`,`-RTS`],r=new Map,i=new yd(`/`,r),a=new md(n,[],[new _d(new bd(new Uint8Array,{readonly:!0})),Cd.lineBuffered(()=>{}),Cd.lineBuffered(e=>console.warn(e)),i],{debug:!1}),o=await WebAssembly.instantiate(t,{wasi_snapshot_preview1:a.wasiImport});o=o.instance??o;a.initialize(o);let s=o.exports;s.__wasm_call_ctors();let c=()=>new DataView(s.memory.buffer),l=s.malloc(4);c().setUint32(l,n.length,!0);let u=s.malloc(4*(n.length+1));n.forEach((e,t)=>{let n=wd.encode(e),r=s.malloc(n.length+1);new Uint8Array(s.memory.buffer,r,n.length).set(n),c().setUint8(r+n.length,0),c().setUint32(u+4*t,r,!0)}),c().setUint32(u+4*n.length,0,!0);let d=s.malloc(4);return c().setUint32(d,u,!0),s.hs_init_with_rtsopts(l,d),new PandocWasmEngine(o,r,i.dir)}#r(e){let t=wd.encode(JSON.stringify(e)),n=this.#e.malloc(t.length);return new Uint8Array(this.#e.memory.buffer,n,t.length).set(t),[n,t.length]}#i(e,t,n){let r=typeof t==`string`?wd.encode(t):t,i=e.replace(/^\/+/,``),a=i.split(`/`);if(a.length===1){this.#t.set(i,new bd(r,{readonly:n}));return}for(let e=1;e<a.length;e+=1)this.#n.create_entry_for_path(a.slice(0,e).join(`/`),!0);let o=this.#n.create_entry_for_path(i,!1).entry??this.#a(a);o instanceof bd&&(o.data=r,o.readonly=n)}#a(e){let t=this.#n;for(let n of e)t=t instanceof Sd?t.contents.get(n):void 0;return t}#o(e,t,n){for(let[r,i]of e){let e=t?`${t}/${r}`:r;i instanceof Sd?this.#o(i.contents,e,n):i instanceof bd&&i.data.length>0&&(n[e]=i.data)}}run(e,t,n={}){this.#t.clear();let r=new bd(t?wd.encode(t):new Uint8Array,{readonly:!0}),i=new bd(new Uint8Array,{readonly:!1}),a=new bd(new Uint8Array,{readonly:!1}),o=new bd(new Uint8Array,{readonly:!1});this.#t.set(`stdin`,r),this.#t.set(`stdout`,i),this.#t.set(`stderr`,a),this.#t.set(`warnings`,o);let s=new Set(Ed);for(let[e,t]of Object.entries(n))this.#i(e,t,!0),s.add(e.replace(/^\/+/,``));let c=e[`output-file`];typeof c==`string`&&this.#i(c,new Uint8Array,!1);let[l,u]=this.#r(e);this.#e.convert(l,u);let d={};this.#o(this.#t,``,d);for(let e of s)delete d[e];let f=[],p=Td(o.data);if(p)try{f=JSON.parse(p)}catch{}return{stdout:Td(i.data),stderr:Td(a.data),warnings:f,files:d}}query(e){this.#t.clear();let t=new bd(new Uint8Array,{readonly:!1}),n=new bd(new Uint8Array,{readonly:!1});this.#t.set(`stdout`,t),this.#t.set(`stderr`,n);let[r,i]=this.#r(e);return this.#e.query(r,i),JSON.parse(Td(t.data))}get version(){return this.query({query:`version`})}}
 class WasmFileSystem {#e;#r;constructor(e,t){this.vault=e,this.#r=g(t),this.#e=new wc(t)}async read(e){let t=this.#e.inVault(e);let _m="READ "+e+" | #r="+this.#r+" | inVault="+t;if(t!==void 0){let b;try{b=await this.vault.adapter.readBinary(t)}catch(_e){_m+=" | adapterTHROW="+_e.message}let _bl=(b&&b.byteLength!==void 0)?(b.byteLength+"B"):"none";if(b&&typeof b.byteLength==="number"&&b.byteLength>0){_m+=" | adapter="+_bl+" => ADAPTER_OK";(globalThis.__mergdiag=globalThis.__mergdiag||[]).push(_m);return Qc(b)}_m+=" | adapter="+_bl+" => NOBYTES";let _p=path.resolve(this.#r,t);let _d=null;let _ferr="";try{_d=fs.readFileSync(_p);_m+=" | fs="+_d.length+"B => FS_OK"}catch(_e){_ferr=_e.message;_m+=" | fs="+_p+" THROW="+_e.message+" => FS_FAIL"}(globalThis.__mergdiag=globalThis.__mergdiag||[]).push(_m);if(_d)return new Uint8Array(_d);return}let _r;try{_r=C()?new Uint8Array(await(await Zc()).readFile(e)):void 0}catch(_e){};(globalThis.__mergdiag=globalThis.__mergdiag||[]).push(_m+" => OOV="+(_r?("bytes "+_r.length):"none"));return _r}async exists(e){let t=this.#e.inVault(e);if(t!==void 0)return await this.vault.adapter.exists(t);if(!C())return!1;try{return await(await Zc()).stat(e),!0}catch{return!1}}async mkdir(e){let t=this.#e.inVault(e);if(t!==void 0){await this.vault.adapter.mkdir(t);return}C()&&await(await Zc()).mkdir(e,{recursive:!0})}async write(e,t){let n=this.#e.inVault(e);if(n!==void 0){let e=v(n);e&&await this.vault.adapter.mkdir(e),await this.vault.adapter.writeBinary(n,$c(t));return}if(!C())throw Error(`"${e}" is outside the vault, and there is nowhere else to write to on this device`);let r=await Zc(),i=v(e);i&&await r.mkdir(i,{recursive:!0}),await r.writeFile(e,t)}}
-async function runPandocWasm(e,t,n){let{defaults:r,inputFiles:i,unsupported:a}=lc(n.command),o=new wc(n.vaultDir),s=n.cwd??n.vaultDir,c=e=>o.file(S(s,e)),l=e=>o.directory(S(s,e)),u=typeof r[`output-file`]==`string`?r[`output-file`]:void 0;u&&l(v(S(s,u))),pc(r,{file:c,directory:l});let d=i.map(e=>c(e));d.length>0&&(r[`input-files`]=d);let f={},p=async(e,n)=>{let r=await t.read(e);r&&(f[n]=r)};await Promise.all([...i.map(e=>p(S(s,e),c(e))),...mc(r).map(async e=>{let t=o.toReal(e);t&&await p(t,e)}),...(n.resources??[]).map(e=>p(e,c(e)))]);let m=[...n.embeds??[]];m.length>0&&(f[Rc]=m.map(([e,t])=>`${e}\t${c(t)}\n`).join(``));let h=n.download?await Fc(f,n.download):{files:{},warnings:[]};Object.keys(h.files).length>0&&(Object.assign(f,h.files),Lc(r));let g=typeof r[`output-file`]==`string`?r[`output-file`]:void 0,_=g&&r.to===`typst`&&g.toLowerCase().endsWith(`.pdf`)?`${g.slice(0,-4)}.typ`:void 0;_&&(r[`output-file`]=_);let y=e.run(r,d.length===0?``:void 0,f),b={...y.files},x=``;if(_&&g){let e=b[_];if(delete b[_],!n.typst)throw Error(`A PDF was asked for, and typst was not handed over to make it with`);let{pdf:t,diagnostics:r}=await n.typst.compile(_,zc.decode(e??new Uint8Array),{...Vc(f),...b});if(x=r,!t)throw Error([y.stderr.trim(),r].filter(Boolean).join(`
+async function runPandocWasm(e,t,n){let{defaults:r,inputFiles:i,unsupported:a}=lc(n.command),o=new wc(n.vaultDir),s=n.cwd??n.vaultDir,c=e=>o.file(S(s,e)),l=e=>o.directory(S(s,e)),u=typeof r[`output-file`]==`string`?r[`output-file`]:void 0;u&&l(v(S(s,u))),pc(r,{file:c,directory:l});let d=i.map(e=>c(e));d.length>0&&(r[`input-files`]=d);let f={},p=async(e,n)=>{let r=await t.read(e);r&&(f[n]=r)};await Promise.all([...i.map(e=>p(S(s,e),c(e))),...mc(r).map(async e=>{let t=o.toReal(e);t&&await p(t,e)}),...(n.resources??[]).map(e=>p(e,c(e)))]);let m=[...n.embeds??[]];m.length>0&&(f[Rc]=m.map(([e,t])=>`${e}\t${c(t)}\n`).join(``));let h=n.download?await Fc(f,n.download):{files:{},warnings:[]};Object.keys(h.files).length>0&&(Object.assign(f,h.files),Lc(r));let g=typeof r[`output-file`]==`string`?r[`output-file`]:void 0,_=g&&r.to===`typst`&&g.toLowerCase().endsWith(`.pdf`)?`${g.slice(0,-4)}.typ`:void 0;_&&(r[`output-file`]=_);let y=e.run(r,d.length===0?``:void 0,f),b={...y.files},x=``;if(_&&g){let e=b[_];if(delete b[_],!n.typst)throw Error(`A PDF was asked for, and typst was not handed over to make it with`);let tsrc=zc.decode(e??new Uint8Array);if(n.typstTransform)tsrc=await n.typstTransform(tsrc);let{pdf:t,diagnostics:r}=await n.typst.compile(_,tsrc,{...Vc(f),...b});if(x=r,!t)throw Error([y.stderr.trim(),r].filter(Boolean).join(`
 `)||`Typst wrote no PDF, and said nothing about why`);b[g]=t}let ee=[];await Promise.all(Object.entries(b).map(async([e,n])=>{let r=o.toReal(e);r&&(await t.write(r,n),ee.push(r))}));let te=y.stderr.trim();if(ee.length===0&&u&&te)throw Error(te);return{written:ee,stderr:[te,x,...h.warnings,Hc(Uc(y.warnings))].filter(Boolean).join(`
 `),unsupported:a}}
 
@@ -1092,49 +1092,77 @@ function getWebImageExt(url) {
   return ".png";
 }
 
-async function ensureWebImages(mdContent, cacheDir) {
+async function ensureWebImages(mdContent, cacheDir, settings) {
   const re = /!\[([^\]]*)\]\(\s*(https?:\/\/[^)]+)\s*\)/g;
+  const matches = [];
   let match;
-  let result = mdContent;
+  while ((match = re.exec(mdContent)) !== null) matches.push(match);
+  if (matches.length === 0) return mdContent;
+
+  // Réglage « télécharger les images en ligne » : si désactivé, aucune requête
+  // réseau — on remplace immédiatement chaque URL distante par une icône.
+  if (settings && settings.downloadWebImages === false) {
+    let out = mdContent;
+    for (const m of matches) out = out.replace(m[0], `![${m[1]}](${IMG_PLACEHOLDER})`);
+    return out;
+  }
+
+  // Timeout : 12 s par défaut, étendu si beaucoup d'images (jusqu'à 36 s) pour
+  // ne pas couper une connexion correcte qui télécharge beaucoup de fichiers.
+  const per = 12000;
+  const timeoutMs = Math.min(36000, per + Math.max(0, matches.length - 1) * 4000);
+
+  // Téléchargements EN PARALLÈLE (Promise.all) : une image ne attend pas l'autre.
   const seen = new Set();
-  while ((match = re.exec(mdContent)) !== null) {
-    const full = match[0];
-    const alt = match[1];
-    const url = match[2];
-    if (seen.has(url)) continue;
+  const jobs = [];
+  for (const m of matches) {
+    const url = m[2];
+    if (seen.has(url)) { jobs.push(Promise.resolve({ url, full: m[0], alt: m[1], rel: null })); continue; }
     seen.add(url);
     const key = crypto.createHash("sha256").update(url).digest("hex").slice(0, 16);
     const ext = getWebImageExt(url);
     const localName = `web_${key}${ext}`;
-    if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
-    const localPath = path.join(cacheDir, localName);
-    if (!fs.existsSync(localPath) || fs.statSync(localPath).size === 0) {
+    jobs.push((async () => {
+      let rel = null;
       try {
-        const resp = await requestUrl({
-          url,
-          method: "GET",
-          contentType: "application/octet-stream",
-          responseType: "arraybuffer",
-        });
-        let buf;
-        if (resp.arrayBuffer) {
-          buf = Buffer.from(resp.arrayBuffer);
+        if (!fs.existsSync(cacheDir)) fs.mkdirSync(cacheDir, { recursive: true });
+        const localPath = path.join(cacheDir, localName);
+        if (!fs.existsSync(localPath) || fs.statSync(localPath).size === 0) {
+          // Timeout dur par image : si l'URL est lente/morte, on sort du lock.
+          const wrapped = requestUrl({
+            url, method: "GET",
+            contentType: "application/octet-stream",
+            responseType: "arraybuffer",
+          });
+          const resp = await Promise.race([
+            wrapped,
+            new Promise((_, rej) => setTimeout(() => rej(new Error("web timeout")), timeoutMs)),
+          ]);
+          let buf;
+          if (resp.arrayBuffer) buf = Buffer.from(resp.arrayBuffer);
+          else { const raw = resp.text || ""; buf = Buffer.alloc(raw.length); for (let i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i) & 0xff; }
+          if (buf.length > 0) { fs.writeFileSync(localPath, buf); rel = localPath; }
+          console.log("[mergdown2tex] downloaded web image:", url, "→", localPath);
         } else {
-          const raw = resp.text || "";
-          buf = Buffer.alloc(raw.length);
-          for (let i = 0; i < raw.length; i++) buf[i] = raw.charCodeAt(i) & 0xff;
+          rel = localPath;
         }
-        fs.writeFileSync(localPath, buf);
-        console.log("[mergdown2tex] downloaded web image:", url, "→", localPath);
       } catch (e) {
-        console.warn("[mergdown2tex] cannot download", url, e.message);
-        continue;
+        console.warn("[mergdown2tex] cannot download (skip -> icône):", url, e.message);
       }
-    }
-    result = result.replace(full, `![${alt}](${localPath})`);
+      return { url, full: m[0], alt: m[1], rel };
+    })());
+  }
+  const results = await Promise.all(jobs);
+  let result = mdContent;
+  for (const r of results) {
+    result = result.replace(r.full, r.rel ? `![${r.alt}](${r.rel})` : `![${r.alt}](${IMG_PLACEHOLDER})`);
   }
   return result;
 }
+
+// Chaîne détectable par vlatex comme image absente (→ MISSING IMAGE: ...) —
+// qui sera ensuite remplacée par une emoji 🖼️ dans materializeMissingImagesMobile.
+const IMG_PLACEHOLDER = "__missing_image_web__.png";
 
 const DEFAULT_SETTINGS = {
   bibliographyPath: "",
@@ -1143,6 +1171,7 @@ const DEFAULT_SETTINGS = {
   pandocPath: "pandoc",
   latexEngine: "pdflatex",
   pcUseTypstPdf: false,
+  pcRenderMermaid: true,
   keepNavArrows: true,
   cslPath: "",
   preamblePath: "",
@@ -1154,6 +1183,11 @@ const DEFAULT_SETTINGS = {
   enableFooter: true,
   useWasmPandoc: true,
   zipIncludeObsidian: false,
+  keepTypstFile: false,
+  keepTexFile: true,
+  keepMdFile: true,
+  autoCleanExport: false,
+  downloadWebImages: true,
 };
 
 // --- Présélections de préambules LaTeX (curatés) ---------------------------
@@ -1289,11 +1323,52 @@ class Markdown2TexSettingTab extends PluginSettingTab {
         .addToggle((toggle) =>
           toggle.setValue(s.pcUseTypstPdf).onChange(async (v) => { s.pcUseTypstPdf = v; await this.plugin.saveSettings(); }),
         );
+      new Setting(containerEl)
+        .setName("Rendu Mermaid (diagrammes)")
+        .setDesc("Convertir les blocs ```mermaid``` en images PNG avant le PDF (nécessite que le module mermaid se charge sur cet appareil). Désactiver si le rendu mermaid bloque la compilation, afin de produire le PDF sans les diagrammes.")
+        .addToggle((toggle) =>
+          toggle.setValue(s.pcRenderMermaid).onChange(async (v) => { s.pcRenderMermaid = v; await this.plugin.saveSettings(); }),
+        );
     } else {
       new Setting(containerEl)
         .setName("Mode mobile")
         .setDesc("Sur smartphone/tablette : PDF via Pandoc WASM + Typst, DOCX via Pandoc WASM. Le rendu pdflatex/podman reste réservé au PC.");
     }
+
+    new Setting(containerEl)
+      .setName("Garder le .typ à côté du .tex / PDF")
+      .setDesc("Sauvegarder le fichier Typst transformé (NOM.typ) dans le même dossier que le .tex et le PDF, pour pouvoir l'ouvrir/modifier. Sinon le .typ n'existe que temporairement en mémoire WASM.")
+      .addToggle((toggle) =>
+        toggle.setValue(s.keepTypstFile).onChange(async (v) => { s.keepTypstFile = v; await this.plugin.saveSettings(); }),
+      );
+
+    new Setting(containerEl)
+      .setName("Garder le .tex à côté du PDF")
+      .setDesc("Sauvegarder le .tex LaTeX généré dans le même dossier que le PDF. Désactivé = le .tex n'est pas conservé après export.")
+      .addToggle((toggle) =>
+        toggle.setValue(s.keepTexFile).onChange(async (v) => { s.keepTexFile = v; await this.plugin.saveSettings(); }),
+      );
+
+    new Setting(containerEl)
+      .setName("Garder le .md à côté du PDF")
+      .setDesc("Sauvegarder le .md original dans le même dossier que le PDF. Désactivé = le .md n'est pas conservé après export.")
+      .addToggle((toggle) =>
+        toggle.setValue(s.keepMdFile).onChange(async (v) => { s.keepMdFile = v; await this.plugin.saveSettings(); }),
+      );
+
+    new Setting(containerEl)
+      .setName("Nettoyage auto après export")
+      .setDesc("Supprimer les fichiers de sortie générés (PDF, DOCX, MD, TEX) après la commande d'export. Utile pour nettoyer les exports temporaires.")
+      .addToggle((toggle) =>
+        toggle.setValue(s.autoCleanExport).onChange(async (v) => { s.autoCleanExport = v; await this.plugin.saveSettings(); }),
+      );
+
+    new Setting(containerEl)
+      .setName("Télécharger les images en ligne")
+      .setDesc("Autoriser le téléchargement des images distantes (https://...) pendant l'export (parallèle, timeout 12 s). Désactivé = les images web sont immédiatement remplacées par une icône 🖼️ sans aucun accès réseau.")
+      .addToggle((toggle) =>
+        toggle.setValue(s.downloadWebImages).onChange(async (v) => { s.downloadWebImages = v; await this.plugin.saveSettings(); }),
+      );
 
     // ── Rubrique : Document ───────────────────────────────────────────────
     section("Document");
@@ -1893,6 +1968,50 @@ class Markdown2TexPlugin extends Plugin {
         await this.zipRelatedResources();
       },
     });
+
+    this.addCommand({
+      id: "mergdown2tex-tex-to-pdf",
+      name: "Compile le .tex jumeau en PDF (reprend le .tex produit)",
+      callback: async () => {
+        await this.compileFromLatex("pdf");
+      },
+    });
+
+    this.addCommand({
+      id: "mergdown2tex-tex-to-docx",
+      name: "Compile le .tex jumeau en DOCX (reprend le .tex produit)",
+      callback: async () => {
+        await this.compileFromLatex("docx");
+      },
+    });
+
+    this.addCommand({
+      id: "mergdown2tex-tex-to-typ",
+      name: "Convertit le .tex jumeau en .typ (reprend le .tex produit)",
+      callback: async () => {
+        await this.compileFromLatex("typ");
+      },
+    });
+
+    this.addCommand({
+      id: "mergdown2tex-typ-to-pdf",
+      name: "Compile le .typ jumeau en PDF (reprend le .typ produit)",
+      callback: async () => {
+        await this.compileTypstToPdf();
+      },
+    });
+
+    this.addCommand({
+      id: "mergdown2tex-open-typst-preview",
+      name: "Aperçu PDF côte-à-côte (mode interactif md → pdf)",
+      callback: () => {
+        this.startLivePdfPreview();
+      },
+    });
+
+    this.addRibbonIcon("file-pdf", "Aperçu PDF côte-à-côte (md → pdf)", () => {
+      this.startLivePdfPreview();
+    });
   }
 
   /**
@@ -1955,7 +2074,7 @@ class Markdown2TexPlugin extends Plugin {
       // 1. Inliner les embeds avec marqueurs (pour que le contenu soit autonome)
       let { processed, vfs } = await this.processEmbedsWithMarkers(content, activeFile, vaultRoot, parentDir);
       const webCacheDir = path.join(parentDir, "embedded_images");
-      processed = await ensureWebImages(processed, webCacheDir);
+      processed = await ensureWebImages(processed, webCacheDir, this.settings);
 
       // 2. Le WASM (Rust) convertit le contenu en Markdown autonome :
       //    - résout les wikilinks/embeds restants
@@ -2052,8 +2171,25 @@ class Markdown2TexPlugin extends Plugin {
         );
         Object.assign(vfs, childVfs);
         vfs[absPath] = noteContent;
-        // Clé par basename (sans .md) : le WASM résout `![[Nom]]` / `[[Nom]]` par nom
-        if (!vfs[resolved.basename]) vfs[resolved.basename] = noteContent;
+        if (resolved.basename) {
+          vfs[resolved.basename] = noteContent;
+          vfs[resolved.basename.replace(/\.md$/i, "")] = noteContent;
+        }
+        if (resolved.path) {
+          const normPath = resolved.path.replace(/^\/+/, "").replace(/\\/g, "/");
+          vfs[normPath] = noteContent;
+          vfs[normPath.replace(/\.md$/i, "")] = noteContent;
+        }
+        if (fileRef) {
+          const cleanRef = fileRef.replace(/^\/+/, "").replace(/\\/g, "/");
+          vfs[cleanRef] = noteContent;
+          vfs[cleanRef.replace(/\.md$/i, "")] = noteContent;
+          const refBase = cleanRef.split("/").pop();
+          if (refBase) {
+            vfs[refBase] = noteContent;
+            vfs[refBase.replace(/\.md$/i, "")] = noteContent;
+          }
+        }
       }
     }
 
@@ -2839,7 +2975,7 @@ class Markdown2TexPlugin extends Plugin {
         processed = result.processed;
         vfs = result.vfs;
         const webCacheDir = path.join(parentDir, "embedded_images");
-        processed = await ensureWebImages(processed, webCacheDir);
+        processed = await ensureWebImages(processed, webCacheDir, this.settings);
       }
 
       const vfsJson = JSON.stringify(vfs || {});
@@ -2864,8 +3000,9 @@ class Markdown2TexPlugin extends Plugin {
         parentDir,
       );
 
+      const cleanedTex = this.fixLatexCrossRefs(fullTex.tex);
       const texPath = path.join(parentDir, fileStem + ".tex");
-      fs.writeFileSync(texPath, fullTex.tex, "utf-8");
+      fs.writeFileSync(texPath, cleanedTex, "utf-8");
       for (const ext of [".aux", ".bbl", ".bcf", ".out", ".log", ".toc", ".lof", ".lot"]) {
         const p = path.join(parentDir, fileStem + ext);
         try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch {}
@@ -3119,29 +3256,683 @@ class Markdown2TexPlugin extends Plugin {
     return out;
   }
 
+  // Table de conversion des noms twemoji (paquet LaTeX `twemojis`, qui charge
+  // des IMAGES) vers le glyphe Unicode correspondant. Dans le typst Pandoc on
+  // convertit alors vers le vrai emoji, affiché par la police NotoColorEmoji
+  // embarquée dans wasm/fonts/. Les noms sont ceux canoniques CLDR/twemoji.
+  twemojiMap() {
+    return {
+      "check mark": "\u2714", "cross mark": "\u274C", "red circle": "\uD83D\uDD34",
+      "green circle": "\uD83D\uDFE2", "yellow circle": "\uD83D\uDFE1", "black circle": "\u26AB",
+      "white circle": "\u26AA", "plus": "\u2795", "warning": "\u26A0\uFE0F",
+      "red question mark": "\u2753", "books": "\uD83D\uDCDA", "scroll": "\uD83D\uDCDC",
+      "link": "\uD83D\uDD17", "calendar": "\uD83D\uDCC5", "school": "\uD83C\uDFEB",
+      "star": "\u2B50", "light bulb": "\uD83D\uDCA1", "mirror": "\uD83E\uDE9E",
+      "pick": "\u26CF\uFE0F", "screwdriver": "\uD83E\uDE9B", "test tube": "\uD83E\uDDEA",
+      "telescope": "\uD83D\uDD2D", "medical symbol": "\u2695\uFE0F", "maltese cross": "\u2720",
+      "thumbs down": "\uD83D\uDC4E", "bust in silhouette": "\uD83D\uDC64",
+      "busts in silhouette": "\uD83D\uDC65", "round pushpin": "\uD83D\uDCCC",
+      "thinking face": "\uD83E\uDD14", "smirking face": "\uD83D\uDE0F",
+      "disappointed face": "\uD83D\uDE1E", "face with rolling eyes": "\uD83D\uDE44",
+      "face with open mouth": "\uD83D\uDE2E", "yawning face": "\uD83E\uDD71",
+      "backhand index pointing right": "\uD83D\uDC49", "index pointing up": "\u261D\uFE0F",
+      "thought balloon": "\uD83D\uDCAD", "red heart": "\u2764\uFE0F", "blue heart": "\uD83D\uDC99",
+      "green heart": "\uD83D\uDC9A", "yellow heart": "\uD83D\uDC9B", "purple heart": "\uD83D\uDC9C",
+      "page facing up": "\uD83D\uDCC4", "clipboard": "\uD83D\uDCCB", "pencil": "\u270F\uFE0F",
+      "magnifying glass": "\uD83D\uDD0D", "world map": "\uD83D\uDDFA\uFE0F", "globe with meridians": "\uD83C\uDF10",
+      "frame with picture": "\uD83D\uDDBC\uFE0F", "frame_with_picture": "\uD83D\uDDBC\uFE0F",
+      "framed picture": "\uD83D\uDDBC\uFE0F", "image": "\uD83D\uDDBC\uFE0F"
+    };
+  }
+
+  // Convertit les \twemoji{nom} (et formes dégradées) restés dans le typst Pandoc
+  // en vrais emojis Unicode. Ne touche que les noms connus, sinon laisse tel quel.
+  fixTwemoji(typ) {
+    if (!typ || typeof typ !== "string") return typ;
+    const m = this.twemojiMap();
+    return typ.replace(/\\?twemoji\{([^}]+)\}/g, (full, name) => {
+      const n = (name || "").trim().toLowerCase();
+      return m[n] || full;
+    });
+  }
+
+  // Parseur BibTeX minimal : extrait les entrées @type{key, ...} avec leurs
+  // champs principaux (title, author, year, month, url, note, journal, volume,
+  // number, pages, booktitle, edition, publisher, school, organization).
+  parseBib(bibText) {
+    const entries = [];
+    if (!bibText) return entries;
+    const re = /@(\w+)\s*\{\s*([^,\s}]+)\s*,([\s\S]*?)\n\s*\}/g;
+    let m;
+    while ((m = re.exec(bibText)) !== null) {
+      const type = m[1].toLowerCase();
+      const key = m[2].trim();
+      const fields = m[3];
+      const e = { key, type };
+      const fieldRe = /(\w+)\s*=\s*\{?([^{}\n]*)\}?/g;
+      let f;
+      while ((f = fieldRe.exec(fields)) !== null) {
+        e[f[1].toLowerCase()] = (f[2] || "").trim().replace(/\{\{|\}\}/g, "");
+      }
+      entries.push(e);
+    }
+    return entries;
+  }
+
+  // Met en forme une entrée retenue au format « Author (Year). Title. Source. »
+  formatBibEntry(e) {
+    const author = e.author || "";
+    const year = e.year || "";
+    const title = e.title || "";
+    const src = e.journal || e.booktitle || e.publisher || e.school || e.organization || e.type;
+    let s = author ? author : "";
+    if (year) s += (s ? " (" : "(") + year + ")";
+    if (title) s += (s ? ". " : "") + title + ".";
+    if (src && typeof src === "string") s += " " + src + ".";
+    if (e.url) s += " " + e.url + ".";
+    return s;
+  }
+
+  // Post-traitement des citations + bibliographie dans le .typ produit par
+  // Pandoc (pipeline mobile). Pandoc.wasm N'EXÉCUTE PAS citeproc ici : les
+  // \citep{cle}/ \textcite{cle} deviennent des placeholders `#strong[Cle?]`
+  // non résolus, et la section `= Bibliographie` est vide. On corrige :
+  //  1) on convertit chaque `\(#strong[cle?]...)` en un texte de citation lisible ;
+  //  2) on régénère la section Bibliographie à partir des .bib du vault.
+  fixCitationsBibliography(typ, bibEntries) {
+    if (!typ || typeof typ !== "string") return typ;
+    // Détecte si citeproc a échoué (placeholders `#strong[Cle?]` présents). Si
+    // pandoc+citeproc a résolu (bon .bib), le typ contient des citations natives
+    // `@key` et la biblio remplie → on ne substitue RIEN par-dessus (sinon on
+    // dupliquerait les entrées). On n'intervient que sur les échecs.
+    if (!/#strong\[[A-Za-z][A-Za-z0-9]*\?\]/.test(typ)) return typ;
+    // 1a) Chaque placeholder de citation Pandoc `#strong[Cle?]` (clé SANS espace)
+    //     → la clé nue. NB: on exige une clé sans espace pour ne pas casser une
+    //     vraie question en gras (`#strong[Une question?]`).
+    typ = typ.replace(/#strong\[([A-Za-z][A-Za-z0-9]*)\?\]/g, (full, key) => key || full);
+    // 1b) Blocs de citation Pandoc `\(key1\; key2)` / `\(key1\)` — robuste aux
+    //     retours ligne entre clés — → `(key1; key2)`. Seuls les contenus faits
+    //     de clés + séparateurs (pas d'autre code typst) sont transformés.
+    typ = typ.replace(/\\\([A-Za-z][A-Za-z0-9]*(?:[\\; ; \n\t]+[A-Za-z][A-Za-z0-9]*)*[ \n\t]*\)/g, (full) => {
+      const keys = full.replace(/^\\\(|\)$/g, "").split(/[\\; ; \n\t]+/).filter(Boolean);
+      return "(" + keys.join("; ") + ")";
+    });
+    // 1c) Séparateurs `\;` restants (ex: entre clés sur des lignes séparées non
+    //     englobées par une paire `\(`) → `; `. Ciblé : seulement `\;` suivi d'une
+    //     lettre (une clé/une citation), pas un échappement libre.
+    typ = typ.replace(/\\;(\s*)(?=[A-Za-z])/g, ";$1");
+
+    // 2) Bibliographie : injecte une section résolue si le document contient
+    // une section `= Bibliographie` (vide côté Pandoc) ET qu'on a des entrées.
+    if (bibEntries && bibEntries.length) {
+      const used = new Set();
+      // Collecte toutes les clés présentes entre parenthèses (une ou plusieurs,
+      // séparées par « ; ») → sert de filtre pour la bibliographie.
+      const parenRe = /\(([A-Za-z][A-Za-z0-9-]*(?:\s*;\s*[A-Za-z][A-Za-z0-9-]*)*)\)/g;
+      let pm;
+      while ((pm = parenRe.exec(typ)) !== null) {
+        for (const key of (pm[1] || "").split(/;\s*/)) {
+          if (key) used.add(key);
+        }
+      }
+      let bibText = "";
+      for (const e of bibEntries) {
+        if (!used.has(e.key)) continue;
+        bibText += this.formatBibEntry(e).replace(/[`\n]/g, " ") + "\n\n";
+      }
+      if (bibText) {
+        const bibSection = "\n= Bibliographie\n\n" + bibText;
+        // Remplace une section `= Bibliographie` éventuellement présente (vide)
+        if (/= Bibliographie/.test(typ)) {
+          typ = typ.replace(/= Bibliographie[\s\S]*$/m, bibSection.trimEnd());
+        } else {
+          typ = typ + "\n" + bibSection;
+        }
+      }
+    }
+    return typ;
+  }
+
+  // Légendes des blocs figure au format obsidian-figure-gallery (`%% ... %%`
+  // frontmatter dans les fichiers `figure__block_*.md`). Le template typst de
+  // Pandoc sort l'image nue (`#box(image(...))` + `<blk:figure--block-X>` label)
+  // Légende par défaut pour toute #figure(...kind: image) restée SANS caption
+  // (mermaid, images du corps du document, blocs figure sans caption dans le
+  // frontmatter). Construit « Figure N » + nom de fichier propre, afin que
+  // chaque image soit numérotée et référençable (« Voir Figure N »).
+  captionBareImageFigures(typ) {
+    if (!typ || typeof typ !== "string") return typ;
+    const n = typ.length;
+    let out = typ, changed = 0, i = 0;
+    while (i < n) {
+      const s = out.indexOf("#figure", i);
+      if (s === -1) break;
+      // Sauter #figureName éventuel : on exige `#figure(`
+      let j = s + 7; while (j < n && /\s/.test(out[j])) j++;
+      if (out[j] !== "(") { i = s + 7; continue; }
+      let d = 0, k = j;
+      for (; k < n; k++) { const c = out[k]; if (c === "(") d++; else if (c === ")") { d--; if (d === 0) break; } }
+      if (k >= n) break;
+      const inner = out.slice(j + 1, k);
+      // Ne toucher qu'aux figures image sans caption.
+      if (/image\(/.test(inner) && /kind\s*:\s*image/.test(inner) && !/caption\s*:/.test(inner)) {
+        const fname = (inner.match(/image\("([^"]+)"/) || [])[1] || "";
+        const base = fname.split("/").pop().replace(/\.\w+$/, "").replace(/[_-]+/g, " ").trim();
+        const cap = (base || "Image").replace(/\s+/g, " ").trim();
+        const capFmt = cap.charAt(0).toUpperCase() + cap.slice(1);
+        const newFig = "#figure(" + inner.replace(/(,\s*kind\s*:\s*image)/, ", caption: [" + capFmt + "]$1") + ")";
+        out = out.slice(0, s) + newFig + out.slice(k + 1);
+        changed++;
+        i = s + newFig.length;
+        continue;
+      }
+      i = k + 1;
+    }
+    console.log("[mergdown2tex][typst] légendes par défaut ajoutées à " + changed + " figure(s) image sans caption");
+    return out;
+  }
+
+  // Dit si la position `p` se trouve à l'intérieur du corps d'un `#figure(...)`.
+  _isInsideFigure(typ, p) {
+    let d = 0;
+    for (let i = p - 1; i >= 0; i--) {
+      const c = typ[i];
+      if (c === ")") { d++; continue; }
+      if (c === "(") {
+        if (d === 0) {
+          const pre = typ.slice(Math.max(0, i - 7), i).replace(/[\s(]*$/, "");
+          return pre.endsWith("#figure");
+        }
+        d--;
+      }
+    }
+    return false;
+  }
+
+  // Images nues (hors blocs figure) : pandoc sort souvent `#box(image("..."))` ou
+  // `#image("...")` SANS wrapper figure → ni légende ni mise en forme. On les
+  // enveloppe ici dans `#figure(... kind: image, caption: [...])` (avec une
+  // légende par défaut issue du nom de fichier) pour qu'elles passent par la
+  // règle de mise en forme `#show figure.where(kind: image)`. On ignore les
+  // images déjà contenues dans une `#figure(...)` (traitées par
+  // captionBareImageFigures / addFigureBlockCaptions) pour ne pas les doubler.
+  wrapBareImages(typ) {
+    if (!typ || typeof typ !== "string") return typ;
+    const n = typ.length;
+    const findCall = (s, kw, sLen) => {
+      let j = s + sLen; while (j < n && /\s/.test(typ[j])) j++;
+      if (typ[j] !== "(") return null;
+      let d = 0, k = j;
+      for (; k < n; k++) { const c = typ[k]; if (c === "(") d++; else if (c === ")") { d--; if (d === 0) break; } }
+      if (k >= n) return null;
+      return { start: s, end: k + 1, inner: typ.slice(s, k + 1) };
+    };
+    let out = "", i = 0, changed = 0;
+    while (i < n) {
+      const isBareImage = typ.startsWith("#image(", i) || typ.startsWith("#image( ", i) || typ.startsWith("#image \t(", i);
+      const isBoxImage = typ.startsWith("#box(image(", i) || typ.startsWith("#box( image(", i);
+      if ((isBareImage || isBoxImage) && !this._isInsideFigure(typ, i)) {
+        const kw = isBoxImage ? "#box(" : "#image", sLen = isBoxImage ? 4 : 6;
+        const call = findCall(i, kw, sLen);
+        if (call) {
+          // Récupère le nom du fichier pour la légende par défaut.
+          const fnameMatch = typ.slice(call.start, call.end).match(/image\(\s*["']?([^"',)\s]+)/);
+          const fname = fnameMatch ? fnameMatch[1] : "";
+          const base = fname.split("/").pop().replace(/\.\w+$/, "").replace(/[_-]+/g, " ").trim();
+          const cap = (base || "Image").replace(/\s+/g, " ").trim();
+          const capFmt = cap.charAt(0).toUpperCase() + cap.slice(1);
+          let inner = call.inner;
+          // Ôter l'habillage #box(...) s'il est présent : on remplace
+          // #box(image(...)) par figure(image(...), kind, caption).
+          if (isBoxImage) {
+            const imgCall = typ.slice(call.start + "#box(".length, call.end - 1).trim();
+            inner = imgCall;
+          }
+          const figure = "#figure(" + inner + ",\n  kind: image,\n  caption: [" + capFmt + "]\n)";
+          out += figure;
+          i = call.end;
+          changed++;
+          continue;
+        }
+      }
+      out += typ[i];
+      i++;
+    }
+    if (changed > 0) console.log("[mergdown2tex][typst] " + changed + " image(s) nue(s) enveloppée(s) en figure avec légende");
+    return out;
+  }
+
+  // SANS sa caption parce que le WASM ne lit pas ce frontmatter. Ici on :
+  //  1) lit chaque fichier figure__block_*.md, extrait caption_long/ caption_short ;
+  //  2) associe la légende au label correspondant dans le .typ ;
+  //  3) enveloppe l'image précédant le label dans #figure(caption: [...]).
+  async addFigureBlockCaptions(typ) {
+    if (!this.app || !this.app.vault) return typ;
+    let files = [];
+    try { files = this.app.vault.getFiles ? this.app.vault.getFiles() : []; } catch (e) { return typ; }
+    const captionByLabel = {};
+    for (const f of files) {
+      if (!/\.md$/i.test(f.path)) continue;
+      const base = f.basename;
+      if (!/^figure__?block/i.test(base)) continue;
+      let c;
+      try { c = await this.app.vault.read(f); } catch (e) { continue; }
+      // Frontmatter figure-gallery délimité par %% ... %%
+      const fm = c.match(/%{2}\s*([\s\S]*?)%{2}/);
+      if (!fm) continue;
+      const get = (k) => {
+        // `[ \t]*` (et non `\s*`) : les espaces seuls, sinon `\s*` avale les
+        // retours à la ligne et capture la ligne suivante (ex: `subfigure_widths::`).
+        const m = fm[1].match(new RegExp("^[ \\t]*" + k + "::[ \\t]*(.*)$", "m"));
+        return m ? m[1].trim() : "";
+      };
+      let cap = get("caption_long") || get("caption_short") || "";
+      if (!cap) continue;
+      // Label utilisé par le template typst : blk:figure--block-<slug>
+      const slug = base.replace(/^figure__?block_?/i, "").replace(/[\s.]+/g, "-").toLowerCase()
+        .replace(/_+/g, "-");
+      const label = "<blk:figure--block-" + slug + ">";
+      if (typ.indexOf(label) !== -1) {
+        captionByLabel[label] = cap;
+      }
+    }
+    // Pour chaque label connu, insérer/assurer la caption sur la figure image qui
+    // précède le label. Pandoc sort maintenant `#figure(..., kind: image)\n<label>`
+    // (avec ou sans caption déjà), ou des `#box(image(...))` nus accolés.
+    const labelLabels = Object.keys(captionByLabel);
+    let out = typ;
+    for (const label of labelLabels) {
+      const cap = captionByLabel[label];
+      const idx = out.indexOf(label);
+      if (idx === -1) continue;
+      const before = out.slice(0, idx);
+      // Cas 1 : figure déjà formée `#figure(...kind: image)` juste avant le label.
+      const mFig = before.match(/(#figure\(\s*(?:[^()]|\([^)]*\))*?\s*\))[\s\n]*$/s);
+      if (mFig && /image\(/.test(mFig[1]) && /kind:\s*image/.test(mFig[1])) {
+        let fig = mFig[1];
+        if (/caption\s*:/.test(fig)) {
+          out = out.slice(0, idx - mFig[0].length) + fig + out.slice(idx + label.length);
+          continue; // déjà légendée
+        }
+        // Insérer la caption avant `, kind: image`
+        fig = fig.replace(/(,\s*kind\s*:\s*image)/, ", caption: [" + cap + "]$1");
+        out = out.slice(0, idx - mFig[0].length) + fig + label + out.slice(idx + label.length);
+        console.log("[mergdown2tex][typst] légende figure insérée: " + label + " -> « " + cap + " »");
+        continue;
+      }
+      // Cas 2 : #box(image(...)) nus accolés juste avant le label.
+      const m = before.match(/(?:\s*#box\(image\([^\n]*?\)\))+$/);
+      if (!m || !m[0]) continue;
+      const boxBlock = m[0];
+      const inner = boxBlock.replace(/\s*#box\(/g, "").replace(/\)\s*$/g, "");
+      const figure = "#figure(\n  " + inner + ",\n  caption: [" + cap + "]\n)\n";
+      out = out.slice(0, idx - m[0].length) + figure + label + out.slice(idx + label.length);
+      console.log("[mergdown2tex][typst] légende figure ajoutée: " + label + " -> « " + cap + " »");
+    }
+    try {
+      if (this.app.vault.adapter)
+        this.app.vault.adapter.write(".obsidian/plugins/mergdowntotex/dbg_captions.txt", JSON.stringify(captionByLabel, null, 2)).catch(() => {});
+    } catch (e) {}
+    return out;
+  }
+
+  // Références croisées élégantes « comme Word » pour l'export Typst PDF.
+  // Pandoc -t typst sort des refs brutes/nombres ([tab:table--block-long],
+  // #link(<tab:X>)[7], \[fig:...\], ...) et des artéfacts <bkl-N>. Ici on
+  // convertit chaque ref en un lien propre et cliquable #link(<label>)[Table N]
+  // (numéro calculé de façon alignée sur la numérotation typst : kind:table →
+  // tables, images enveloppées → figures, <eq:...> → équations), avec un
+  // libellé lisible quand le numéro n'est pas dérivable. Équivalent Typst de
+  // fixLatexCrossRefs (hyperref).
+  fixTypstCrossRefs(typ) {
+    if (typeof typ !== "string") return typ;
+    const norm = (l) => (l || "").replace(/^(eq|fig|tab|blk|sec|figure|table):/, "").replace(/\\/g, "").toLowerCase();
+    // Nom lisible « intelligent » depuis un label technique (table--block-long,
+    // figure--block-1, eq--block-einstein) : on retire gabarits techniques et
+    // mots vides pour obtenir « Long », « 1 », « Einstein »… Exemple attendu :
+    // « Voir Table Long, Table 7 et Figure Résultats. »
+    const slugTxt = (s) => {
+      let t = (norm(s) || "").replace(/-+/g, " ");
+      t = t.replace(/\b(block|blk)\b/gi, " ");
+      t = t.replace(/^(table|tab|figure|fig|eq|sec|section|blk|block)\s+/i, "");
+      t = t.replace(/\s+/g, " ").trim();
+      if (!t) return "1";
+      return t.charAt(0).toUpperCase() + t.slice(1);
+    };
+    // Localise chaque bloc #figure(...) complet (parenthèses équilibrées) et son
+    // kind + label, dans l'ordre d'apparition (aligné sur la numérotation typst).
+    const findFigures = (t) => {
+      const r = []; let i = 0; const n = t.length;
+      while (i < n) {
+        const s = t.indexOf("#figure", i);
+        if (s === -1) break;
+        let j = s + 7; while (j < n && /\s/.test(t[j])) j++;
+        if (t[j] !== "(") { i = s + 7; continue; }
+        let d = 0, k = j;
+        for (; k < n; k++) { const c = t[k]; if (c === "(") d++; else if (c === ")") { d--; if (d === 0) break; } }
+        if (k >= n) break;
+        const inner = t.slice(j + 1, k);
+        let kind = "figure"; const km = inner.match(/kind\s*:\s*(\w+)/);
+        if (km) kind = km[1]; else if (/image\(/.test(inner)) kind = "image";
+        let label = null; let m = k + 1; while (m < n && /\s/.test(t[m])) m++;
+        if (t[m] === "<") { const cl = t.indexOf(">", m); if (cl !== -1) label = t.slice(m + 1, cl); }
+        r.push({ inner, kind, label });
+        i = k + 1;
+      }
+      return r;
+    };
+    // 0) Envelopper les images nues (#box(image(...))) de niveau bloc en
+    //    #figure(kind:image) pour qu'elles soient numérotées par typst.
+    typ = typ.replace(/(?:^|\n)(\s*)#box\(\s*(image\([^)]*\))\s*\)/g, (f, ind, img) => `\n${ind}#figure(${img}, kind: image)`);
+    // 1) Labels DÉFINIS (<...>).
+    const defined = new Set();
+    const labelRe = /<((?:blk|tab|eq|sec|figure|fig|table):[^>\s]+)>/g;
+    let lm; while ((lm = labelRe.exec(typ)) !== null) defined.add(lm[1]);
+    // 2) Comptage aligné typst.
+    const figs = findFigures(typ);
+    const figN = {}, tabN = {}; let fi = 0, ti = 0;
+    for (const f of figs) {
+      if (f.kind === "table" || /table/.test(f.inner)) { if (f.label) tabN[norm(f.label)] = ++ti; }
+      else if (f.label) figN[norm(f.label)] = ++fi;
+    }
+    const eqN = {}; let ei = 0;
+    const eqRe = /\$[\s\S]*?\$<eq:([^>\s]+)>/g; let e;
+    while ((e = eqRe.exec(typ)) !== null) eqN[norm(e[1])] = ++ei;
+    // 3) Aides.
+    const refKind = (s) => { const t = (s || "").toLowerCase(); if (/^eq/.test(t)) return "eq"; if (/^fig/.test(t)) return "fig"; if (/^tab/.test(t)) return "tab"; if (/^sec/.test(t)) return "sec"; return null; };
+    const numFor = (kind, label) => { const n = kind === "eq" ? eqN[norm(label)] : kind === "fig" ? figN[norm(label)] : kind === "tab" ? tabN[norm(label)] : null; return n ? String(n) : slugTxt(label); };
+    const refText = (kind, label) => kind === "eq" ? "Eq. " + numFor("eq", label) : kind === "fig" ? "Figure " + numFor("fig", label) : kind === "tab" ? "Table " + numFor("tab", label) : "Section " + (norm(label).replace(/^sec[:]?/, "").replace(/^section[- ]?/, "").replace(/-+/g, " "));
+    const targetLabel = (refLabel) => { if (defined.has(refLabel)) return refLabel; const b = "blk:" + norm(refLabel); if (defined.has(b)) return b; return null; };
+    // 4a) Liens déjà formés : #link(<eq:X>)[\[eq:...\]] ; #link(<tab:X>)[7].
+    typ = typ.replace(/#link\(<([^>]+)>\)\[\\\[((?:eq|fig|tab|sec):[^\]]*?)\\\]\]/g, (f, label, body) => { const k = refKind(label) || refKind(body); return k ? "#link(<" + label + ">)[" + refText(k, label) + "]" : f; });
+    typ = typ.replace(/#link\(<([^>]+)>\)\[([0-9]+)\]/g, (f, label) => { const k = refKind(label); return k ? "#link(<" + label + ">)[" + refText(k, label) + "]" : f; });
+    // 4b) Refs nues \[eq:...\]/\[fig:...\]/\[tab:...\]/\[sec:...\] (+ sans backslash).
+    const bareRe = /\\\[((?:eq|fig|tab|sec):[^\]\\]+)\\\]|\[((?:eq|fig|tab|sec):[^\]]+)\]/g;
+    typ = typ.replace(bareRe, (f, a, b) => { const body = a || b; if (!body) return f; const k = refKind(body); if (!k) return f; const tgt = targetLabel(body); return "#link(<" + (tgt || body) + ">)[" + refText(k, body) + "]"; });
+    // 5) Neutraliser les liens vers labels inexistants (calé sur fixLatexCrossRefs).
+    typ = typ.replace(/#link\(<([^>]+)>\)\[([^\]\n]*)\]/g, (f, label, body) => { if (targetLabel(label)) return f; const txt = (body && body.trim()) ? body : slugTxt(label); return txt; });
+    // 6) Artéfacts <bkl-N>.
+    typ = typ.replace(/<bkl-\d+>/g, "");
+    typ = typ.replace(/#link\(<bkl-\d+>\)\[[^\]]*\]/g, "");
+    return typ;
+  }
+
+  // Pré-télécharge les images distantes ET pré-rend mermaid, EN PARALLÈLE, dès
+  // le lancement de la commande, pour que les caches soient prêts avant le
+  // pipeline de conversion (qui, lui, serait bloquant). Les téléchargements
+  // n'attendent pas l'un l'autre (Promise.all) et respectent le toggle
+  // `downloadWebImages` + un timeout par fichier. Si tout est déjà en cache,
+  // cette étape ne coûte (presque) rien.
+  async prefetchRemoteAssets(content, parentDir) {
+    try {
+      const s = this.settings || {};
+      const urls = [];
+      const re = /!\[[^\]]*\]\(\s*(https?:\/\/[^)\s]+)\s*\)/g;
+      let m;
+      while ((m = re.exec(content || "")) !== null) urls.push(m[1]);
+      if (urls.length === 0) return;
+      if (s.downloadWebImages === false) return; // toggle désactivé : rien à faire
+      const webCacheDir = (parentDir ? parentDir + "/" : "") + "embedded_images";
+      const seen = new Set();
+      const cap = Math.min(36000, 12000 + Math.max(0, urls.length - 1) * 4000);
+      await Promise.all(urls.map(async (url) => {
+        if (seen.has(url)) return; seen.add(url);
+        try {
+          if (this.app && this.app.vault && this.app.vault.adapter) {
+            const key = this._hash6(url);
+            const fname = "web_" + key + ".png";
+            const rel = webCacheDir + "/" + fname;
+            if (await vaultExists(this.app, rel)) return; // déjà en cache
+            await vaultMkdir(this.app, webCacheDir).catch(() => {});
+            const resp = await Promise.race([
+              requestUrl({ url, method: "GET", contentType: "application/octet-stream", responseType: "arraybuffer", throw: false }),
+              new Promise((_, rej) => setTimeout(() => rej(new Error("web timeout")), cap)),
+            ]);
+            if (resp && resp.status === 200 && resp.arrayBuffer) {
+              const bytes = new Uint8Array(resp.arrayBuffer);
+              if (bytes.length > 0) await this.app.vault.adapter.writeBinary(rel, bytes.buffer).catch(() => {});
+            }
+          } else {
+            await ensureWebImages("![](" + url + ")", path.join(parentDir || "", "embedded_images"), s);
+          }
+        } catch (e) { console.warn("[mergdown2tex] prefetch web skip:", url, (e && e.message) || e); }
+      }));
+      console.log("[mergdown2tex] prefetch terminé: " + urls.length + " image(s) web préparée(s)");
+    } catch (e) { console.warn("[mergdown2tex] prefetchRemoteAssets échec:", (e && e.message) || e); }
+  }
+
+  // Nettoyage des fichiers de sortie après export. Selon les réglages :
+  //  - keepTexFile=false → supprime le .tex
+  //  - keepMdFile=false → supprime le .md élargi / intermédiaire
+  //  - autoCleanExport=true → supprime tous les intermédiaires (.typ, .aux,
+  //    .log, .toc, .lof, .lot, .out, .bbl, .bcf, .expanded.md)
+  async cleanExportFiles(parentDir, fileStem) {
+    const s = this.settings || {};
+    const del = async (p) => {
+      try {
+        if (this.app && this.app.vault && this.app.vault.adapter) {
+          await this.app.vault.adapter.remove(p);
+        } else if (typeof require !== "undefined") {
+          const fs = require("fs");
+          if (fs.existsSync(p)) fs.unlinkSync(p);
+        }
+      } catch (_) {}
+    };
+    // .tex
+    if (!s.keepTexFile) await del(parentDir + "/" + fileStem + ".tex");
+    // .md élargi / intermédiaire
+    if (!s.keepMdFile) await del(parentDir + "/" + fileStem + ".expanded.md");
+    // Nettoyage auto complet
+    if (s.autoCleanExport) {
+      for (const ext of [".typ", ".aux", ".bbl", ".bcf", ".out", ".log", ".toc", ".lof", ".lot", ".fls", ".fdb_latexmk", ".blg", ".run.xml", ".upa", ".upb"]) {
+        await del(parentDir + "/" + fileStem + ext);
+      }
+    }
+  }
+
+  // Pandoc `-t typst` GÈRE la bibliographie via --citeproc, mais il SUPPRIME
+  // silencieusement \tableofcontents / \listoffigures / \listoftables : il faut
+  // réinjecter #outline() / #list-of-figures() / #list-of-tables() dans le .typ
+  // avant la compilation par typst.wasm. Retourne le typst transformé (ou
+  // l'original si le transform n'est pas applicable, pour retomber sur une
+  // tentative sans TOC plutôt que de faire échouer toute la compilation).
+  async postProcessTypst(typ, opts) {
+    if (!typ || typeof typ !== "string") return typ;
+    opts = opts || {};
+    // 1) Emojis : remplacer \twemoji{nom} par le glyphe Unicode.
+    if (opts.emojis !== false) typ = this.fixTwemoji(typ);
+    // 1bis) Citations + bibliographie réalisées manuellement (pandoc.wasm n'a
+    // pas citeproc ici) : conversion des placeholders `#strong[cle?]` en texte
+    // lisible + régénération de la section `= Bibliographie`.
+    if (opts.bibFix !== false) typ = this.fixCitationsBibliography(typ, opts.bibEntries);
+    // 1ter) Légendes des blocs figure (format figure-gallery `%% caption_long %%`) :
+    // le WASM/le template typst sort l'image sans sa caption. On lit les fichiers
+    // figure__block_*.md et on enveloppe les images dans #figure(caption: [...]).
+    if (opts.figureCaptions !== false) {
+      try { typ = await this.addFigureBlockCaptions(typ); }
+      catch (fe) { console.warn("[mergdown2tex][typst] addFigureBlockCaptions échec:", (fe && fe.message) || fe); }
+    }
+    // 1ter-bis) Toute figure image RESTÉE SANS caption (mermaid, images du corps,
+    // blocs sans caption dans le frontmatter) reçoit une légende par défaut
+    // construite à partir du nom de fichier, pour qu'elle soit numérotée ET
+    // référencable (« See Figure N ») comme dans pdflatex.
+    if (opts.figureCaptions !== false && opts.defaultImageCaptions !== false) {
+      try { typ = this.captionBareImageFigures(typ); }
+      catch (dc) { console.warn("[mergdown2tex][typst] captionBareImageFigures échec:", (dc && dc.message) || dc); }
+    }
+    // 1ter-ter) Images nues (hors figure) : on les enveloppe en #figure(...) avec
+    // une légende par défaut, pour qu'elles aient TOUJOURS une mise en forme et
+    // une légende (règle #show figure.where(kind: image) injectée plus loin).
+    if (opts.figureCaptions !== false && opts.defaultImageCaptions !== false) {
+      try { typ = this.wrapBareImages(typ); }
+      catch (wbe) { console.warn("[mergdown2tex][typst] wrapBareImages échec:", (wbe && wbe.message) || wbe); }
+    }
+    // 1quater) Refs croisées élégantes + coloration des liens. Pandoc sort des
+    // refs brutes ([tab:table--block-long], #link(<x>)[7], \[fig:...\]) et des
+    // artéfacts <bkl-N> ; on les convertit en #link(...)[Table N] propres.
+    if (opts.elegantRefs !== false) {
+      try { typ = this.fixTypstCrossRefs(typ); }
+      catch (ce) { console.warn("[mergdown2tex][typst] fixTypstCrossRefs échec:", (ce && ce.message) || ce); }
+    }
+    if (opts.linkColor !== false) {
+      // Coloration des liens (équivalent typst de \hypersetup{colorlinks}).
+      // Le template Pandoc expose `linkcolor`/`filecolor` (défaut `none`) et a une
+      // règle `show link: this => { ... else text(this) }` qui neutralise toute
+      // couleur : on force donc le bleu à deux niveaux —
+      //  1) une `#show link: set text(fill: ...)` en tête,
+      //  2) le remplacement du `else { text(this) }` du template par un
+      //     `else { text(this, fill: rgb("#3366cc")) }` (cible directe et sûre).
+      try {
+        if (typ.indexOf("show link: set text(fill: rgb(\"#3366cc\")") === -1) {
+          typ = "#show link: set text(fill: rgb(\"#3366cc\"))\n" + typ;
+        }
+        // Remplace le renvoi sans couleur de la règle `show link: this => {...}`
+        // du template par un renvoi avec couleur bleue par défaut.
+        typ = typ.replace(
+          /([ \t]*show link: this => \{[\s\S]*?)else \{\s*text\(this\)\s*\}([\s\S]*?\})/,
+          (f, pre, post) => pre + "else { text(this, fill: rgb(\"#3366cc\")) }" + post,
+        );
+      } catch (le) { console.warn("[mergdown2tex][typst] coloration liens échec:", (le && le.message) || le); }
+    }
+    if (opts.equationNumbers !== false) {
+      // Numérotation des équations affichées « comme Word/LaTeX ». typst < 0.12
+      // n'affiche PAS le (n) des équations display par défaut ; on l'active via
+      // #set math.equation(numbering: "(1)") (n'affecte que les équations à part,
+      // pas les maths inline). Combiné aux labels <eq:...>, ça référence bien.
+      try {
+        if (typ.indexOf("math.equation(numbering:") === -1) {
+          typ = "#set math.equation(numbering: \"(1)\")\n" + typ;
+        }
+      } catch (ee) { console.warn("[mergdown2tex][typst] numérotation équations échec:", (ee && ee.message) || ee); }
+    }
+    if (opts.tableAlignLeft !== false) {
+      // Tableaux : aligner le contenu des cellules à GAUCHE par défaut (comme
+      // pdflatex), au lieu du centrage par défaut de Typst.
+      try {
+        if (typ.indexOf("show table: set align") === -1 && typ.indexOf("set table(align: left)") === -1) {
+          typ = "#show table: set align(left)\n" + typ;
+        }
+      } catch (tae) { console.warn("[mergdown2tex][typst] alignement tableaux échec:", (tae && tae.message) || tae); }
+    }
+    if (opts.figureStyle !== false) {
+      // MISE EN FORME standard des figures images, « comme Word/LaTeX » : image
+      // centrée, largeur 90 % max, fond léger + bordure + ombrage + coins arrondis.
+      // On utilise des SET rules (pas une fonction de remplacement) pour ne PAS
+      // écraser le body/légende de la figure — une fonction de remplacement
+      // `it => { ... block(...) ... it.caption }` ne retourne que la dernière
+      // expression, ce qui SUPPRIMAIT les images du document.
+      try {
+        if (typ.indexOf("figure.where(kind: image): set") === -1) {
+          const figStyle = [
+            "#show figure.where(kind: image): set align(center)",
+            "#show figure.where(kind: image): set block(width: 90%, inset: 6pt, radius: 6pt, stroke: 0.6pt + rgb(\"#cccccc\"), shadow: (x: 2pt, y: 2pt, blur: 5pt, color: rgb(\"#0000001f\")))",
+            "",
+          ].join("\n");
+          typ = figStyle + typ;
+        }
+      } catch (fse) { console.warn("[mergdown2tex][typst] style figure échec:", (fse && fse.message) || fse); }
+    }
+    // DEBUG : capturer le typ real pour savoir si la regex emoji matche.
+    try {
+      const dbg = "POSTPROCESS_RAN: emojis=" + (opts.emojis !== false) + " toc=" + (opts.toc !== false) +
+        "\nEMOJI_REMAIN=" + ((typ.match(/twemoji/i) || []).length) +
+        "\nFIRST_200:\n" + typ.slice(0, 500);
+      console.log("[mergdown2tex][DEBUG typst] " + dbg);
+      if (this.app && this.app.vault)
+        this.app.vault.adapter.write(".obsidian/plugins/mergdowntotex/dbg_typ.txt", dbg).catch(() => {});
+    } catch (e) {}
+
+    const injectTOC = opts.toc !== false;
+    // NB: #list-of-figures / #list-of-tables exigent typst >= 0.12, absents de
+    // la version embarquée → ils faisaient échouer la compilation (et on perdait
+    // même la TOC). On ne les active que si explicitement demandés (opts), sinon
+    // on n'injecte que #outline, fiable sur toutes les versions.
+    const injectListFigures = opts.listFigures === true;
+    const injectListTables = opts.listTables === true;
+
+    // Insertion des blocs avant le 1er heading (`= ...`) réel du corps. Pandoc
+    // place l'en-tête (titre/`#set`) avant ; le 1er `=` heading marque le début
+    // du contenu. On garde une marge de sûreté : si on ne trouve aucun heading,
+    // on insère en fin (rare).
+    let listBlock = "";
+    if (injectTOC) listBlock += "\n#outline(title: \"Table des matières\")\n";
+    if (injectListFigures) listBlock += "\n#list-of-figures(title: \"Liste des figures\")\n";
+    if (injectListTables) listBlock += "\n#list-of-tables(title: \"Liste des tableaux\")\n";
+    if (listBlock) {
+      const firstHeading = typ.search(/\n=+(?:[ ]|$)/);
+      if (firstHeading !== -1) {
+        typ = typ.slice(0, firstHeading) + listBlock + "\n#pagebreak()\n" + typ.slice(firstHeading);
+      } else {
+        typ = typ + listBlock;
+      }
+    }
+    // DEBUG : écrire le .typ final (celui qui part vers typst.compile) pour
+    // inspection de la biblio / 1er titre / emojis. Utile car pandoc écrit le
+    // .typ dans le FS wasm éphémère et ne le sauve jamais dans le vault.
+    try {
+      if (this.app && this.app.vault)
+        this.app.vault.adapter.write(".obsidian/plugins/mergdowntotex/dbg_typ_full.typ", typ).catch(() => {});
+    } catch (e) {}
+    // Option « Garder le .typ » : écrire le .typ transformé à côté du .tex
+    // (parentDir/fileStem.typ), afin de pouvoir le ré-ouvrir/modifier. Le .typ
+    // n'est sinon conservé que dans le FS wasm éphémère.
+    if (this.settings && this.settings.keepTypstFile) {
+      try {
+        const af = this.app && this.app.workspace ? this.app.workspace.getActiveFile() : null;
+        if (af && this.app.vault) {
+          const dir = (af.parent ? af.parent.path : "").replace(/\/+$/, "");
+          const typRel = (dir ? dir + "/" : "") + af.basename + ".typ";
+          await this.app.vault.adapter.write(typRel, typ).catch(() => {});
+          console.log("[mergdown2tex][typst] .typ conservé :", typRel);
+        }
+      } catch (e) {}
+    }
+    return typ;
+  }
+
+
   fixLatexCrossRefs(tex) {
     if (!tex) return tex;
     const toLiteral = (id) => "[" + id + "]";
 
-    // STRIP \hypertarget from inside equation environments
+    // 1. STRIP \\hypertarget from inside equation environments
     // (Pandoc's math parser crashes on unexpected control sequences inside math)
     tex = tex.replace(/\\begin\{(equation\*?|align\*?|gather\*?|aligned|split)\}([\s\S]*?)\\end\{\1\}/g, (full) => {
       return full.replace(/\\hypertarget\{[^}]+\}\{\}/g, "");
     });
 
-    const counts = {};
+    // 2. Collecter tous les \\label{id} présents dans le document
+    const labelIds = new Set();
     const labelRe = /\\label\{([^}]+)\}/g;
-    const definedLabels = new Set();
-    let m;
-    while ((m = labelRe.exec(tex)) !== null) {
-      const id = m[1];
-      counts[id] = (counts[id] || 0) + 1;
+    let lm;
+    while ((lm = labelRe.exec(tex)) !== null) {
+      labelIds.add(lm[1]);
     }
 
+    // 3. Supprimer les \\hypertarget{id}{} dont l'id a déjà un \\label{id}
+    //    → Pandoc convertit les deux en <id> dans Typst → doublon fatal.
+    //    On garde uniquement les \\hypertarget sans \\label correspondant
+    //    (ex: ancres HTML pures sans label LaTeX).
+    tex = tex.replace(/\\hypertarget\{([^}]+)\}\{\}/g, (full, id) => {
+      if (labelIds.has(id)) return ""; // redondant avec \\label → supprimé
+      return full;
+    });
+
+    // 4. Dédupliquer les \\hypertarget{id}{} restants (sans \\label)
+    const targetCounts = {};
+    tex = tex.replace(/\\hypertarget\{([^}]+)\}\{\}/g, (full, id) => {
+      targetCounts[id] = (targetCounts[id] || 0) + 1;
+      if (targetCounts[id] > 1) return "";
+      return full;
+    });
+
+    // 5. Dédupliquer TOUS les \\label{id} de manière inconditionnelle
+    const seenLabels = {};
+    const definedLabels = new Set();
     tex = tex.replace(/\\label\{([^}]+)\}/g, (full, id) => {
-      if (counts[id] > 1) {
-        counts[id] -= 1;
-        const newId = id + "_" + (counts[id] + 1);
+      seenLabels[id] = (seenLabels[id] || 0) + 1;
+      if (seenLabels[id] > 1) {
+        const newId = id + "_" + seenLabels[id];
         definedLabels.add(newId);
         return "\\label{" + newId + "}";
       }
@@ -3149,23 +3940,18 @@ class Markdown2TexPlugin extends Plugin {
       return full;
     });
 
+    // 6. Collecter aussi les \\hypertarget restants comme labels définis
+    let m;
     const targetRe = /\\hypertarget\{([^}]+)\}/g;
     while ((m = targetRe.exec(tex)) !== null) {
       definedLabels.add(m[1]);
     }
 
-    tex = tex.replace(/\\ref\{([^}]*)\}/g, (full, a) => {
+    // 7. Neutraliser les refs vers des labels inexistants
+    tex = tex.replace(/\\(autoref|cref|ref|eqref)\{([^}]*)\}/g, (full, cmd, a) => {
       const ids = a.split(",").map(x => x.trim()).filter(Boolean);
       if (ids.some(id => !definedLabels.has(id))) {
-        return ids.map(id => definedLabels.has(id) ? id : toLiteral(id)).join(", ");
-      }
-      return full;
-    });
-
-    tex = tex.replace(/\\eqref\{([^}]*)\}/g, (full, a) => {
-      const ids = a.split(",").map(x => x.trim()).filter(Boolean);
-      if (ids.some(id => !definedLabels.has(id))) {
-        return ids.map(id => definedLabels.has(id) ? id : toLiteral(id)).join(", ");
+        return ids.map(id => definedLabels.has(id) ? "\\" + cmd + "{" + id + "}" : toLiteral(id)).join(", ");
       }
       return full;
     });
@@ -3179,7 +3965,7 @@ class Markdown2TexPlugin extends Plugin {
 
     tex = tex.replace(/\\hyperlink\{([^}]+)\}/g, (full, id) => {
       if (!definedLabels.has(id)) {
-        return ""; // neutraliser complètement le lien
+        return ""; // neutraliser complètement le lien s'il n'existe pas
       }
       return full;
     });
@@ -3269,7 +4055,7 @@ listBibCslSources(ext) {
   async _getMermaid() {
     // 1) mermaid déjà chargé par Obsidian (desktop principalement)
     const wMermaid = window.mermaid || globalThis.mermaid;
-    if (wMermaid) { this._mermaidModule = wMermaid; return this._mermaidModule; }
+    if (wMermaid) { this._mermaidModule = wMermaid; this._mermaidSource = "obsidian-global"; return this._mermaidModule; }
     // 2) déjà chargé par nous (positif ou négatif)
     if (this._mermaidLoadAttempted) return this._mermaidModule;
     this._mermaidLoadAttempted = true;
@@ -3278,32 +4064,54 @@ listBibCslSources(ext) {
     // thread) plutôt qu'un `new Function` qui gèlerait le pipeline sur mobile.
     try {
       if (!MERMAID_BASE64 || MERMAID_BASE64 === "MERMAID_BASE64_PLACEHOLDER" || MERMAID_BASE64.length < 1000) {
-        console.log("[mergdown2tex] mermaid bundle non embarqué, skip");
+        console.log("[mergdown2tex] mermaid bundle non embarqué, skip (len=" + (MERMAID_BASE64 || "").length + ")");
         return null;
       }
-      console.log("[mergdown2tex] chargement mermaid bundle embarqué via <script>...");
+      console.log("[mergdown2tex] chargement mermaid bundle embarqué via <script> (len=" + MERMAID_BASE64.length + ")...");
       const code = decodeURIComponent(escape(atob(MERMAID_BASE64)));
       const blobUrl = URL.createObjectURL(new Blob([code], { type: "text/javascript" }));
+      let mod = null;
       const script = document.createElement("script");
       script.src = blobUrl;
       script.async = true;
-      await new Promise((resolve, reject) => {
-        const to = setTimeout(() => reject(new Error("timeout chargement script mermaid")), 20000);
-        script.onload = () => { clearTimeout(to); resolve(); };
-        script.onerror = () => { clearTimeout(to); reject(new Error("erreur chargement script mermaid")); };
-        document.head.appendChild(script);
-      });
-      let mod = window.mermaid || globalThis.mermaid;
+      try {
+        await new Promise((resolve, reject) => {
+          const to = setTimeout(() => reject(new Error("timeout chargement script mermaid")), 20000);
+          script.onload = () => { clearTimeout(to); resolve(); };
+          script.onerror = () => { clearTimeout(to); reject(new Error("erreur chargement script mermaid (CSP/blob bloqué?)")); };
+          document.head.appendChild(script);
+        });
+      } catch (scriptErr) {
+        console.warn("[mergdown2tex] mermaid <script> échec (" + (scriptErr.message || scriptErr) + ") — tentative eval fallback…");
+      }
+      mod = window.mermaid || globalThis.mermaid;
       if (!mod) {
-        // Le bundle expose parfois un module CommonJS via des globals internes ;
-        // on tente un dernier accès.
-        try { mod = (0, eval)(code).default || (0, eval)(code); } catch (_e) { mod = null; }
+        // Le `<script>` (blob URL) peut être bloqué par la CSP d'Obsidian sans
+        // déclencher onload/onerror. Dernier recours : évaluer directement le code
+        // du bundle. Ce code est un IIFE esbuild qui expose window.mermaid (vérifié
+        // en Node). L'évaluation est SYNCHRONE mais ne dure qu'un court instant
+        // (elle ne fait que MONTER le module, elle ne rend AUCUN diagramme — le
+        // rendu, lui, est entouré d'un timeout dur dans renderMermaidMobile). On
+        // l'exécute dans un setTimeout(0) pour ne pas bloquer le rendu de l'UI, et
+        // on revérifie window.mermaid juste après.
+        try {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          let evaled = null;
+          try { evaled = (0, eval)(code); } catch (_e) { console.warn("[mergdown2tex] mermaid eval fallback échec: " + (_e && _e.message || _e)); evaled = null; }
+          const viaEval = window.mermaid || globalThis.mermaid;
+          if (viaEval) { mod = viaEval; console.log("[mergdown2tex] mermaid chargé via eval fallback (le <script> était bloqué par CSP)"); }
+          else console.warn("[mergdown2tex] mermaid : ni <script> ni eval n'exposent window.mermaid");
+        } catch (_e2) {
+          console.warn("[mergdown2tex] mermaid eval fallback exception: " + (_e2 && _e2.message || _e2));
+        }
       }
       this._mermaidModule = mod || null;
+      if (mod) this._mermaidSource = (this._mermaidSource || "embedded;script-or-eval");
       if (this._mermaidModule && typeof this._mermaidModule.initialize === "function") {
-        await this._mermaidModule.initialize({ startOnLoad: false, theme: "default", securityLevel: "loose" });
+        try { await this._withTimeout(this._mermaidModule.initialize({ startOnLoad: false, theme: "default", securityLevel: "loose" }), 15000, "mermaid.initialize timeout"); }
+        catch (ie) { console.warn("[mergdown2tex] mermaid initialize échec/timeout: " + (ie && ie.message || ie)); }
       }
-      console.log("[mergdown2tex] mermaid bundle chargé OK via <script>");
+      console.log("[mergdown2tex] mermaid module chargé (source=" + (this._mermaidSource || "?") + ")" + (mod ? "" : " (mais mod absent)"));
       return this._mermaidModule;
     } catch (e) {
       console.warn("[mergdown2tex] mermaid bundle load failed:", (e && e.message) || e);
@@ -3312,8 +4120,20 @@ listBibCslSources(ext) {
     }
   }
 
-  async _svgToPng(svgStr) {
+  // Enveloppe une promesse d'un délai DUR : si elle ne résout pas avant, on rejette.
+  // Évite les freezes silencieux (aucun PDF, aucune erreur console) quand un
+  // sous-composant (mermaid.render, svgToPng…) reste bloqué indéfiniment.
+  _withTimeout(promise, ms, label) {
     return new Promise((resolve, reject) => {
+      const to = setTimeout(() => { console.warn("[mergdown2tex] timeout: " + label); reject(new Error(label)); }, ms);
+      Promise.resolve(promise).then(
+        (v) => { clearTimeout(to); resolve(v); },
+        (e) => { clearTimeout(to); reject(e); }
+      );
+    });
+  }
+
+  async _svgToPng(svgStr) {    return new Promise((resolve, reject) => {
       const img = new Image();
       const blob = new Blob([svgStr], { type: "image/svg+xml" });
       const url = URL.createObjectURL(blob);
@@ -3339,17 +4159,48 @@ listBibCslSources(ext) {
   // (await/raf) entre chaque diagramme. Si le temps est dépassé, on abandonne
   // proprement pour que le pipeline PDF/typst ne se fige JAMAIS, surtout sur
   // téléphone où le new Function du gros bundle (3.5 MB) est très lent.
-  async renderMermaidMobile(content) {
+  // Neutralise synchroniquement TOUS les blocs mermaid (ouverts/fermés) par un
+  // texte de secours, SANS toucher au WASM. C'est le filet de sécurité qui
+  // garantit qu'aucun bloc mermaid brut n'atteint markdown_to_latex_with_vfs
+  // (sinon celui-ci gèle le pipeline sans erreur console ni PDF).
+  neutralizeMermaidSync(content) {
     if (!content || !/```mermaid/.test(content)) return content;
-    const TIMEOUT_MS = 12000;
+    const banned = /(?:```mermaid\s*\n[\s\S]*?```)|(?:```mermaid)/g;
+    const fallback = (full) => {
+      if (full === "```mermaid") return "*(bloc mermaid non fermé)*";
+      return "*(diagramme mermaid non rendu : rendu désactivé ou impossible)*";
+    };
+    const out = content.replace(banned, fallback);
+    console.log("[mergdown2tex][mobile] neutralizeMermaidSync: blocs neutralisés=" + ((content.match(/```mermaid/g) || []).length));
+    return out;
+  }
+
+  async renderMermaidMobile(content, parentDir) {
+    if (!content || !/```mermaid/.test(content)) return content;
+    const TIMEOUT_MS = 15000;
     const deadline = Date.now() + TIMEOUT_MS;
     const yieldThread = () => new Promise((r) => setTimeout(r, 0));
     const mermaid = await this._getMermaid();
-    if (!mermaid || typeof mermaid.render !== "function") return content;
+    if (!mermaid || typeof mermaid.render !== "function") {
+      console.warn("[mergdown2tex][mobile] mermaid indisponible (window.mermaid=" + !!this._mermaidModule +
+        ", attempted=" + this._mermaidLoadAttempted + ", source=" + (this._mermaidSource || "?" ) +
+        ") — remplacement des blocs par un texte de secours pour éviter l'erreur mmdc de pandoc.");
+      // Même sans mermaid, on NE laisse PAS les blocs ```mermaid``` bruts pour
+      // pandoc (il tenterait mmdc -> « MERMAID RENDERING FAILED »). On les
+      // neutralise en texte explicite.
+      const banned = /(?:```mermaid\s*\n[\s\S]*?```)|(?:```mermaid)/g;
+      const fallback = (full) => {
+        if (full === "```mermaid") return "*(bloc mermaid non fermé)*";
+        return "*(diagramme mermaid non rendu : module indisponible)*";
+      };
+      return content.replace(banned, fallback);
+    }
     const regex = /```mermaid\s*\n([\s\S]+?)```/g;
     let match, idx = 0;
     const parts = [];
     let last = 0;
+    const relParent = (parentDir || "").replace(/^\/+/, "").replace(/\\/g, "/");
+    
     while ((match = regex.exec(content)) !== null) {
       if (Date.now() > deadline) {
         console.warn("[mergdown2tex] mermaid : temps max dépassé, abandon du rendu des diagrammes restants");
@@ -3361,9 +4212,35 @@ listBibCslSources(ext) {
       try {
         await yieldThread();
         const id = "mermaid_mob_" + Date.now() + "_" + idx;
-        const { svg } = await mermaid.render(id, def);
-        const pngDataUri = await this._svgToPng(svg);
-        parts.push(`![](${pngDataUri})`);
+        // Timeout DUR par rendu : si mermaid.render gèle (bundle bloqué/incomplet),
+        // on ne reste PAS bloqué indéfiniment — on abandonne CE diagramme et on
+        // continue, sinon le pipeline figerait sans PDF ni erreur console.
+        console.log("[mergdown2tex][mobile] mermaid render #" + idx + ", def(60)=" + JSON.stringify(def.slice(0, 60)));
+        const { svg } = await this._withTimeout(mermaid.render(id, def), 8000, "mermaid.render timeout");
+        console.log("[mergdown2tex][mobile] mermaid render OK, svg len=" + (svg ? svg.length : 0));
+        // On écrit TOUJOURS le diagramme dans un dossier dédié `mermaid_diagrams/`
+        // (relatif au dossier de la note source), pour ne pas salir le dossier de
+        // la note avec des fichiers temporaires. L'image est référencée via ce
+        // chemin relatif afin que pandoc/typst la retrouve.
+        const fileName = `diagram_${Date.now()}_${idx}.svg`;
+        const diagDir = relParent ? `${relParent}/mermaid_diagrams` : "mermaid_diagrams";
+        const filePath = `${diagDir}/${fileName}`;
+        // On sauvegarde le SVG TELLE QUEL (texte) : le canvas ne rend pas les
+        // <foreignObject> de mermaid (labels vides en PNG), alors que Typst
+        // importe natifivement le SVG → diagramme complet avec texte. On écrit en
+        // TEXTE (adapter.write) puisque c'est un .svg.
+        if (this.app.vault.adapter && this.app.vault.adapter.write) {
+          await vaultMkdir(this.app, diagDir);
+          await this.app.vault.adapter.write(filePath, svg);
+          // Légende : on extrait un titre éventuel du bloc mermaid (ligne
+          // `%%caption: ...%%` en tout début), sinon on met une légende neutre.
+          const capMatch = def.match(/^\s*%%\s*caption\s*:\s*(.+?)\s*%%\s*[\r\n]*/i);
+          const cap = capMatch ? capMatch[1] : "Diagramme mermaid";
+          parts.push(`![${cap}](${diagDir}/${fileName})`);
+          console.log(`[mergdown2tex][mobile] Diagramme Mermaid (SVG) sauvegardé : ${filePath}`);
+        } else {
+          parts.push(`![](${"data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)))})`);
+        }
       } catch (e) {
         console.warn("[mergdown2tex] mermaid render failed:", (e && e.message) || e);
         parts.push("*(diagramme mermaid non rendu)*");
@@ -3376,15 +4253,25 @@ listBibCslSources(ext) {
     return parts.join("");
   }
 
-  async compilePdfMobile() {
-    console.log("[mergdown2tex][mobile] compilePdfMobile() lancé");
+  async compilePdfMobile(opts = {}) {
+    console.log("[mergdown2tex][mobile] compilePdfMobile() lancé (silent=" + !!opts.silent + ")");
     if (!this.vlatex) { new Notice("vLaTeX WASM non initialisé."); return; }
     const activeFile = this.app.workspace.getActiveFile();
     if (!activeFile || activeFile.extension !== "md") { new Notice("Sélectionnez un fichier Markdown."); return; }
-    new Notice("Compilation PDF (Pandoc WASM + Typst)...");
+    if (!opts.silent) new Notice("Compilation PDF (Pandoc WASM + Typst)...");
     try {
+      // Préparation anticipée des images web + mermaid, EN PARALLÈLE (fire-and-forget),
+      // pendant que la conversion (WASM + mermaid + pandoc) s'exécute. Elle remplit
+      // les caches disque que materializeMissingImagesMobile consomme ensuite.
+      const rawContent = await this.app.vault.read(activeFile).catch(() => "");
+      const parentDirHint = (activeFile.parent ? activeFile.parent.path : "").replace(/^\/+/, "").replace(/\\/g, "/");
+      try { this.prefetchRemoteAssets(rawContent, parentDirHint); } catch (_p) {}
       const conv = await this.convertToLatexMobile(activeFile);
       console.log("[mergdown2tex][mobile] convertToLatexMobile revenu, fullTex.len=" + (conv && conv.fullTex ? conv.fullTex.length : "?"));
+      // Préparation anticipée des images web + mermaid, EN PARALLÈLE, pendant que
+      // la conversion (WASM + pandoc) s'exécute. On la lance sans `await` bloquant
+      // sur le chemin critique : elle remplit les caches disque réutilisables.
+      try { this.prefetchRemoteAssets(rawContent, conv && conv.parentDir || ""); } catch (_p) {}
       const { parentDir, fileStem, fullTex, content } = conv;
 
       const pdfTexRel = (parentDir ? parentDir + "/" : "") + fileStem + "_pdf.tex";
@@ -3397,6 +4284,7 @@ listBibCslSources(ext) {
       const numberSectionsFlag = this.settings.enableDocxNumbering ? " --number-sections" : "";
       const inputRel = ("/" + pdfTexRel).replace(/\\/g, "/");
       const outputRel = ("/" + pdfRel).replace(/\\/g, "/");
+      if (!opts.silent) new Notice("Conversion Pandoc + Typst en cours…");
 
       // --- Neutralisation des images absentes (pandoc-wasm interdit l'accès à un
       // chemin hors de la racine ; une image manquante/absolue déclenche
@@ -3419,19 +4307,31 @@ listBibCslSources(ext) {
       let pdfTexForPandoc = fullTex;
       if (missing.length > 0) {
         console.log("[mergdown2tex][mobile] PDF images absentes neutralisées:", missing.length, "sur un total de", missing.length + found.length);
+        // DEBUG : images trouvées vs manquantes pour diagnostiquer les blocs figure.
+        try {
+          if (this.app && this.app.vault)
+            this.app.vault.adapter.write(".obsidian/plugins/mergdowntotex/dbg_imgs.txt",
+              "FOUND:\n" + found.join("\n") + "\n\nMISSING:\n" + missing.map((m) => "[" + m + "]").join("\n")
+            ).catch(() => {});
+        } catch (e) {}
         // On ne neutralise QUE les images absentes (individuellement), pas toutes.
         const missingSet = new Set(missing);
         pdfTexForPandoc = fullTex.replace(/\\includegraphics(?:\[[^}]*\])?\{[^}]+\}/g, (fullMatch) => {
-          if (missingSet.has(fullMatch)) return "\\emph{(image non disponible sur mobile)}";
+          if (missingSet.has(fullMatch)) return "\\twemoji{frame_with_picture}";
           return fullMatch;
         });
       }
 
       await vaultMkdir(this.app, relParentDir || "/");
       pdfTexForPandoc = this.fixLatexCrossRefs(pdfTexForPandoc);
+      // Emojis : convertir \twemoji{nom} en glyphe Unicode DANS LE .tex, AVANT
+      // pandoc. Pandoc droppe les \twemoji{} inconnus (surtout dans les cellules
+      // de tableau) → sans ça les emojis disparaissent du typ/PDF. Le vrai
+      // caractère Unicode passe comme le « − ».
+      pdfTexForPandoc = this.fixTwemoji(pdfTexForPandoc);
       await vaultWriteText(this.app, pdfTexRel, pdfTexForPandoc);
       console.log("[mergdown2tex][mobile] _pdf.tex écrit:", pdfTexRel, "sera pandoc-input");
-      new Notice("Fichier .tex écrit. Initialisation de Typst...");
+      if (!opts.silent) new Notice("Fichier .tex écrit. Initialisation de Typst...");
 
       // --- Bibliographie : ne fournir que les chemins .bib présents dans le vault
       const bibPaths = [];
@@ -3444,9 +4344,51 @@ listBibCslSources(ext) {
       // sinon « label <key> does not exist in the document ».
       // NB: chemin ABSOLU dans le FS wasm ("/" + rel) car pandoc résout le chemin
       // du .bib selon le resource-path (sinon il cherche /Writing/BIBTEX.bib).
-      const bibArg = bibPaths.length > 0 ? ` --bibliography="/${bibPaths[0]}" --citeproc` : "";
+      // IMPORTANT: on ne prend PAS bibPaths[0] arbitrairement (ex: test.bib qui ne
+      // contient pas les clés) — on choisit le .bib qui couvre le plus de clés
+      // réellement citées dans le document. Le .bib varie d'un utilisateur/doc à
+      // l'autre, donc la sélection doit refléter LES CITATIONS, pas l'ordre de
+      // découverte.
+      const citedKeys = new Set();
+      try {
+        const citeRe = /\\(?:citep|textcite|citet?|citeproc)\{([^}]+)\}/g;
+        let cm;
+        while ((cm = citeRe.exec(fullTex)) !== null) {
+          for (const k of (cm[1] || "").split(",")) citedKeys.add(k.trim());
+        }
+      } catch (e) {}
+      let bestBib = bibPaths.length ? bibPaths[0] : null;
+      let bestScore = -1;
+      try {
+        for (const b of bibPaths) {
+          let score = 0;
+          try {
+            const txt = await this.app.vault.adapter.read(b);
+            const entries = this.parseBib(txt);
+            for (const e of entries) if (citedKeys.has(e.key)) score++;
+          } catch (be) {}
+          if (score > bestScore) { bestScore = score; bestBib = b; }
+        }
+      } catch (e) {}
+      console.log("[mergdown2tex][mobile] choix .bib:", bestBib, "| clés citées=" + [...citedKeys].join(",") + " | bestScore=" + bestScore);
+      const bibArg = bestBib ? ` --bibliography="/${bestBib}" --citeproc` : "";
       const resources = [...found];
-      for (const b of bibPaths) resources.push("/" + b);
+      if (bestBib) resources.push("/" + bestBib);
+      for (const b of bibPaths) if (b !== bestBib) resources.push("/" + b);
+      // Entrées .bib (contenus réels) pour la bibliographie MANUELLE générée par
+      // fixCitationsBibliography : secours si citeproc ne résout pas (certaines
+      // variantes pandoc-wasm). On lit TOUS les .bib et on regroupe, pour
+      // retrouver les clés citées peu importe le fichier.
+      let bibEntriesForTypst = [];
+      try {
+        for (const b of bibPaths) {
+          try {
+            const txt = await this.app.vault.adapter.read(b);
+            bibEntriesForTypst = bibEntriesForTypst.concat(this.parseBib(txt));
+          } catch (be) { console.warn("[mergdown2tex][mobile] .bib illisible:", b, be.message); }
+        }
+      } catch (be) {}
+      console.log("[mergdown2tex][mobile] entrées .bib chargées pour biblio manuelle:", bibEntriesForTypst.length);
       // CSL : on applique aussi le style choisi au PDF mobile (redirigé vers nos
       // resources auto-hébergées, plus de dépendance à pandoc-gui).
       let cslArg = "";
@@ -3459,6 +4401,7 @@ listBibCslSources(ext) {
       let result = null;
       let lastErr = "";
       let lastCmd = "";
+      const triedVariants = [];
       const cmdVariants = [
         { toc: false, std: true, math: true, cite: !!bibArg },
         { toc: false, std: false, math: true, cite: true },
@@ -3477,6 +4420,10 @@ listBibCslSources(ext) {
         try {
           result = await runPandocWasm(wasmEngine, wasmFS, {
             command: cmd, vaultDir: "", resources, embeds: [], typst: typCompiler,
+            // Réinjecte TOC + listes dans le typst Pandoc (il les supprime sinon).
+            // Uniquement sur la variante --standalone (en-tête complet), sinon la
+            // tentative suivante retombe sur le typst brut.
+            typstTransform: v.std ? (src) => this.postProcessTypst(src, { toc: true, bibEntries: bibEntriesForTypst }) : undefined,
           });
           if (result && result.stderr) console.log("[mergdown2tex][mobile] pandoc stderr:", result.stderr);
           // Vérification de la sortie : on tolère l'échec de lecture binaire
@@ -3496,7 +4443,17 @@ listBibCslSources(ext) {
           lastErr = runErr.message;
           result = null;
         }
+        triedVariants.push({ cmd: cmd, err: lastErr });
       }
+
+      // DEBUG : persiste l'erreur de CHAQUE variante — si une variante TOC échoue
+      // mais qu'une suivante réussit, on veut quand même savoir pourquoi
+      // (généralement un #outline/#list-of-* non supporté par la version typst).
+      try {
+        if (this.app && this.app.vault)
+          this.app.vault.adapter.write(".obsidian/plugins/mergdowntotex/dbg_err.txt",
+            triedVariants.map(v => "CMD:\n" + v.cmd + "\nERR:\n" + (v.err || "(ok)")).join("\n\n")).catch(() => {});
+      } catch (e) {}
 
       try { this.app.workspace.trigger("layout-change"); } catch (e) {}
       try { if (this.app.vault.adapter.trigger) this.app.vault.adapter.trigger("modify", pdfRel); } catch (e) {}
@@ -3507,14 +4464,16 @@ listBibCslSources(ext) {
         pdfBytes = await vaultReadBinary(this.app, pdfRel);
       } catch (pe) { /* PDF non visible dans le vault */ }
       if (pdfBytes && pdfBytes.length > 4 && pdfBytes[0] === 0x25 && pdfBytes[1] === 0x50) {
-        new Notice("✅ PDF compilé sur mobile !");
+        if (!opts.silent) new Notice("✅ PDF compilé sur mobile !");
+        try { await this.cleanExportFiles(relParentDir || "", fileStem); } catch (ce2) {}
       } else {
-        new Notice("⚠️ PDF non généré : " + (lastErr || "diagnostic Typst"), 8000);
+        if (!opts.silent) new Notice("⚠️ PDF non généré : " + (lastErr || "diagnostic Typst"), 8000);
         console.error("[mergdown2tex][mobile] PDF error detail:", lastCmd, lastErr);
       }
     } catch (e) {
       console.error("[mergdown2tex][mobile] PDF error:", e);
-      new Notice("❌ Erreur PDF mobile: " + e.message + "\n" + (((e && e.message) || "").match(/project root/) ? "Le PDF mobile ne peut lire que les ressources dans le vault." : ""));
+      if (!opts.silent) new Notice("❌ Erreur PDF mobile: " + e.message + "\n" + (((e && e.message) || "").match(/project root/) ? "Le PDF mobile ne peut lire que les ressources dans le vault." : ""));
+      throw e;
     }
   }
 
@@ -3571,6 +4530,8 @@ listBibCslSources(ext) {
             new Notice("✅ PDF compilé!");
             exec(`xdg-open "${pdfPath}"`, () => {});
           }
+          // Nettoyage selon réglages (keepTexFile / keepMdFile / autoCleanExport)
+          try { this.cleanExportFiles(parentDir, fileStem); } catch (ce) {}
         },
         fullTexString,
       );
@@ -3579,6 +4540,193 @@ listBibCslSources(ext) {
       new Notice("❌ Erreur: " + err.message);
     }
   }
+
+  // Retrouve le fichier « jumeau » de la note active, ex. <basename>.tex ou
+  // <basename>.typ, dans le même dossier. Retourne { rel, parentDir, fileStem }
+  // en chemins RELATIFS au vault (travaille via app.vault/adapter = mobile+PC).
+  _resolveTwinPath(ext) {
+    const activeFile = this.app.workspace.getActiveFile();
+    if (!activeFile) { new Notice("Aucun fichier actif."); return null; }
+    const parentDir = activeFile.parent ? activeFile.parent.path.replace(/\\/g, "/").replace(/^\/+/, "") : "";
+    const fileStem = activeFile.basename;
+    const name = (parentDir ? parentDir + "/" : "") + fileStem + ext;
+    return { rel: name, parentDir, fileStem, activeFile };
+  }
+
+  async _readVaultText(rel) {
+    try { return await this.app.vault.adapter.read(rel); }
+    catch (e) { return null; }
+  }
+  async _writeVaultBytes(rel, bytes) {
+    const dir = rel.split("/").slice(0, -1).join("/");
+    if (dir) { try { await this.app.vault.adapter.mkdir(dir); } catch (e) {} }
+    await this.app.vault.adapter.writeBinary(rel, bytes);
+  }
+
+  // Convertit le .tex jumeau de la note active en PDF, DOCX ou TYP, sans repartir
+  // du Markdown : on reprend exactement le fichier .tex (que l'utilisateur a pu
+  // ajuster à la main) et on lance Pandoc WASM (+ Typst pour le PDF).
+  async compileFromLatex(format) {
+    const tw = this._resolveTwinPath(".tex");
+    if (!tw) return;
+    const texSrc = await this._readVaultText(tw.rel);
+    if (texSrc == null) {
+      new Notice("Aucun fichier .tex jumeau trouvé pour « " + tw.fileStem + " ». Lancez d'abord « Convertir en LaTeX ».");
+      return;
+    }
+    if (!this.vlatex) { new Notice("vLaTeX WASM non initialisé."); return; }
+    const fmt = String(format || "pdf").toLowerCase();
+    try {
+      const wasmEngine = await this.getPandocWasmEngine();
+      const wasmFS = new WasmFileSystem(this.app.vault, "");
+      const outRel = tw.rel.replace(/\.tex$/i, fmt === "typ" ? ".typ" : (fmt === "docx" ? ".docx" : ".pdf"));
+      const texRelIn = "/" + tw.rel;
+      const outRelIn = "/" + outRel;
+
+      let cmd;
+      if (fmt === "docx") {
+        cmd = `pandoc "${texRelIn}" -t docx -o "${outRelIn}" --resource-path="${tw.parentDir ? "/" + tw.parentDir : "/"}"`;
+      } else {
+        cmd = `pandoc "${texRelIn}" -t typst -o "${outRelIn}" --resource-path="${tw.parentDir ? "/" + tw.parentDir : "/"}"`;
+      }
+
+      let options = { command: cmd, vaultDir: "", resources: [], embeds: [] };
+      if (fmt === "pdf") {
+        new Notice("Conversion .tex → PDF (Pandoc + Typst)…");
+        const typCompiler = await this.getTypstCompiler();
+        options.typst = typCompiler;
+        options.typstTransform = (src) => this.postProcessTypst(src, { toc: true });
+      } else {
+        new Notice("Conversion .tex → " + fmt.toUpperCase() + "…");
+      }
+      // runPandocWasm écrit lui-même la sortie dans le vault (WasmFileSystem.write).
+      await runPandocWasm(wasmEngine, wasmFS, options);
+      if (fmt === "typ") {
+        // Le .typ produit par pandoc est brut : on applique nos post-traitements
+        // (légendes, refs croisées, couleur des liens, numérisation des équations…).
+        try {
+          const tsrc = await this._readVaultText(outRel);
+          if (tsrc != null) {
+            const processed = this.postProcessTypst(tsrc, { toc: true });
+            await this.app.vault.adapter.write(outRel, processed);
+          }
+        } catch (pe) { console.warn("[mergdown2tex] post-process .typ échec:", (pe && pe.message) || pe); }
+      }
+      const bytes = await vaultReadBinary(this.app, outRel).catch(() => null);
+      if (bytes && bytes.length > 0) {
+        new Notice("✅ " + outRel.split("/").pop() + " généré !");
+      } else {
+        new Notice("❌ Aucun fichier produit (voir console).");
+      }
+    } catch (err) {
+      console.error("[mergdown2tex] compileFromLatex error:", err);
+      new Notice("❌ Erreur: " + err.message);
+    }
+  }
+
+  // Compile le .typ jumeau de la note active vers PDF, sans repartir du Markdown :
+  // on reprend exactement le fichier .typ (ajusté à la main) et on lance Typst.
+  async compileTypstToPdf() {
+    const tw = this._resolveTwinPath(".typ");
+    if (!tw) return;
+    const typSrc = await this._readVaultText(tw.rel);
+    if (typSrc == null) {
+      new Notice("Aucun fichier .typ jumeau trouvé pour « " + tw.fileStem + " ». Lancez d'abord une conversion qui garde le .typ.");
+      return;
+    }
+    try {
+      new Notice("Chargement de Typst WASM…");
+      const typCompiler = await this.getTypstCompiler();
+      new Notice("Compilation .typ → PDF…");
+      const inRel = "/" + tw.rel;
+      const { pdf, diagnostics } = await typCompiler.compile(inRel, typSrc, {});
+      if (!pdf || pdf.length === 0) {
+        new Notice("❌ Compilation Typst échouée : " + (diagnostics ? diagnostics.map(d => d.message).join(" | ") : "inconnu"));
+        console.error("[mergdown2tex] typst diag:", diagnostics);
+        return;
+      }
+      const outRel = tw.rel.replace(/\.typ$/i, ".pdf");
+      await this._writeVaultBytes(outRel, pdf);
+      new Notice("✅ " + outRel.split("/").pop() + " généré !");
+    } catch (err) {
+      console.error("[mergdown2tex] compileTypstToPdf error:", err);
+      new Notice("❌ Erreur: " + err.message);
+    }
+  }
+
+  // --- Mode interactif md | pdf côte-à-côte ---
+  // Le PDF est affiché dans un panneau latéral DROIT via la vue PDF NATIVE
+  // d'Obsidian (pas d'iframe : les URLs app:// sont bloquées par la CSP et
+  // rouvraient le PDF dans un onglet). À chaque modification du .md actif,
+  // on relance la conversion complète md → .tex → .typ → .pdf en arrière-plan
+  // (silencieuse, engines/images/mermaid en cache) puis on rafraîchit le PDF
+  // natif ouvert dans le panneau.
+
+  startLivePdfPreview() {
+    if (this._liveEnabled) return;
+    this._liveEnabled = true;
+    if (!this._liveListener) {
+      this._liveListener = (file) => this._onLiveFileChanged(file);
+      this.app.vault.on("modify", this._liveListener);
+    }
+    this.renderLivePdf();
+  }
+
+  stopLivePdfPreview() {
+    this._liveEnabled = false;
+    if (this._liveDebounce) { clearTimeout(this._liveDebounce); this._liveDebounce = null; }
+  }
+
+  _onLiveFileChanged(file) {
+    // Ne re-rend que si le .md actif a été modifié (le mode régénère tout depuis lui).
+    const af = this.app.workspace.getActiveFile();
+    if (!af) return;
+    if (!file) { this._scheduleLiveRender(); return; }
+    if (file.path === af.path) this._scheduleLiveRender();
+  }
+
+  _scheduleLiveRender() {
+    if (this._liveDebounce) clearTimeout(this._liveDebounce);
+    this._liveDebounce = setTimeout(() => { this._liveDebounce = null; this.renderLivePdf(); }, 900);
+  }
+
+  async renderLivePdf() {
+    const af = this.app.workspace.getActiveFile();
+    if (!af || af.extension !== "md") return;
+    const parentDir = af.parent ? af.parent.path.replace(/^\/+/, "").replace(/\\/g, "/") : "";
+    const pdfRel = (parentDir ? parentDir + "/" : "") + af.basename + ".pdf";
+    try {
+      await this.compilePdfMobile({ silent: true });
+    } catch (e) {
+      console.warn("[mergdown2tex][live] conversion échouée:", (e && e.message) || e);
+      return;
+    }
+    await this._openPdfInRightLeaf(pdfRel);
+  }
+
+  // Ouvre (ou rafraîchit) le PDF dans un panneau latéral droit, côte-à-côte avec
+  // la note active, en utilisant la vue PDF native d'Obsidian.
+  async _openPdfInRightLeaf(pdfRel) {
+    const { workspace } = this.app;
+    const tfile = workspace.getAbstractFileByPath(pdfRel);
+    if (!tfile) return;
+    const af = workspace.getActiveFile();
+    const sourcePath = af ? af.path : "";
+    // Détruit un éventuel feuillet PDF précédent pour forcer un rechargement propre.
+    try {
+      const prev = workspace.getLeavesOfType("pdf");
+      const prevLeaf = prev.find((l) => l.getViewState && l.getViewState().state &&
+        l.getViewState().state.file && l.getViewState().state.file.path === tfile.path);
+      if (prevLeaf) prevLeaf.detach();
+    } catch (e) {}
+    const rightLeaf = workspace.getRightLeaf(false);
+    if (!rightLeaf) return;
+    await rightLeaf.openLinkText(pdfRel, sourcePath);
+  }
+
+  // Ouvre (ou focalise) l'aperçu PDF Typst dans un panneau latéral droit, côte-à-côte
+  // avec la note active. Le panneau se rafraîchit seul (debounce) quand le .typ jumeau
+  // change, en réutilisant le compilateur Typst déjà chargé.
 
   // Sur mobile, le VFS doit être peuplé pour que les embeds/wikilinks se résolvent.
   // Le WASM cherche par basename (nom sans .md) PUIS par chemins relatifs. On indexe
@@ -3611,25 +4759,51 @@ listBibCslSources(ext) {
     const parentDir = (activeFile.parent ? activeFile.parent.path : "").replace(/^\/+/, "");
     const fileStem = activeFile.basename;
     const content = await this.app.vault.read(activeFile);
-    console.log("[mergdown2tex][mobile] convertToLatexMobile: read OK, parentDir=" + parentDir);
+    console.log("[mergdown2tex][mobile] [1/7] read OK, parentDir=" + parentDir + ", pcRenderMermaid=" + this.settings.pcRenderMermaid);
     let processed = this.processDataviewInline(content, activeFile);
-    // Mermaid mobile : convertir les blocs ```mermaid``` en images PNG
-    // (data URI) AVANT la conversion latex. Sinon mmdc n'existe pas sur
-    // mobile et les diagrammes sont neutralisés en texte brut.
-    try {
-      const hasMermaid = /```mermaid/.test(processed);
-      console.log("[mergdown2tex][mobile] renderMermaidMobile: blocs mermaid=" + hasMermaid);
-      processed = await this.renderMermaidMobile(processed);
-      console.log("[mergdown2tex][mobile] renderMermaidMobile terminé");
-    } catch (_e) { console.log("[mergdown2tex][mobile] renderMermaidMobile catch:", (_e && _e.message) || _e); }
+    console.log("[mergdown2tex][mobile] [2/7] dataview OK, hasMermaid=" + /```mermaid/.test(processed));
+
+    // ▶ Mermaid : si DÉSACTIVÉ dans les réglages, on neutralise immédiatement les
+    //   blocs en texte de secours (ne JAMAIS laisser un bloc mermaid brut atteindre
+    //   le WASM : il gèle le pipeline sans erreur). On tente le rendu PNG sinon.
+    if (this.settings.pcRenderMermaid) {
+      try {
+        processed = await this.renderMermaidMobile(processed);
+        console.log("[mergdown2tex][mobile] [3/7] renderMermaidMobile (passe 1) terminé, hasMermaidRestant=" + /```mermaid/.test(processed));
+      } catch (_e) { console.log("[mergdown2tex][mobile] renderMermaidMobile catch:", (_e && _e.message) || _e); }
+    } else {
+      processed = this.neutralizeMermaidSync(processed);
+      console.log("[mergdown2tex][mobile] [3/7] mermaid désactivé -> blocs neutralisés en texte");
+    }
+    // Filet de sécurité SYNC : quoi qu'il arrive, plus aucun ```mermaid brut.
+    processed = this.neutralizeMermaidSync(processed);
+
     // VFS peuplé (embeds + wikilinks résolus comme sur PC) : sans lui, les embeds
     // `![[Note]]` restent vides et le DOCX/PDF mobile diffère du PC.
     const vfs = await this.buildVfsMobile();
-    console.log("[mergdown2tex][mobile] VFS construit, " + Object.keys(vfs).length + " notes");
+    console.log("[mergdown2tex][mobile] [4/7] VFS construit, " + Object.keys(vfs).length + " notes");
     const vfsJson = JSON.stringify(vfs);
+    console.log("[mergdown2tex][mobile] [5/7] expand_wikilinks...");
     const expanded = this.vlatex.expand_wikilinks_with_vfs(processed, vaultRoot || "", mdPath || activeFile.path, vfsJson);
-    const body = this.vlatex.markdown_to_latex_with_vfs(expanded, "default", vfsJson);
-    console.log("[mergdown2tex][mobile] latex body généré, longueur=" + (body || "").length);
+    console.log("[mergdown2tex][mobile] [5/7] expand OK, hasMermaid=" + /```mermaid/.test(expanded));
+    // Mermaid : on rend AUSSI les blocs qui sont arrivés via les EMBEDS
+    // (`![[figure blocks/figure__block_mermaid_gen]]`) après expansion des
+    // wikilinks — ceux-là n'existaient pas encore dans le markdown principal.
+    let expandedRendered = expanded;
+    if (/```mermaid/.test(expanded)) {
+      if (this.settings.pcRenderMermaid) {
+        try {
+          expandedRendered = await this.renderMermaidMobile(expanded, parentDir);
+          console.log("[mergdown2tex][mobile] [6/7] renderMermaidMobile (embeds) terminé, hasMermaidRestant=" + /```mermaid/.test(expandedRendered));
+        } catch (_e) { console.log("[mergdown2tex][mobile] renderMermaidMobile embeds catch:", (_e && _e.message) || _e); }
+      }
+      // Filet de sécurité : neutraliser tout reliquat AVANT le WASM (un bloc
+      // mermaid brut gèle markdown_to_latex_with_vfs sans message).
+      expandedRendered = this.neutralizeMermaidSync(expandedRendered);
+    }
+    console.log("[mergdown2tex][mobile] [7/7] markdown_to_latex_with_vfs (hasMermaidAvantWasm=" + /```mermaid/.test(expandedRendered) + ")...");
+    const body = this.vlatex.markdown_to_latex_with_vfs(expandedRendered, "default", vfsJson);
+    console.log("[mergdown2tex][mobile] [7/7] latex body généré, longueur=" + (body || "").length);
     const fullTex = await this.assembleFullDocument(content, body, true, vaultRoot || "", parentDir || "");
     console.log("[mergdown2tex][mobile] assembleFullDocument terminé, fullTex=" + (fullTex && fullTex.tex ? fullTex.tex.length : "null"));
     // Matérialise les images que le WASM n'a pas pu résoudre (MISSING IMAGE: <file>)
@@ -3649,13 +4823,25 @@ listBibCslSources(ext) {
     const missAll = [];
     let mm;
     while ((mm = missRe.exec(fullTex)) !== null) missAll.push(mm);
+    // DEBUG : liste les images manquantes (pour diagnostiquer celles non résolues).
+    try {
+      if (this.app && this.app.vault)
+        this.app.vault.adapter.write(".obsidian/plugins/mergdowntotex/dbg_missing.txt",
+          "NB_MISSING=" + missAll.length + "\n" +
+          missAll.map((m) => "- [" + (m[1] || "").trim() + "]").join("\n")
+        ).catch(() => {});
+    } catch (e) {}
     if (missAll.length === 0) return fullTex;
     let files = [];
     try { files = this.app.vault.getFiles ? this.app.vault.getFiles() : []; } catch (e) {}
-    const byName = new Map();
+    // Tous les candidats par basename (un même nom peut exister dans plusieurs
+    // dossiers, ex: pandoc_images/ ET figure blocks/). On choisira celui dont le
+    // chemin relatif est réellement présent dans le vault.
+    const byNameAll = new Map();
     for (const f of files) {
       const b = f.name.toLowerCase();
-      if (!byName.has(b)) byName.set(b, f);
+      if (!byNameAll.has(b)) byNameAll.set(b, []);
+      byNameAll.get(b).push(f);
     }
     const toRel = (nf) => {
       const p = nf.path.replace(/^\/+/, "").replace(/\\/g, "/");
@@ -3664,19 +4850,92 @@ listBibCslSources(ext) {
       if (p.startsWith(relParent + "/")) return p.slice(relParent.length + 1);
       return p;
     };
+    // Tente de produire un chemin relatif VALIDE (fichier réellement présent à
+    // "relParent/rel") pour l'un des candidats portant ce basename.
+    // Priorité : (1) fichier dans le dossier du document, (2) chemin dont le
+    // relatif existe, (3) premier candidat trouvé.
+    const pickRel = async (bname, t) => {
+      const cands = byNameAll.get(bname.toLowerCase()) || [];
+      if (cands.length === 0) return null;
+      // (1) même dossier parent que le doc (chemin relatif court) ?
+      for (const c of cands) {
+        const rel = toRel(c);
+        if (!rel) continue;
+        try { if (await vaultExists(this.app, relParent ? relParent + "/" + rel : rel)) return rel; } catch (e) {}
+      }
+      // (2) tout candidat dont le relatif existe, en préférant le chemin absolu vault
+      if (cands.length === 1) { const rel = toRel(cands[0]); return rel || null; }
+      // (3) défaut : le premier (par ordre de getFiles)
+      const rel0 = toRel(cands[0]);
+      return rel0 || null;
+    };
     let out = fullTex;
+    // Dossier de cache local pour les images web téléchargées (vault-native).
+    const webDir = relParent ? relParent + "/embedded_images" : "embedded_images";
     for (const m of missAll) {
       const t = (m[1] || "").trim();
-      if (/^https?:\/\//i.test(t)) continue; // images web : gérées séparément (zip docs)
+      if (/^https?:\/\//i.test(t)) {
+        // Images WEB : le WASM hors-ligne ne peut pas les télécharger ; on les
+        // rapatrie via requestUrl dans embedded_images/ et on pointe dessus.
+        try {
+          const key = this._hash6(t);
+          const fname = `web_${key}.png`;
+          const relImg = webDir + "/" + fname;
+          let ok = false;
+          try { ok = await vaultExists(this.app, relImg); } catch (e) { ok = false; }
+          if (!ok) {
+            // Toggle « télécharger les images en ligne » : si désactivé, aucune requête.
+            if (this.settings && this.settings.downloadWebImages === false) {
+              out = out.replace(m[0], "\\twemoji{frame_with_picture}");
+              continue;
+            }
+            try { await vaultMkdir(this.app, webDir); } catch (e) {}
+            const resp = await Promise.race([
+              requestUrl({ url: t, method: "GET", contentType: "application/octet-stream", responseType: "arraybuffer", throw: false }),
+              new Promise((_, rej) => setTimeout(() => rej(new Error("web timeout")), 12000)),
+            ]);
+            if (resp && resp.status === 200 && resp.arrayBuffer) {
+              const bytes = new Uint8Array(resp.arrayBuffer);
+              if (bytes.length > 0) {
+                try { await this.app.vault.adapter.writeBinary(relImg, bytes.buffer); ok = true; } catch (e) {}
+              }
+            }
+          }
+          if (ok) {
+            out = out.replace(m[0], `\\includegraphics[width=0.95\\linewidth]{${"embedded_images/" + fname}}`);
+          } else {
+            out = out.replace(m[0], "\\twemoji{frame_with_picture}");
+          }
+        } catch (e) {
+          console.warn("[mergdown2tex][mobile] téléchargement image web impossible:", t, (e && e.message) || e);
+          out = out.replace(m[0], "\\twemoji{frame_with_picture}");
+        }
+        continue;
+      }
       const bname = t.split(/[\\/?#]/).pop();
       if (!bname) continue;
-      const foundFile = byName.get(bname.toLowerCase());
-      if (!foundFile) continue;
-      const rel = toRel(foundFile);
+      // Image explicitement marquée « manquante / à remplacer » (provenant d'un
+      // téléchargement web sauté, timeout, ou toggle désactivé) → emoji 🖼️.
+      if (bname.indexOf(IMG_PLACEHOLDER) !== -1 || /^__missing_image_web__/i.test(bname)) {
+        out = out.replace(m[0], "\\twemoji{frame_with_picture}");
+        continue;
+      }
+      const rel = await pickRel(bname, t);
       if (!rel) continue;
       out = out.replace(m[0], `\\includegraphics[width=0.95\\linewidth]{${rel}}`);
     }
     return out;
+  }
+
+  // Petit hash SHA-256-like (FIPS-safe, sans crypto) pour nommer les caches d'images web.
+  _hash6(s) {
+    let h1 = 0x811c9dc5, h2 = 0x01000193;
+    for (let i = 0; i < s.length; i++) {
+      const c = s.charCodeAt(i);
+      h1 = Math.imul(h1 ^ c, 0x01000193) >>> 0;
+      h2 = Math.imul(h2 ^ c, 0x85ebca6b) >>> 0;
+    }
+    return ("00000000" + h1.toString(16)).slice(-8) + ("00000000" + h2.toString(16)).slice(-8);
   }
 
   async compileDocxMobile() {
@@ -3849,13 +5108,16 @@ listBibCslSources(ext) {
         if (isZip) {
           await this.app.vault.adapter.writeBinary(docxRel, out);
           new Notice("✅ DOCX compilé sur mobile ! (" + fileStem + ".docx)");
+          try { await this.cleanExportFiles(relParentDir || "", fileStem); } catch (ce3) {}
         } else {
           console.error("[mergdown2tex][mobile] post-process a retourné un non-ZIP, on garde le .docx de pandoc intact.");
           new Notice("✅ DOCX généré (sans post-process) : " + fileStem + ".docx");
+          try { await this.cleanExportFiles(relParentDir || "", fileStem); } catch (ce3) {}
         }
       } catch (postErr) {
         console.error("[mergdown2tex][mobile] post-process error:", postErr);
         new Notice("✅ DOCX généré (sans post-process) : " + fileStem + ".docx");
+        try { await this.cleanExportFiles(relParentDir || "", fileStem); } catch (ce3) {}
       }
     } catch (e) {
       console.error("[mergdown2tex][mobile] DOCX error:", e);
