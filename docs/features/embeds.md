@@ -8,11 +8,11 @@ MergDown2TeX recursively expands `![[Note]]` into your LaTeX document.
 
 ```mermaid
 graph TD
-    A[Main Note] --> B[![[Note A]]]
-    A --> C[![[Note B]]]
-    B --> D[![[Sub Note 1]]]
-    B --> E[![[Sub Note 2]]]
-    C --> F[![[Sub Note 3]]]
+    A[Main Note] --> B["![[Note A]]"]
+    A --> C["![[Note B]]"]
+    B --> D["![[Sub Note 1]]"]
+    B --> E["![[Sub Note 2]]"]
+    C --> F["![[Sub Note 3]]"]
 ```
 
 ---
@@ -66,7 +66,7 @@ MergDown2TeX resolves embeds in two steps:
 
 ```mermaid
 graph TD
-    A[![[Note]]] --> B{Same folder?}
+    A["![[Note]]"] --> B{Same folder?}
     B -->|Yes| C[Use file]
     B -->|No| D{Vault root?}
     D -->|Yes| C
@@ -105,9 +105,9 @@ MergDown2TeX limits recursion depth to prevent infinite loops:
 
 ```mermaid
 graph TD
-    A[Depth 0: Main Note] --> B[Depth 1: ![[Note A]]]
-    B --> C[Depth 2: ![[Sub Note 1]]]
-    C --> D[Depth 3: ![[Sub Sub Note]]]
+    A[Depth 0: Main Note] --> B["Depth 1: ![[Note A]]"]
+    B --> C["Depth 2: ![[Sub Note 1]]"]
+    C --> D["Depth 3: ![[Sub Sub Note]]"]
     D --> E[Depth 4: ...]
     E --> F[Max Depth: 10]
 ```
@@ -129,9 +129,9 @@ MergDown2TeX detects and prevents circular references:
 
 ```mermaid
 graph TD
-    A[Main Note] --> B[![[Note A]]]
-    B --> C[![[Note B]]]
-    C --> A[![[Main Note]]]
+    A[Main Note] --> B["![[Note A]]"]
+    B --> C["![[Note B]]"]
+    C --> A["![[Main Note]]"]
     style A fill:#f96,stroke:#333
 ```
 
@@ -222,7 +222,7 @@ title: "Paper"
 
 ```mermaid
 graph TD
-    A[![[image.png]]] --> B{Same folder?}
+    A["![[image.png]]"] --> B{Same folder?}
     B -->|Yes| C[Use image]
     B -->|No| D{Vault root?}
     D -->|Yes| C

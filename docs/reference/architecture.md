@@ -9,13 +9,13 @@ MergDown2TeX technical architecture and design.
 ```mermaid
 graph TD
     A[Obsidian] --> B[Plugin Layer]
-    B --> C[WASM Engine (embedded)]
+    B --> C["WASM Engine (embedded)"]
     C --> E[Markdown Parser]
     C --> F[LaTeX Generator]
     B --> G[Compilation Layer]
     G --> H[Pandoc WASM]
     G --> I[Typst WASM]
-    G --> J[pdflatex + Podman (PC)]
+    G --> J["pdflatex + Podman (PC)"]
     H --> K[DOCX]
     I --> L[PDF]
     J --> L[PDF]

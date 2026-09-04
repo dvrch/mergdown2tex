@@ -153,11 +153,11 @@ MergDown2TeX recursively expands `![[Note]]` with depth limit:
 
 ```mermaid
 graph TD
-    A[Main Note] --> B[![[Note A]]]
-    A --> C[![[Note B]]]
-    B --> D[![[Sub Note 1]]]
-    B --> E[![[Sub Note 2]]]
-    C --> F[![[Sub Note 3]]]
+    A[Main Note] --> B["![[Note A]]"]
+    A --> C["![[Note B]]"]
+    B --> D["![[Sub Note 1]]"]
+    B --> E["![[Sub Note 2]]"]
+    C --> F["![[Sub Note 3]]"]
 ```
 
 **Features:**

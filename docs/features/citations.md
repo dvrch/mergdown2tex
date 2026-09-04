@@ -138,7 +138,7 @@ MergDown2TeX automatically extracts citations from your note:
 graph TD
     A[Note Content] --> B[Regex: @citation]
     B --> C[Extract citation keys]
-    C --> D[Generate \citep{}]
+    C --> D["Generate \\citep{}"]
     D --> E[Generate bibliography]
 ```
 
