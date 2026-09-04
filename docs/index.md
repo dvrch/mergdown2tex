@@ -1,8 +1,4 @@
-<div align="center">
-
 ![MergDown2TeX Logo](assets/logo-horizontal.png)
-
-</div>
 
 # MergDown2TeX
 
