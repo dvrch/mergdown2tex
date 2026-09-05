@@ -148,7 +148,7 @@ mergdowntotex/
 !!! note "Deux emplacements identiques"
     La même installation vit à **deux endroits**, strictement identiques (`main.js`, `manifest.json`, `wasm/`, `resources/`) :
     1. **Structure de la release** : `mergdowntotex/` (au `root` du dépôt).
-    2. **Vault exemple** : dans `example_vault/full_manual_repport_exp.zip`, le plugin est installé à `.obsidian/plugins/mergdowntotex/` et se re-déploie automatiquement à l'ouverture du vault.
+    2. **Vault exemple** : dans `example_vault/` (dézippé), le plugin est installé à `.obsidian/plugins/mergdowntotex/` et se re-déploie automatiquement à l'ouverture du vault.
 
 ### Au premier lancement (créés automatiquement)
 

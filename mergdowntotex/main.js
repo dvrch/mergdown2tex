@@ -1628,17 +1628,14 @@ class Markdown2TexPlugin extends Plugin {
     }
     const arrBuf = resp.arrayBuffer;
     const wasmBytes = this.extractWasmFromZip(arrBuf, release.browser_download_url);
-    const pluginDir = this.getPluginDir();
-    const outPath = path.join(pluginDir, "wasm", "pandoc.wasm");
+    // Chemin RELATIF au vault (.obsidian/plugins/<id>/wasm/pandoc.wasm) : identique
+    // sur PC et Android. Sur mobile, tout chemin absolu système via le stub path
+    // serait recopié dans le vault (préfixe système doublé) → on écrit en relatif.
+    const rel = this.pandocWasmRel();
     const adapter = this.app.vault.adapter;
-    if (adapter.getBasePath || adapter.getFullPath) {
-      const rel = path.relative(this.app.vault.adapter.getBasePath ? this.app.vault.adapter.getBasePath() : adapter.getFullPath("/"), outPath).replace(/\\/g, "/");
-      await adapter.mkdir(path.dirname(rel));
-      await adapter.writeBinary(rel, wasmBytes);
-    } else {
-      fs.writeFileSync(outPath, Buffer.from(wasmBytes));
-    }
-    new Notice("pandoc.wasm installé !");
+    try { await adapter.mkdir(rel.slice(0, rel.lastIndexOf("/"))); } catch (e) {}
+    await adapter.writeBinary(rel, wasmBytes);
+    new Notice("pandoc.wasm installé (" + this.pandocWasmRel() + ") !");
     return true;
   }
 
@@ -1988,23 +1985,20 @@ class Markdown2TexPlugin extends Plugin {
         return this.pandocWasmEngine;
       }
     }
-    // Desktop fallback fs
+    // Fallback : pandoc.wasm absent du vault → télécharger (adapter-first, identique
+    // sur PC et mobile — jamais de chemins fs absolus ici, car sur mobile le stub
+    // path/fs lèverait « Module natif fs/path indisponible »).
     if (!wasmBytes) {
-      const pluginDir = this.getPluginDir();
-      const wasmPath = path.join(pluginDir, "wasm", "pandoc.wasm");
-      if (!fs.existsSync(wasmPath)) {
-        new Notice("pandoc.wasm absent — téléchargement automatique en cours...", 5000);
-        const ok = await this.ensurePandocWasm();
-        if (!ok) {
-          throw new Error(
-            "pandoc.wasm introuvable dans le dossier du plugin (" + pluginDir + "). Installation automatique impossible. " +
-            "Veuillez cliquer sur « Statut & installer » dans les paramètres.",
-          );
-        }
-        wasmBytes = a && typeof a.readBinary === "function" ? await a.readBinary(rel) : null;
-        if (!wasmBytes) wasmBytes = fs.readFileSync(wasmPath);
-      } else {
-        wasmBytes = fs.readFileSync(wasmPath);
+      new Notice("pandoc.wasm absent — téléchargement automatique en cours...", 5000);
+      const ok = await this.ensurePandocWasm();
+      if (!ok) {
+        throw new Error(
+          "pandoc.wasm introuvable dans le plugin (" + rel + "). Installation automatique impossible. " +
+          "Veuillez cliquer sur « Statut & installer » dans les paramètres.",
+        );
+      }
+      if (a && typeof a.readBinary === "function") {
+        wasmBytes = await a.readBinary(rel);
       }
     }
     new Notice("Chargement de Pandoc WASM...");

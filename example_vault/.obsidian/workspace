@@ -1,0 +1,161 @@
+{
+  "main": {
+    "id": "0a420baf517e0008",
+    "type": "split",
+    "children": [
+      {
+        "id": "565b0a4d30746cee",
+        "type": "leaf",
+        "pinned": true,
+        "state": {
+          "type": "graph",
+          "state": {},
+          "pinned": true
+        }
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "7fbe51b54c973d5a",
+    "type": "split",
+    "children": [
+      {
+        "id": "7b8e7975a0f52b92",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "506c6ad89f9c7a47",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {}
+            }
+          },
+          {
+            "id": "618054a5a7dbba8b",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "mobile sensor networks",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              }
+            }
+          },
+          {
+            "id": "c478bed7947f6ed1",
+            "type": "leaf",
+            "state": {
+              "type": "starred",
+              "state": {}
+            }
+          },
+          {
+            "id": "13351ec3802dce39",
+            "type": "leaf",
+            "state": {
+              "type": "recent-files",
+              "state": {}
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 209.50680351257324
+  },
+  "right": {
+    "id": "dc012b23a7542443",
+    "type": "split",
+    "children": [
+      {
+        "id": "4489abc0ca42a0c2",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "081bd6c6019074e4",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              }
+            }
+          },
+          {
+            "id": "132d4a1f798990ce",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              }
+            }
+          },
+          {
+            "id": "6be8d13e0f5b61a8",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true
+              }
+            }
+          },
+          {
+            "id": "e56ab6b5f9717c14",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {}
+            }
+          },
+          {
+            "id": "d03ce6a96046e822",
+            "type": "leaf",
+            "state": {
+              "type": "juggl_nodes",
+              "state": {}
+            }
+          },
+          {
+            "id": "eb006015b55bbf21",
+            "type": "leaf",
+            "state": {
+              "type": "juggl_style",
+              "state": {}
+            }
+          },
+          {
+            "id": "9036cb57a7cdef1a",
+            "type": "leaf",
+            "state": {
+              "type": "review-queue-list-view",
+              "state": {}
+            }
+          }
+        ],
+        "currentTab": 2
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "active": "565b0a4d30746cee",
+  "lastOpenFiles": [
+  ]
+}

@@ -118,13 +118,16 @@ Un **bouton de téléchargement manuel** est également disponible dans les rég
 
 ## Utiliser le vault exemple
 
-Un **vault exemple** fourni est disponible dans `example_vault/full_manual_repport_exp.zip`.
+Un **vault exemple** complet est fourni : notes, blocs numérotés, tableaux, figures, Mermaid, citations et bibliographie — avec le plugin déjà installé. Téléchargez-le directement depuis ce site :
+
+**→ [Télécharger le vault exemple (`full_manual_repport_exp.zip`)](../assets/full_manual_repport_exp.zip)**
 
 ### Déployer le vault
 
-1. Dézippez `example_vault/full_manual_repport_exp.zip`
-2. Ouvrez le dossier dézippé comme vault dans Obsidian (`Fichier` → `Ouvrir un vault`)
-3. Le plugin **MergDown2TeX est déjà installé** dans `.obsidian/plugins/mergdowntotex/` (même version que la release)
+1. Téléchargez le zip ci-dessus (le vault exemple est stocké dézippé dans `example_vault/` du dépôt ; le zip n'est généré que pour ce site)
+2. Dézippez `full_manual_repport_exp.zip`
+3. Ouvrez le dossier dézippé comme vault dans Obsidian (`Fichier` → `Ouvrir un vault`)
+4. Le plugin **MergDown2TeX est déjà installé** dans `.obsidian/plugins/mergdowntotex/` (même version que la release)
 
 !!! info "Plugin homogène dans tout le dépôt"
     La même installation (`main.js`, `manifest.json`, `wasm/`, `resources/`) est présente **à deux endroits identiques** :

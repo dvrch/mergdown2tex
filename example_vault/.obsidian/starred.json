@@ -1,0 +1,69 @@
+{
+  "items": [
+    {
+      "type": "file",
+      "title": "LAB",
+      "path": "LAB.md"
+    },
+    {
+      "type": "file",
+      "title": "CMD__GET_PUB",
+      "path": "CMD__GET_PUB.md"
+    },
+    {
+      "type": "file",
+      "title": "datav--Pubs-all",
+      "path": "Literature/datav--Pubs-all.md"
+    },
+    {
+      "type": "file",
+      "title": "datav--Pubs",
+      "path": "Literature/datav--Pubs.md"
+    },
+    {
+      "type": "file",
+      "title": "dataViewdeleteme",
+      "path": "workTips/tasksDeleteme/dataViewdeleteme.md"
+    },
+    {
+      "type": "file",
+      "title": "datav--Tasks",
+      "path": "datav--Tasks.md"
+    },
+    {
+      "type": "file",
+      "title": "🔗NTNU",
+      "path": "NTNU/Org/🔗NTNU.md"
+    },
+    {
+      "type": "file",
+      "title": "present about Obsidian",
+      "path": "P-Tasks/➕/present about Obsidian.md"
+    },
+    {
+      "type": "file",
+      "title": "Reinforcement learning--Self-study-report",
+      "path": "P-Tasks/➕/👨‍🎓/Reinforcement learning--Self-study-report.md"
+    },
+    {
+      "type": "file",
+      "title": "LECTURE NOTES",
+      "path": "NTNU/Courses/Distributed Optimization (potential)/Lecture Notes---EECI-Multi-agent-optimization.md"
+    },
+    {
+      "type": "file",
+      "title": "Extremum Seeking",
+      "path": "Literature/Theory/Methods/Extremum Seeking.md"
+    },
+    {
+      "type": "file",
+      "title": "datav--Pubs--that-I-do-not-understand",
+      "path": "Literature/🤷‍♀️datav--Pubs--that-I-do-not-understand.md"
+    },
+    {
+      "type": "file",
+      "title": "DASHB--THEORY",
+      "path": "Literature/Theory/Methods/DASHB--THEORY.md"
+    }
+  ]
+}

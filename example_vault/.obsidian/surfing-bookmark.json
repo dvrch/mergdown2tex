@@ -1,0 +1,96 @@
+{
+  "bookmarks": [
+    {
+      "id": "-2100646441",
+      "name": "h - Recherche Google",
+      "url": "https://www.google.com/search?q=h&sca_esv=d105d924421eb947&sxsrf=ANbL-n4OFDEOYj2AQYvLQVAwEF7icvBI0A%3A1775469916795&udm=50&fbs=ADc_l-bpk8W4E-qsVlOvbGJcDwpnHC5OJXXTJvmMu2n9YYx-G8xzgQk24aW1N_FyIND5zVDd4bb14119C8nZHL5l4Fe3Q78DM888EmtVm1l7Ggrb1T-k21bF25hp3XwCXr-vCPa1y42EX9HYRnPj4sPUhWw0zia_tl7RLay1hBRV451K_ihvjrlh0ijmUIkii9cvFizi95v3&aep=1&ntc=1&sa=X&ved=2ahUKEwi3uMzt_NiTAxXf2AIHHZSzFTAQ2J8OegQIPRAE&cshid=1775469962630494&biw=589&bih=1169&dpr=0.91&mstk=AUtExfCtm7LPB_3pxNZuOOV96oDkuvpZ5lb0bvO3hb_d7d7QqZBVe4HGBl1TwZqFl_H_UqNw5GhVfOgEUkGd9Mjs_UAi1TQunhpw9q4rMOTi4yGNUngQIaxk2SWGyQ_Woyu9shD6YcI9Yx0Toj3xbQorhV6P8nqJbw98nj1D94iBF3cFrXt6ZZ0FE_u-r7r-e4ZFTOh8N0iHySbztnMcUdcBDMI-acFqL4ThrVVvk3jhV-iKwWHrxevpU_s90QfOJyLhXEsyuc--My4BC2slOWhnwBntp8velHtEEBex_hYCIdTAqrxhLvbKkMfPg4GIR-Hdpcrh5vLtNs10jQ&csuir=1&mtid=koXTaarkN4iMi-gP6uLhkQg",
+      "description": "",
+      "category": [
+        "ROOT"
+      ],
+      "tags": "",
+      "created": 1775469976944,
+      "modified": 1775469976944
+    },
+    {
+      "id": "-1786713981",
+      "name": "Google",
+      "url": "https://www.google.com/?hl=fr",
+      "description": "",
+      "category": [
+        "ROOT"
+      ],
+      "tags": "",
+      "created": 1775090826912,
+      "modified": 1775090826912
+    },
+    {
+      "id": "2012468910",
+      "name": "Google Gemini",
+      "url": "https://gemini.google.com/app?hl=fr",
+      "description": "",
+      "category": [
+        "ROOT"
+      ],
+      "tags": "",
+      "created": 1775065966086,
+      "modified": 1775065966086
+    },
+    {
+      "id": "643555049",
+      "name": "Introduction to modular components — Sverchok 0.5 documentation",
+      "url": "https://sverchok.readthedocs.io/en/latest/Unit_01/lesson_01.html",
+      "description": "",
+      "category": [
+        "ROOT"
+      ],
+      "tags": "",
+      "created": 1745099184321,
+      "modified": 1745099184321
+    },
+    {
+      "id": "-136651199",
+      "name": "Perplexity",
+      "url": "https://www.perplexity.ai/",
+      "description": "",
+      "category": [
+        "ROOT"
+      ],
+      "tags": "",
+      "created": 1739180180560,
+      "modified": 1739180180560
+    },
+    {
+      "id": "494154004",
+      "name": "Directory listing for /Desktop/2024 - Montage de projet/Dossier de travail/",
+      "url": "http://localhost:9000/Desktop/2024%20-%20Montage%20de%20projet/Dossier%20de%20travail/",
+      "description": "",
+      "category": [
+        "ROOT"
+      ],
+      "tags": "",
+      "created": 1736525631687,
+      "modified": 1736525631687
+    },
+    {
+      "id": "1252128794",
+      "name": "ChatGPT",
+      "url": "https://chatgpt.com/auth/login",
+      "description": "",
+      "category": [
+        "ROOT"
+      ],
+      "tags": "",
+      "created": 1736365324696,
+      "modified": 1736365324696
+    }
+  ],
+  "categories": [
+    {
+      "value": "ROOT",
+      "text": "ROOT",
+      "label": "ROOT",
+      "children": []
+    }
+  ]
+}
