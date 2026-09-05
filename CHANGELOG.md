@@ -2,6 +2,13 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [2.0.4] — 2026-09-05
+
+### Corrigé
+- **Téléchargement de `pandoc.wasm` sur mobile** : le fichier est désormais écrit en chemin **relatif au vault** (`.obsidian/plugins/mergdowntotex/wasm/pandoc.wasm`) via l'`adapter`, au lieu d'un chemin système absolu recomposé par le stub `path` — corrige l'apparition d'un **préfixe système doublé** (« base Zotero/android + répertoire actuel + chemin ») dans le vault Android.
+- **Erreur « Module natif fs/path indisponible sur mobile »** au lancement de la compilation PDF : `getPandocWasmEngine` ne retombe plus sur le fallback `fs.existsSync`/`fs.readFileSync` (inexistants sur mobile). Il télécharge désormais via `ensurePandocWasm` puis relit le fichier par `adapter.readBinary` — identique sur PC et Android.
+- Le Notice d'installation de `pandoc.wasm` affiche maintenant le **chemin exact** où le fichier est stocké (répond au « on ne sait pas où ça se stocke » sur PC).
+
 ## [2.0.3] — 2026-09-05
 
 ### Corrigé
