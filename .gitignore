@@ -8,3 +8,5 @@ Thumbs.db
 *~
 # mkdocs build output
 site/
+# zip généré par le CI (scripts/build_vault_zip.js) — jamais commité
+docs/assets/full_manual_repport_exp.zip

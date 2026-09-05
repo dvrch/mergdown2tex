@@ -7,6 +7,8 @@ on:
     paths:
       - 'docs/**'
       - 'mkdocs.yml'
+      - 'example_vault/**'
+      - 'scripts/**'
   workflow_dispatch:
 
 permissions:
@@ -32,6 +34,9 @@ jobs:
 
       - name: Install dependencies
         run: pip install mkdocs-material
+
+      - name: Build the downloadable vault zip
+        run: node scripts/build_vault_zip.js
 
       - name: Build documentation
         run: mkdocs build --strict
