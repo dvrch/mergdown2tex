@@ -2,6 +2,22 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [2.0.5] — 2026-09-06
+
+### Ajouté
+- **Vault d'exemple téléchargeable** : l'archive `full_manual_repport_exp.zip` est désormais incluse dans le dépôt (`example_vault/`) et accessible depuis la documentation du site — les utilisateurs peuvent l'extraire dans leur vault pour découvrir toutes les fonctionnalités en situation réelle.
+- **`mermaid.min.js` pré-installé** dans `mergdowntotex/resources/` : plus besoin de téléchargement au premier rendu — les diagrammes Mermaid fonctionnent immédiatement hors ligne.
+- **Références croisées sur blocs** (`^table--block-…`, `^eq--block-…`, `^figure--block-…`) : les ancres Obsidian placées juste après un bloc génèrent automatiquement un `\label{}` + `\hypertarget{}` valides dans le `.tex` — fonctionne aussi dans le pipeline DOCX (LABELED_TABLE / LABELED_EQ).
+
+### Corrigé
+- Structure du plugin maintenant miroir de l'installation Obsidian (`mergdowntotex/main.js`, `mergdowntotex/wasm/`, `mergdowntotex/resources/`) — facilite la mise à jour manuelle.
+- `main.js` et `manifest.json` restent **à la racine du dépôt** pour satisfaire le Community Plugins checker d'Obsidian.
+
+### Documentation
+- Site de documentation (`docs/`) intégralement revu : architecture WASM documentée, nouvelles pages sur les références croisées de blocs, tableau comparatif mis à jour (DOCX maintenant sans dépendance Pandoc externe).
+- `index.md` : mention explicite du moteur Pandoc WASM embarqué pour l'export DOCX et du moteur Typst WASM pour le PDF mobile.
+
+
 ## [2.0.4] — 2026-09-05
 
 ### Corrigé
