@@ -35,8 +35,8 @@ jobs:
       - name: Install dependencies
         run: pip install mkdocs-material
 
-      - name: Build the downloadable vault zip
-        run: node scripts/build_vault_zip.js
+      - name: Build the downloadable zips (vault exemple + plugin)
+        run: node scripts/build_assets.js
 
       - name: Build documentation
         run: mkdocs build --strict

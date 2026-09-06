@@ -35,14 +35,20 @@ Aucune de ces deux options n'est requise pour *générer* un `.tex` ou un `.docx
 
 ## Étape 1 : Télécharger
 
-Téléchargez la **release** depuis GitHub. La release ne contient volontairement que l'essentiel :
+Deux possibilités :
+
+**A. Télécharger la structure release complète** (recommandé — tout est inclus, y compris `wasm/` et `resources/` ; aucun téléchargement supplémentaire au premier lancement) :
+
+**→ [Télécharger le plugin complet (`mergdowntotex.zip`)](../assets/mergdowntotex.zip)** (~36 MB)
+
+**B. Ou télécharger la release minimale** (`main.js` + `manifest.json`) depuis GitHub, et laisser le plugin auto-télécharger les binaires WASM au premier export :
 
 ```
 main.js         ~8.6 MB   ← plugin + moteur de conversion WASM embarqué (Base64)
 manifest.json       351 B ← métadonnées
 ```
 
-!!! tip "Pourquoi seulement 2 fichiers ?"
+!!! tip "Pourquoi l'option B ne contient que 2 fichiers ?"
     Le moteur WASM de conversion est encodé en Base64 **dans** `main.js`. Les gros binaires `pandoc.wasm` (~59 MB) et `typst.wasm` (~28 MB) sont **auto-téléchargés** par le plugin dans le dossier `wasm/` lors du premier export. Vous n'avez donc rien à copier à la main.
 
 ---
@@ -65,7 +71,9 @@ manifest.json       351 B ← métadonnées
 
 ### Copier les fichiers
 
-Copiez ces **2 fichiers** dans `.obsidian/plugins/mergdowntotex/` :
+**Avec l'option A (plugin complet en zip)** : dézippez `mergdowntotex.zip` et placez le dossier `mergdowntotex/` dans `.obsidian/plugins/`. Le dossier final doit contenir `main.js`, `manifest.json`, `wasm/` et `resources/`.
+
+**Avec l'option B (release minimale)** : copiez ces **2 fichiers** dans `.obsidian/plugins/mergdowntotex/` (les dossiers `wasm/` et `resources/` seront auto-créés au premier export) :
 
 ```
 mergdowntotex/
