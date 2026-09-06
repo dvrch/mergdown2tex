@@ -36,7 +36,7 @@ Yes! MergDown2TeX works with Obsidian sync. The generated `.tex` files are synce
 
 ### Why 2 files only?
 
-- `main.js` - Plugin + embedded WASM converter engine (~8.6 MB, Base64)
+- `main.js` - Plugin + embedded WASM converter engine (~3.7 MB, Base64)
 - `manifest.json` - Obsidian metadata
 
 !!! tip "Auto-downloaded binaries"
@@ -130,7 +130,7 @@ podman build -t vlatex-env -f Dockerfile.vlatex .
 
 ### WASM not loading?
 
-- Check `main.js` file size (~8.6 MB) — smaller = dev build without embedded engine
+- Check `main.js` file size (~3.7 MB) — smaller = dev build without embedded engine
 - Re-download if corrupted
 - Check Obsidian console for errors
 

@@ -2,6 +2,23 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [2.0.6] — 2026-09-06
+
+### Ajouté
+- **Bundle tout-en-un `mergdowntotex_bundle.zip`** : plugin complet **et** vault exemple combinés dans **un seul zip** — disponible via la **release dédiée `bundle`** (assure de GitHub → bande passante illimitée), ainsi qu'en miroir sur le site (`dvrch.github.io/mergdown2tex/assets/mergdowntotex_bundle.zip`).
+- Les liens de téléchargement sont désormais centralisés dans le **README** (tableau : bundle / plugin / vault exemple, lien release illimité + miroir site) — retirés de la description du manifest pour la garder propre.
+
+### Corrigé
+- **Bouton « Dossier d'exemple » dans les options du plugin** : l'URL pointait vers `raw.githubusercontent.com/.../example_vault/full_manual_repport_exp.zip` (404 — le zip est généré par le CI dans `docs/assets/`). Il pointe maintenant vers l'asset **release `bundle`** (téléchargement fonctionnel et illimité).
+- **Vitrine exemple renommée** : `full_manual_repport.md` → `Mergdown_exempl_test.md` (les 2 copies, racine et `Writing/`) ; références de la documentation mises à jour.
+- **Installation homogène vault exemple** : `manifest.json` de l'exemple resynchronisé avec la release (2.0.6, identique aux 3 emplacements) et `resources/mermaid.min.js` ajouté (manquant dans l'installation pré-installée du vault).
+- **Tailles exactes dans la doc/README** : `main.js` documenté à ~3.7 MB (au lieu de ~8.6 MB obsolète) ; précision que Mermaid n'est **pas** embarqué en Base64 (`MERMAID_BASE64` est vide, bundle téléchargé au runtime).
+
+### CI
+- `docs.yml` : création automatique de la **release `bundle`** et upload des 3 zips en `--clobber` à chaque déploiement (permission `contents: write` ajoutée).
+- `release.yml` : déclenchement restreint aux **tags versionnés** (`[0-9]*.[0-9]*.[0-9]*`) pour ne pas entrer en collision avec le tag `bundle`.
+
+
 ## [2.0.5] — 2026-09-06
 
 ### Ajouté

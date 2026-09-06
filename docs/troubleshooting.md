@@ -25,7 +25,7 @@ Common issues and solutions.
 - Plugin crashes on startup
 
 **Solutions:**
-1. Check `main.js` file size (~8.6 MB) — a smaller file = dev build **without** the embedded WASM engine
+1. Check `main.js` file size (~3.7 MB) — a smaller file = dev build **without** the embedded WASM engine
 2. Re-download the release if the file seems corrupted
 3. Verify file permissions
 4. Check Obsidian console for errors

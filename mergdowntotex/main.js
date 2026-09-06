@@ -1742,7 +1742,7 @@ class Markdown2TexPlugin extends Plugin {
   // dans la racine du vault actuel (le .obsidian du zip est ignoré pour ne pas
   // écraser la configuration locale du coffre).
   downloadExampleVault() {
-    const url = "https://raw.githubusercontent.com/dvrch/mergdown2tex/main/example_vault/full_manual_repport_exp.zip";
+    const url = "https://github.com/dvrch/mergdown2tex/releases/download/bundle/full_manual_repport_exp.zip";
     return this._downloadAndExtract(url, new Set([".obsidian/"]), "Dossier d'exemple");
   }
 

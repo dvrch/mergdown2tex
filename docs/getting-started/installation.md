@@ -35,20 +35,24 @@ Aucune de ces deux options n'est requise pour *générer* un `.tex` ou un `.docx
 
 ## Étape 1 : Télécharger
 
-Deux possibilités :
+Tous les téléchargements sont servis par la **release dédiée** `bundle` de GitHub (**bande passante illimitée**, contrairement à un site). Les liens "miroir" pointent vers ce site (téléchargement rapide).
 
-**A. Télécharger la structure release complète** (recommandé — tout est inclus, y compris `wasm/` et `resources/` ; aucun téléchargement supplémentaire au premier lancement) :
+**A. Tout-en-un (recommandé) — plugin + vault exemple en 1 seul zip** (~42 MB, inclut `wasm/` et `resources/`) :
 
-**→ [Télécharger le plugin complet (`mergdowntotex.zip`)](../assets/mergdowntotex.zip)** (~36 MB)
+**→ [Télécharger le bundle (`mergdowntotex_bundle.zip`)](https://github.com/dvrch/mergdown2tex/releases/download/bundle/mergdowntotex_bundle.zip)** · [miroir site](../assets/mergdowntotex_bundle.zip)
 
-**B. Ou télécharger la release minimale** (`main.js` + `manifest.json`) depuis GitHub, et laisser le plugin auto-télécharger les binaires WASM au premier export :
+**B. Ou le plugin seul** (si vous avez déjà un vault et ne voulez que le plugin) :
+
+**→ [Télécharger le plugin complet (`mergdowntotex.zip`)](https://github.com/dvrch/mergdown2tex/releases/download/bundle/mergdowntotex.zip)** (~36 MB) · [miroir site](../assets/mergdowntotex.zip)
+
+**C. Ou la release minimale** (`main.js` + `manifest.json`) depuis GitHub, et laisser le plugin auto-télécharger les binaires WASM au premier export :
 
 ```
-main.js         ~8.6 MB   ← plugin + moteur de conversion WASM embarqué (Base64)
-manifest.json       351 B ← métadonnées
+main.js         ~3.8 MB   ← plugin + moteur de conversion WASM embarqué (Base64)
+manifest.json      1.2 KB ← métadonnées
 ```
 
-!!! tip "Pourquoi l'option B ne contient que 2 fichiers ?"
+!!! tip "Pourquoi l'option C ne contient que 2 fichiers ?"
     Le moteur WASM de conversion est encodé en Base64 **dans** `main.js`. Les gros binaires `pandoc.wasm` (~59 MB) et `typst.wasm` (~28 MB) sont **auto-téléchargés** par le plugin dans le dossier `wasm/` lors du premier export. Vous n'avez donc rien à copier à la main.
 
 ---
@@ -71,9 +75,11 @@ manifest.json       351 B ← métadonnées
 
 ### Copier les fichiers
 
-**Avec l'option A (plugin complet en zip)** : dézippez `mergdowntotex.zip` et placez le dossier `mergdowntotex/` dans `.obsidian/plugins/`. Le dossier final doit contenir `main.js`, `manifest.json`, `wasm/` et `resources/`.
+**Avec l'option A (bundle)** : dézippez `mergdowntotex_bundle.zip` → vous obtenez `mergdowntotex/` (à copier dans `.obsidian/plugins/`) **et** `example_vault/` (le vault exemple, prêt à ouvrir).
 
-**Avec l'option B (release minimale)** : copiez ces **2 fichiers** dans `.obsidian/plugins/mergdowntotex/` (les dossiers `wasm/` et `resources/` seront auto-créés au premier export) :
+**Avec l'option B (plugin complet en zip)** : dézippez `mergdowntotex.zip` et placez le dossier `mergdowntotex/` dans `.obsidian/plugins/`. Le dossier final doit contenir `main.js`, `manifest.json`, `wasm/` et `resources/`.
+
+**Avec l'option C (release minimale)** : copiez ces **2 fichiers** dans `.obsidian/plugins/mergdowntotex/` (les dossiers `wasm/` et `resources/` seront auto-créés au premier export) :
 
 ```
 mergdowntotex/
@@ -126,13 +132,15 @@ Un **bouton de téléchargement manuel** est également disponible dans les rég
 
 ## Utiliser le vault exemple
 
-Un **vault exemple** complet est fourni : notes, blocs numérotés, tableaux, figures, Mermaid, citations et bibliographie — avec le plugin déjà installé. Téléchargez-le directement depuis ce site :
+Un **vault exemple** complet est fourni : notes, blocs numérotés, tableaux, figures, Mermaid, citations et bibliographie — avec le plugin déjà installé. Téléchargez-le via la release `bundle` (bande passante illimitée) ou depuis ce site :
 
-**→ [Télécharger le vault exemple (`full_manual_repport_exp.zip`)](../assets/full_manual_repport_exp.zip)**
+**→ [Télécharger le vault exemple (`full_manual_repport_exp.zip`)](https://github.com/dvrch/mergdown2tex/releases/download/bundle/full_manual_repport_exp.zip)** · [miroir site](../assets/full_manual_repport_exp.zip)
+
+> Il est **déjà inclus** dans le bundle `mergdowntotex_bundle.zip` (dossier `example_vault/`) — pas besoin de le télécharger deux fois si vous avez choisi l'option A.
 
 ### Déployer le vault
 
-1. Téléchargez le zip ci-dessus (le vault exemple est stocké dézippé dans `example_vault/` du dépôt ; le zip n'est généré que pour ce site)
+1. Téléchargez le zip ci-dessus (le vault exemple est stocké dézippé dans `example_vault/` du dépôt ; le zip est généré par le CI pour ce site et la release `bundle`)
 2. Dézippez `full_manual_repport_exp.zip`
 3. Ouvrez le dossier dézippé comme vault dans Obsidian (`Fichier` → `Ouvrir un vault`)
 4. Le plugin **MergDown2TeX est déjà installé** dans `.obsidian/plugins/mergdowntotex/` (même version que la release)
@@ -146,7 +154,7 @@ Un **vault exemple** complet est fourni : notes, blocs numérotés, tableaux, fi
 
 ### Notes embeds
 
-- `Writing/full_manual_repport.md` : document principal complet (sections, tableaux, équations, figures, Mermaid, citations)
+- `Writing/Mergdown_exempl_test.md` : document principal complet (sections, tableaux, équations, figures, Mermaid, citations)
 - `Writing/table blocks/`, `Writing/figure blocks/`, `Writing/equation blocks/` : blocs numérotés avec ancres (`^table--block-…`, etc.)
 - `BIBTEX.bib` : bibliographie
 
@@ -179,7 +187,7 @@ docker build -t vlatex-env -f Dockerfile.vlatex .
 
 ### Le WASM ne se charge pas
 
-- Vérifiez la taille de `main.js` (~8.6 MB). Un fichier plus petit = version de développement sans WASM embarqué.
+- Vérifiez la taille de `main.js` (~3.7 MB). Un fichier plus petit = version de développement sans WASM embarqué.
 - Re-téléchargez la release si le fichier semble corrompu
 - Consultez la console (`Ctrl/Cmd + Shift + I`)
 

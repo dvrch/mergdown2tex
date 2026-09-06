@@ -95,25 +95,39 @@ MergDown2TeX transforme une note Obsidian en un document **prêt à publier** (L
 
 ## Install
 
+### Téléchargements
+
+Tous les zips sont servis par la **release `bundle`** (assets de release GitHub → bande passante **illimitée**) ainsi que par ce site.
+
+| Archive | Contenu | Release (illimitée) | Site (miroir) |
+|---|---|---|---|
+| `mergdowntotex_bundle.zip` (~43 MB) | **Tout-en-un** : plugin complet + vault exemple | [Télécharger](https://github.com/dvrch/mergdown2tex/releases/download/bundle/mergdowntotex_bundle.zip) | [Site](https://dvrch.github.io/mergdown2tex/assets/mergdowntotex_bundle.zip) |
+| `mergdowntotex.zip` (~36 MB) | Plugin complet (`main.js`, `manifest.json`, `wasm/`, `resources/`) | [Télécharger](https://github.com/dvrch/mergdown2tex/releases/download/bundle/mergdowntotex.zip) | [Site](https://dvrch.github.io/mergdown2tex/assets/mergdowntotex.zip) |
+| `full_manual_repport_exp.zip` (~6 MB) | Vault exemple seul (déjà inclus dans le bundle) | [Télécharger](https://github.com/dvrch/mergdown2tex/releases/download/bundle/full_manual_repport_exp.zip) | [Site](https://dvrch.github.io/mergdown2tex/assets/full_manual_repport_exp.zip) |
+
+- **Bundle** → dézippé, vous obtenez `mergdowntotex/` (à copier dans `.obsidian/plugins/`) **et** `example_vault/` (vault prêt à ouvrir).
+- **Plugin seul** → dézippez et placez le dossier `mergdowntotex/` dans `.obsidian/plugins/`.
+- Les moteurs `pandoc.wasm` (~59 MB) et `typst.wasm` (~28 MB) sont **déjà inclus** dans les archives ; sinon ils s'auto-téléchargent au premier export.
+
 ### Manuel
 
-1. Télécharge `main.js` et `manifest.json` depuis [Releases](https://github.com/dvrch/mergdown2tex/releases)
+1. Télécharge `main.js` et `manifest.json` depuis [Releases](https://github.com/dvrch/mergdown2tex/releases/latest) (ou utilisez le **bundle** ci-dessus)
 2. Copie-les dans `.obsidian/plugins/mergdowntotex/`
 3. Active dans **Settings → Community Plugins**
 
-`main.js` (~8.6 MB) embarque le moteur de conversion **et** le bundle Mermaid en Base64. Les moteurs `pandoc.wasm`/`typst.wasm` sont auto-téléchargés au premier export.
+`main.js` (~3.7 MB) embarque le moteur de conversion WASM en Base64. Le rendu Mermaid (`mermaid.min.js`) est auto-téléchargé au premier export, et les moteurs `pandoc.wasm`/`typst.wasm` aussi.
 
 ### Structure du plugin (release et vault exemple)
 
 ```
 mergdowntotex/                        ← dossier du plugin (id = mergdowntotex)
-├── main.js          ~8.6 MB          ← plugin + moteur WASM + mermaid (Base64)
-├── manifest.json     351 B           ← métadonnées
+├── main.js          ~3.7 MB          ← plugin + moteur WASM embarqué (Base64)
+├── manifest.json      1.2 KB         ← métadonnées
 ├── wasm/                             ← auto-téléchargé (pandoc.wasm, typst.wasm, fonts)
-└── resources/                        ← ressources (CSL/BIB auto-hébergés)
+└── resources/                        ← ressources (CSL/BIB auto-hébergés, mermaid.min.js)
 ```
 
-> **Vault exemple** : `example_vault/full_manual_repport_exp.zip` contient un vault prêt à l'emploi avec le plugin déjà installé (`.obsidian/plugins/mergdowntotex/`). Cette installation est **strictement identique** à celle de la release (mêmes `main.js`, `manifest.json`, `wasm/`, `resources/`).
+> **Vault exemple** : le zip `full_manual_repport_exp.zip` (ou le dossier `example_vault/` du dépôt) contient un vault prêt à l'emploi avec le plugin déjà installé (`.obsidian/plugins/mergdowntotex/`). Cette installation est **strictement identique** à celle de la release (mêmes `main.js`, `manifest.json`, `wasm/`, `resources/`).
 
 ---
 
@@ -170,13 +184,14 @@ Le moteur de conversion (et son outillage) est développé dans le projet **vlat
 
 ```
 mergdowntotex/
-├── main.js          ~8.6 MB   ← plugin + moteur WASM (Base64) + mermaid (Base64)
-└── manifest.json     351 B    ← metadata
+├── main.js          ~3.7 MB   ← plugin + moteur WASM embarqué (Base64)
+└── manifest.json     1.2 KB   ← metadata
 ```
 
 `main.js` embarque :
-- le **moteur de conversion** WASM (Markdown → LaTeX), encodé en Base64 (`WASM_BASE64`) ;
-- le **bundle Mermaid** (`mermaid.min.js`), encodé en Base64 (`MERMAID_BASE64`) pour le rendu client-side, y compris sur mobile.
+- le **moteur de conversion** WASM (Markdown → LaTeX), encodé en Base64 (`WASM_BASE64`).
+
+Le **bundle Mermaid** (`mermaid.min.js`) est téléchargé au runtime (CDN/site, ou `resources/mermaid.min.js` en mode hors-ligne) pour le rendu client-side, y compris sur mobile — il n'est **pas** embarqué dans `main.js`.
 
 Les moteurs **`pandoc.wasm`/`typst.wasm`** (trop volumineux pour être embarqués) sont auto-téléchargés dans `wasm/` au premier export.
 
@@ -184,17 +199,18 @@ Les moteurs **`pandoc.wasm`/`typst.wasm`** (trop volumineux pour être embarqué
 
 ```
 mergdowntotex/
-├── main.js          ~8.6 MB   ← même fichier que la release
-├── manifest.json     351 B
+├── main.js          ~3.7 MB   ← même fichier que la release
+├── manifest.json     1.2 KB
 ├── wasm/
 │   ├── pandoc.wasm   ~59 MB
 │   ├── typst.wasm    ~28 MB
 │       └── fonts/
 └── resources/
-    └── csl/                     ← styles de citation auto-hébergés
+    ├── csl/                     ← styles de citation auto-hébergés
+    └── mermaid.min.js           ← bundle Mermaid (offline)
 ```
 
-> **Mermaid** : le bundle `mermaid.min.js` est **embarqué en Base64 dans `main.js`** (`MERMAID_BASE64`) — il n'est pas distribué séparément dans `resources/`.
+> **Mermaid** : le bundle `mermaid.min.js` est **téléchargé au runtime** (CDN/site, avec `resources/mermaid.min.js` prévu pour le hors-ligne) — il n'est pas encodé en Base64 dans `main.js`.
 scripts/
 └── bundle-release.js            ← encode WASM → Base64 → injecte dans main.js
 ```
@@ -216,7 +232,7 @@ graph LR
 ## Troubleshooting
 
 ### « WASM module not loaded »
-- Vérifie que `main.js` fait bien ~8.6 MB (un fichier plus petit = build dev sans moteur embarqué)
+- Vérifie que `main.js` fait bien ~3.7 MB (un fichier plus petit = build dev sans moteur embarqué)
 - Re-télécharge la release si le fichier semble corrompu
 - Redémarre Obsidian
 

@@ -1,9 +1,9 @@
 {
   "id": "mergdowntotex",
   "name": "mergdowntotex",
-  "version": "2.0.5",
+  "version": "2.0.6",
   "minAppVersion": "1.0.1",
-  "description": "Merge & doc. export everything — embeds, Zotero/Pandoc citations, Mermaid, equations, cross-refs — into a unique .tex file. Compile to PDF, DOCX, or InDesign. WASM engine, zero build step.\n\nTéléchargements :\n• Vault exemple : https://dvrch.github.io/mergdown2tex/assets/full_manual_repport_exp.zip\n• Plugin complet (zip) : https://dvrch.github.io/mergdown2tex/assets/mergdowntotex.zip\n• Documentation : https://dvrch.github.io/mergdown2tex/",
+  "description": "Merge & doc. export everything — embeds, Zotero/Pandoc citations, Mermaid, equations, cross-refs — into a unique .tex file. Compile to PDF, DOCX, or InDesign. WASM engine, zero build step.",
   "author": "DJONTSO",
   "authorUrl": "https://dvrch.github.io/mergdown2tex/",
   "isDesktopOnly": false

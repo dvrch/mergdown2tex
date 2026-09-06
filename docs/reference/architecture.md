@@ -28,7 +28,7 @@ graph TD
 ### Plugin Layer
 
 ```
-main.js (~8.6 MB)
+main.js (~3.7 MB)
 ├── Obsidian Plugin API
 ├── Settings Management
 ├── Command Registration
@@ -141,8 +141,8 @@ sequenceDiagram
 
 ```
 mergdowntotex/
-├── main.js           ~8.6 MB  ← Plugin + moteur WASM embarqué (Base64)
-└── manifest.json   351 B   ← Obsidian metadata
+├── main.js           ~3.7 MB  ← Plugin + moteur WASM embarqué (Base64)
+└── manifest.json   1.2 KB   ← Obsidian metadata
 ```
 
 !!! note "Deux emplacements identiques"

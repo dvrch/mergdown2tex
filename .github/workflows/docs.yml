@@ -12,7 +12,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 
@@ -35,8 +35,23 @@ jobs:
       - name: Install dependencies
         run: pip install mkdocs-material
 
-      - name: Build the downloadable zips (vault exemple + plugin)
+      - name: Build the downloadable zips (vault exemple + plugin + bundle)
         run: node scripts/build_assets.js
+
+      - name: Publish zips to the dedicated "bundle" release (unlimited bandwidth)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # Release non-versionnée (tag "bundle") qui sert les zips avec une bande
+          # passante illimitée (assets de release GitHub). Le tag "bundle" ne matche
+          # pas release.yml (limité aux tags versionnés), donc pas de double release.
+          gh release view bundle --repo dvrch/mergdown2tex >/dev/null 2>&1 || \
+            gh release create bundle --repo dvrch/mergdown2tex \
+              --title "Téléchargements MergDown2TeX (bande passante illimitée)" \
+              --notes "Zips téléchargeables : bundle plugin+vault, plugin, vault exemple. Générés automatiquement par le CI." || true
+          for f in docs/assets/mergdowntotex_bundle.zip docs/assets/mergdowntotex.zip docs/assets/full_manual_repport_exp.zip; do
+            gh release upload bundle --repo dvrch/mergdown2tex "$f" --clobber || true
+          done
 
       - name: Build documentation
         run: mkdocs build --strict
