@@ -1276,9 +1276,9 @@ class Markdown2TexSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Moteurs WASM compressés (mobile, séparés)")
-      .setDesc("2 archives compressées, une par moteur : pandoc_wasm.zip (~15 Mo) pour le DOCX et typst_wasm.zip (~18 Mo, typst.wasm + polices) pour le PDF — au lieu des fichiers bruts (~59 Mo + ~39 Mo). Ne télécharge que le moteur nécessaire. Bouton = installe les deux.")
+      .setDesc("3 archives compressées, une par composant, jamais mélangés : pandoc_wasm.zip (~15 Mo) → DOCX ; typst_wasm.zip (~10 Mo, typst.wasm SEUL) + typst_fonts.zip (~8 Mo, les polices) → PDF. Au lieu des fichiers bruts (~59 Mo + ~28 Mo + ~11 Mo). Ne télécharge que ce qui manque. Bouton = installe les trois.")
       .addButton((btn) => {
-        btn.setButtonText("Télécharger & installer (les 2)").onClick(async () => {
+        btn.setButtonText("Télécharger & installer (les 3)").onClick(async () => {
           try {
             const a = await this.plugin.ensurePandocWasmZip();
             const b = await this.plugin.ensureTypstWasmZip();
@@ -1658,10 +1658,12 @@ class Markdown2TexPlugin extends Plugin {
   // ── WASM compressés (mobile-friendly), 1 zip par moteur ───────────────────
   // Chaque moteur WASM est distribué COMPRESSÉ dans son propre zip, servi par la
   // release "bundle" à bande passante illimitée :
-  //   - pandoc_wasm.zip : pandoc.wasm seul (~15 Mo au lieu de ~59 Mo)
-  //   - typst_wasm.zip  : typst.wasm + fonts/ (~18 Mo au lieu de ~39 Mo)
-  // Sur mobile on ne télécharge QUE le moteur nécessaire (DOCX → pandoc, PDF →
-  // typst). Chaque zip est décompressé à la racine du dossier wasm/ du plugin
+  //   - pandoc_wasm.zip : pandoc.wasm seul (~15 Mo au lieu de ~59 Mo) → DOCX
+  //   - typst_wasm.zip  : typst.wasm seul (~10 Mo au lieu de ~28 Mo) → PDF
+  //   - typst_fonts.zip : les 17 polices, à part (~8 Mo au lieu de ~11 Mo) → PDF
+  // On ne mélange JAMAIS typst.wasm avec d'autres fichiers (polices, etc.) : les
+  // polices vivent dans leur propre zip. Sur mobile on ne télécharge QUE ce qui
+  // manque. Chaque zip est décompressé à la racine du dossier wasm/ du plugin
   // (chemin relatif, identique sur PC et Android).
   wasmDir() {
     return ".obsidian/plugins/" + this.manifest.id + "/wasm";
@@ -1714,9 +1716,15 @@ class Markdown2TexPlugin extends Plugin {
     return this.installWasmZip("pandoc_wasm.zip", "Téléchargement de pandoc.wasm compressé");
   }
 
-  // Télécharge typst.wasm + fonts/ COMPRESSÉS (typst_wasm.zip).
+  // Télécharge typst.wasm COMPRESSÉ seul (typst_wasm.zip) dans wasm/. Les
+  // polices ne sont PAS dans ce zip (elles ont le leur : typst_fonts.zip).
   downloadTypstWasmZip() {
-    return this.installWasmZip("typst_wasm.zip", "Téléchargement de typst.wasm + polices compressé");
+    return this.installWasmZip("typst_wasm.zip", "Téléchargement de typst.wasm compressé");
+  }
+
+  // Télécharge les 17 polices typst COMPRESSÉES (typst_fonts.zip) dans wasm/fonts/.
+  downloadTypstFontsZip() {
+    return this.installWasmZip("typst_fonts.zip", "Téléchargement des polices typst compressées");
   }
 
   // Garantit que pandoc.wasm est présent : d'abord via pandoc_wasm.zip.
@@ -1732,17 +1740,32 @@ class Markdown2TexPlugin extends Plugin {
     }
   }
 
-  // Garantit que typst.wasm (et les polices) sont présents via typst_wasm.zip.
+  // Garantit que typst.wasm ET les polices sont présents (2 zips distincts :
+  // typst_wasm.zip pour le moteur, typst_fonts.zip pour les polices).
   // Idempotent — retourne true une fois que typst.wasm existe.
   async ensureTypstWasmZip() {
-    if (await this.typstWasmExists()) return true;
+    if (await this.typstWasmExists() && await this.typstFontsOk()) return true;
     try {
       await this.downloadTypstWasmZip();
-      return await this.typstWasmExists();
     } catch (e) {
       new Notice("Échec du bundle WASM typst: " + ((e && e.message) || e), 5000);
       return false;
     }
+    try {
+      if (!(await this.typstFontsOk())) await this.downloadTypstFontsZip();
+    } catch (e) {
+      new Notice("Échec du bundle des polices typst: " + ((e && e.message) || e), 5000);
+    }
+    return await this.typstWasmExists();
+  }
+
+  // Vrai quand au moins 4 polices sont présentes dans wasm/fonts/ (seuil de
+  // compilabilité du PDF, comme dans getTypstCompiler).
+  async typstFontsOk() {
+    try {
+      const names = await this.vaultListFontNames(this.wasmDir() + "/fonts");
+      return names.size >= 4;
+    } catch (e) { return false; }
   }
 
   // ── Mermaid : chargement runtime (module extrait du main.js pour rester < 5 Mo) ──
@@ -3459,8 +3482,9 @@ class Markdown2TexPlugin extends Plugin {
       }
     } catch (e) { /* ignore */ }
     if (!wasmBytes || wasmBytes.length === 0) {
-      // Version compressée préférée : typst_wasm.zip (typst.wasm + fonts/,
-      // ~18 Mo au lieu de ~39 Mo pour les fichiers bruts).
+      // Version compressée préférée : typst_wasm.zip (typst.wasm SEUL) puis
+      // typst_fonts.zip (les polices, zip séparé) — ~18 Mo au total au lieu de
+      // ~39 Mo pour les fichiers bruts.
       try {
         const ok = await this.ensureTypstWasmZip();
         if (ok && await vaultExists(this.app, wasmRel)) {

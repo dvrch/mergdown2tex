@@ -2,6 +2,13 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [2.0.9] — 2026-09-07
+
+### Modifié
+- **Les polices ne sont plus mélangées au moteur** : `typst_wasm.zip` ne contient plus que `typst.wasm` (~10 Mo), et un **nouveau zip séparé `typst_fonts.zip`** (~8 Mo) regroupe les 17 polices. Chaque composant (pandoc, typst, polices) dispose de **son propre zip** dans la release `bundle`.
+- `main.js` : `downloadTypstWasmZip()` ne télécharge plus que le moteur ; nouveau `downloadTypstFontsZip()` pour les polices ; `ensureTypstWasmZip()` garantit les DEUX (`typst_wasm.zip` puis `typst_fonts.zip`), contrôle via `typstFontsOk()` (≥ 4 polices présentes). Bouton réglages « Moteurs WASM compressés » → « Télécharger & installer (les 3) ».
+- `docs.yml` : `typst_fonts.zip` ajouté aux assets uploadés sur la release `bundle`.
+
 ## [2.0.8] — 2026-09-07
 
 ### Ajouté
