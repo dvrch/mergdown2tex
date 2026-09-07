@@ -2335,6 +2335,56 @@ class Markdown2TexPlugin extends Plugin {
       },
     });
 
+    this.addCommand({
+      id: "mergdown2tex-download-example-vault",
+      name: "Télécharger le dossier d'exemple (vault)",
+      callback: async () => {
+        await this.downloadExampleVault();
+      },
+    });
+
+    this.addCommand({
+      id: "mergdown2tex-download-wasm-all",
+      name: "Télécharger les moteurs WASM (DOCX + PDF + polices)",
+      callback: async () => {
+        try {
+          new Notice("Téléchargement des moteurs WASM…");
+          const a = await this.ensurePandocWasmZip();
+          const b = await this.ensureTypstWasmZip();
+          new Notice(a && b ? "WASM : les 3 composants installés et prêts ✅" : "WASM : partiellement installés ❌", 4000);
+        } catch (e) {
+          new Notice("WASM : échec — " + ((e && e.message) || e), 5000);
+        }
+      },
+    });
+
+    this.addCommand({
+      id: "mergdown2tex-download-wasm-pandoc",
+      name: "Télécharger le moteur pandoc.wasm (DOCX)",
+      callback: async () => {
+        const a = await this.ensurePandocWasmZip();
+        new Notice(a ? "pandoc.wasm installé et prêt ✅" : "pandoc.wasm : échec ❌", 4000);
+      },
+    });
+
+    this.addCommand({
+      id: "mergdown2tex-download-wasm-typst",
+      name: "Télécharger le moteur typst.wasm (PDF)",
+      callback: async () => {
+        const a = await this.ensureTypstWasmOnlyZip();
+        new Notice(a ? "typst.wasm installé et prêt ✅" : "typst.wasm : échec ❌", 4000);
+      },
+    });
+
+    this.addCommand({
+      id: "mergdown2tex-download-wasm-fonts",
+      name: "Télécharger les polices typst (PDF)",
+      callback: async () => {
+        const a = await this.ensureTypstFontsOnlyZip();
+        new Notice(a ? "Polices typst installées et prêtes ✅" : "Polices typst : échec ❌", 4000);
+      },
+    });
+
     this.addRibbonIcon("file-pdf", "Aperçu PDF côte-à-côte (md → pdf)", () => {
       this.startLivePdfPreview();
     });

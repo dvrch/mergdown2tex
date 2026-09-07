@@ -2,6 +2,16 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [2.1.2] — 2026-09-07
+
+### Ajouté
+- **Commandes dans la palette de commandes (Ctrl/Cmd+P)** :
+  - « Télécharger le dossier d'exemple (vault) » ;
+  - « Télécharger les moteurs WASM (DOCX + PDF + polices) » (les 3 zips) ;
+  - « Télécharger le moteur pandoc.wasm (DOCX) » ;
+  - « Télécharger le moteur typst.wasm (PDF) » ;
+  - « Télécharger les polices typst (PDF) ».
+
 ## [2.1.1] — 2026-09-07
 
 ### Corrigé
