@@ -2,6 +2,16 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [2.1.3] — 2026-09-07
+
+### Ajouté
+- **Barre de progression des téléchargements** : chaque téléchargement (dossier d'exemple, moteurs WASM, polices, Mermaid) ouvre désormais une fenêtre avec une **barre de progression** qui **reste visible jusqu'à la fin**.
+  - Progression **réelle en octets** (**% + Mo reçus / Mo total**) quand le serveur fournit la taille (via `fetch` en streaming sur PC).
+  - Repli en barre **indéterminée** (balayage animé) sur mobile/Android ou si la taille est inconnue.
+  - Puis phase « décompression / installation » comptée **fichier par fichier** jusqu'à 100 %.
+  - La fenêtre ne se ferme qu'une fois tout terminé (+ courte pause finale affichant le résultat ✅/❌).
+- Appliqué partout : boutons des réglages (« Télécharger & extraire », « Télécharger la sélection », « Statut & installer » Mermaid) **et** les 5 commandes de la palette ajoutées en 2.1.2.
+
 ## [2.1.2] — 2026-09-07
 
 ### Ajouté

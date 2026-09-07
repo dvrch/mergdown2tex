@@ -2,7 +2,7 @@
 // All memory management functions, raw bindings, and high-level wrappers
 // from vlatex_bg.js and vlatex.js merged here
 
-const { Plugin, Notice, PluginSettingTab, Setting, requestUrl, Platform } = require("obsidian");
+const { Plugin, Notice, PluginSettingTab, Setting, requestUrl, Platform, Modal, ProgressBar } = require("obsidian");
 
 // --- Multiplateforme (PC + Android) ---
 // fs/path/crypto/zlib/child_process n'existent pas sur Obsidian mobile.
@@ -1258,6 +1258,77 @@ const CSL_DISPLAY_VALUES = {
 };
 
 
+// Fenêtre de téléchargement avec barre de progression, qui RESTE visible
+// jusqu'à la fin (réelle par octets, ou animée si le serveur ne fournit pas
+// de taille). Réutilisée pour les zips WASM, les polices, Mermaid et le
+// dossier d'exemple.
+class DownloadProgressModal extends Modal {
+  constructor(app, title) {
+    super(app);
+    this._title0 = title || "Téléchargement…";
+    this._mode = "indet"; // "pct" | "indet"
+    this._timer = null;
+    this._progValue = 0;
+  }
+
+  onOpen() {
+    const { contentEl } = this;
+    contentEl.empty();
+    contentEl.addClass("mergdown2tex-dl");
+    this.modalEl.style.width = "min(92vw, 480px)";
+    this._titleEl = contentEl.createEl("div", {
+      text: this._title0,
+      cls: "mergdown2tex-dl-title",
+      attr: { style: "font-weight:600;margin-bottom:10px;font-size:1.05em" },
+    });
+    this._bar = new ProgressBar(contentEl);
+    this._statusEl = contentEl.createEl("div", {
+      text: "Préparation…",
+      cls: "mergdown2tex-dl-status",
+      attr: { style: "margin-top:10px;font-size:0.88em;color:var(--text-muted);white-space:pre-wrap" },
+    });
+    this._setMode("indet");
+  }
+
+  _setMode(mode) {
+    this._mode = mode;
+    if (this._timer) { clearInterval(this._timer); this._timer = null; }
+    if (mode === "pct") {
+      this._bar.setValue(this._progValue);
+    } else {
+      // Indéterminé : balayage 0→0.9→0 qui boucle tant que le modal est ouvert.
+      let up = true, v = 0;
+      this._progValue = 0;
+      this._timer = setInterval(() => {
+        if (up) { v += 0.04; if (v >= 0.9) { v = 0.9; up = false; } }
+        else { v -= 0.04; if (v <= 0.02) { v = 0.02; up = true; } }
+        this._bar.setValue(v);
+      }, 90);
+    }
+  }
+
+  setTitle(t) { if (this._titleEl) this._titleEl.setText(t || ""); }
+
+  setStatus(t) { if (this._statusEl) this._statusEl.setText(t || ""); }
+
+  // pct : 0..1, ou undefined/null → mode indéterminé.
+  setProgress(pct, label) {
+    if (typeof pct === "number" && isFinite(pct)) {
+      this._progValue = Math.max(0, Math.min(1, pct));
+      if (this._mode !== "pct") this._setMode("pct");
+      else this._bar.setValue(this._progValue);
+    } else if (this._mode !== "indet") {
+      this._setMode("indet");
+    }
+    if (label != null) this.setStatus(label);
+  }
+
+  onClose() {
+    if (this._timer) { clearInterval(this._timer); this._timer = null; }
+    this._mode = "indet";
+  }
+}
+
 class Markdown2TexSettingTab extends PluginSettingTab {
   constructor(app, plugin) {
     super(app, plugin);
@@ -1279,7 +1350,7 @@ class Markdown2TexSettingTab extends PluginSettingTab {
       .setDesc("Récupère le dossier d'exemple (déjà dans le dépôt du plugin) et l'extrait dans la racine du vault actuel. Idéal pour découvrir la structure/manual de référence sans toucher à votre .obsidian local.")
       .addButton((btn) => {
         btn.setButtonText("Télécharger & extraire").onClick(async () => {
-          await this.plugin.downloadExampleVault();
+          await this.plugin.withProgressModal("Vault exemple", (progress) => this.plugin.downloadExampleVault(progress));
           this.display();
         });
       });
@@ -1318,15 +1389,20 @@ class Markdown2TexSettingTab extends PluginSettingTab {
           new Notice("Cochez au moins un composant avant de télécharger.", 4000);
           return;
         }
-        let ok = true, n = 0;
-        try {
-          if (want.pandoc) { const a = await this.plugin.ensurePandocWasmZip(); ok = ok && a; n += a ? 1 : 0; }
-          if (want.typst) { const b = await this.plugin.ensureTypstWasmOnlyZip(); ok = ok && b; n += b ? 1 : 0; }
-          if (want.fonts) { const c = await this.plugin.ensureTypstFontsOnlyZip(); ok = ok && c; n += c ? 1 : 0; }
-          new Notice(ok ? (n + " composant(s) WASM installé(s) et prêt(s) ✅") : "Téléchargement(s) partiellement échoué(s) ❌", 4000);
-        } catch (e) {
-          new Notice("Téléchargement WASM : échec — " + ((e && e.message) || e), 5000);
-        }
+        await this.plugin.withProgressModal("Téléchargement WASM", async (progress) => {
+          let ok = true, n = 0;
+          try {
+            if (want.pandoc) { progress.setTitle("pandoc.wasm (DOCX)"); const a = await this.plugin.ensurePandocWasmZip(progress); ok = ok && a; n += a ? 1 : 0; }
+            if (want.typst) { progress.setTitle("typst.wasm (PDF)"); const b = await this.plugin.ensureTypstWasmOnlyZip(progress); ok = ok && b; n += b ? 1 : 0; }
+            if (want.fonts) { progress.setTitle("polices typst (PDF)"); const c = await this.plugin.ensureTypstFontsOnlyZip(progress); ok = ok && c; n += c ? 1 : 0; }
+            progress.setTitle("Téléchargement WASM");
+            progress.setStatus(ok ? (n + " composant(s) WASM installé(s) et prêt(s) ✅") : "Téléchargement(s) partiellement échoué(s) ❌");
+          } catch (e) {
+            progress.setStatus("Téléchargement WASM : échec — " + ((e && e.message) || e));
+            ok = false;
+          }
+          return ok;
+        });
         this.display();
       });
     });
@@ -1354,8 +1430,7 @@ class Markdown2TexSettingTab extends PluginSettingTab {
       .setDesc("Rendu des blocs ```mermaid``` en PNG. Le module mermaid.min.js est téléchargé automatiquement depuis l'hébergeur du plugin puis mis en cache local. Cliquez pour vérifier/installer manuellement.")
       .addButton((btn) => {
         btn.setButtonText("Statut & installer").onClick(async () => {
-          const ok = await this.plugin.ensureMermaid();
-          new Notice(ok ? "Mermaid : installé et prêt ✅" : "Mermaid : introuvable après installation ❌", 4000);
+          await this.plugin.withProgressModal("Mermaid", (progress) => this.plugin.ensureMermaid(progress));
           this.display();
         });
       });
@@ -1693,21 +1768,64 @@ class Markdown2TexPlugin extends Plugin {
     return "https://github.com/dvrch/mergdown2tex/releases/download/bundle/" + zipName;
   }
 
+  // Télécharge une ressource binaire. Retourne un ArrayBuffer (ou lance une
+  // erreur). Si `progress` est fourni ET que `fetch` est disponible, on
+  // rapporte une VRAIE progression en octets (barre déterminée + Mo) ; sinon
+  // repli sûr sur requestUrl en barre indéterminée.
+  async downloadBytes(url, progress) {
+    if (progress) progress.setStatus("Connexion au serveur…");
+    const viaRequest = async () => {
+      const resp = await requestUrl({ url, throw: false, responseType: "arraybuffer" });
+      if (resp.status < 200 || resp.status >= 300) throw new Error("HTTP " + resp.status);
+      return resp.arrayBuffer;
+    };
+    if (typeof fetch !== "function" || !progress) return viaRequest();
+    try {
+      const resp = await fetch(url);
+      if (!resp || !resp.ok) throw new Error("HTTP " + (resp && resp.status));
+      const total = Number(resp.headers.get("Content-Length")) || 0;
+      const reader = resp.body && resp.body.getReader ? resp.body.getReader() : null;
+      if (!reader) return resp.arrayBuffer();
+      const chunks = [];
+      let received = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value) { chunks.push(value); received += value.length; }
+        if (total > 0) {
+          const pct = Math.min(1, received / total);
+          progress.setProgress(pct, "Téléchargement : " + Math.round(pct * 100) + " % — " + Math.max(1, Math.round(received / 1048576)) + "/" + Math.max(1, Math.round(total / 1048576)) + " Mo…");
+        } else {
+          progress.setProgress(null, "Téléchargement : " + Math.max(1, Math.round(received / 1048576)) + " Mo…");
+        }
+      }
+      const out = new Uint8Array(received);
+      let off = 0;
+      for (const c of chunks) { out.set(c, off); off += c.length; }
+      return out.buffer;
+    } catch (e) {
+      return viaRequest();
+    }
+  }
+
   // Décompresse un zip WASM sous wasmDir(). Le préfixe "wasm/" du zip est retiré
   // (présent ou non). Retourne { written, files } ou lance une erreur.
-  async installWasmZip(zipName, noticeLabel) {
-    new Notice(noticeLabel + "…");
-    const resp = await requestUrl({ url: this.wasmZipUrl(zipName), throw: false, responseType: "arraybuffer" });
-    if (resp.status < 200 || resp.status >= 300) {
-      throw new Error("Téléchargement " + zipName + " échoué: HTTP " + resp.status);
-    }
-    const all = this.unzipAll(resp.arrayBuffer);
+  // `progress` (optionnel) : { setTitle, setStatus, setProgress(pct,label) }.
+  async installWasmZip(zipName, noticeLabel, progress) {
+    if (progress) { progress.setTitle(noticeLabel); progress.setStatus("Connexion au serveur…"); }
+    else new Notice(noticeLabel + "…");
+    const arrayBuffer = await this.downloadBytes(this.wasmZipUrl(zipName), progress);
+    const all = this.unzipAll(arrayBuffer);
     const base = this.wasmDir();
     const a = adapterGet(this.app);
     let written = 0;
     const entries = [];
+    const totalWritable = Object.keys(all).filter((n) => !n.endsWith("/")).length;
     for (const [name, data] of Object.entries(all)) {
       if (name.endsWith("/")) continue; // dossier explicite
+      if (progress && totalWritable) {
+        progress.setProgress(0.05 + 0.95 * (written / totalWritable), "Décompression et installation : " + written + " / " + totalWritable + " fichiers…");
+      }
       const clean = name.replace(/^wasm\//, "").replace(/^\/+/, "");
       if (!clean) continue;
       const rel = base + "/" + clean;
@@ -1727,35 +1845,60 @@ class Markdown2TexPlugin extends Plugin {
       await vaultWriteBinary(this.app, rel, data);
       written++;
     }
-    new Notice("Installé : " + written + " fichiers (" + base + ")");
+    if (progress) { progress.setProgress(1, "Installé : " + written + " fichiers"); }
+    else new Notice("Installé : " + written + " fichiers (" + base + ")");
     return { written, files: entries };
   }
 
+  // Ouvre le modal de progression et exécute `fn(progress)`. Le modal reste
+  // visible jusqu'à la fin de toutes les étapes et ne se ferme qu'une fois tout
+  // terminé (avec le résultat final affiché). Retourne la valeur de retour de fn.
+  async withProgressModal(title, fn) {
+    const modal = new DownloadProgressModal(this.app, title);
+    modal.open();
+    const progress = {
+      setTitle: (t) => modal.setTitle(t),
+      setStatus: (t) => modal.setStatus(t),
+      setProgress: (pct, label) => modal.setProgress(pct, label),
+    };
+    let result = null;
+    try {
+      result = await fn(progress);
+    } catch (e) {
+      modal.setStatus("Échec : " + ((e && e.message) || e));
+      result = false;
+    }
+    // On laisse le résultat visible ~2 s avant de fermer.
+    setTimeout(() => { modal.close(); }, 2000);
+    return result;
+  }
+
   // Télécharge pandoc.wasm COMPRESSÉ (pandoc_wasm.zip) et le décompresse dans wasm/.
-  downloadPandocWasmZip() {
-    return this.installWasmZip("pandoc_wasm.zip", "Téléchargement de pandoc.wasm compressé");
+  downloadPandocWasmZip(progress) {
+    return this.installWasmZip("pandoc_wasm.zip", "Téléchargement de pandoc.wasm compressé", progress);
   }
 
   // Télécharge typst.wasm COMPRESSÉ seul (typst_wasm.zip) dans wasm/. Les
   // polices ne sont PAS dans ce zip (elles ont le leur : typst_fonts.zip).
-  downloadTypstWasmZip() {
-    return this.installWasmZip("typst_wasm.zip", "Téléchargement de typst.wasm compressé");
+  downloadTypstWasmZip(progress) {
+    return this.installWasmZip("typst_wasm.zip", "Téléchargement de typst.wasm compressé", progress);
   }
 
   // Télécharge les 17 polices typst COMPRESSÉES (typst_fonts.zip) dans wasm/fonts/.
-  downloadTypstFontsZip() {
-    return this.installWasmZip("typst_fonts.zip", "Téléchargement des polices typst compressées");
+  downloadTypstFontsZip(progress) {
+    return this.installWasmZip("typst_fonts.zip", "Téléchargement des polices typst compressées", progress);
   }
 
   // Garantit que pandoc.wasm est présent : d'abord via pandoc_wasm.zip.
   // Idempotent — retourne true une fois que pandoc.wasm existe.
-  async ensurePandocWasmZip() {
-    if (await this.pandocWasmExists()) return true;
+  async ensurePandocWasmZip(progress) {
+    if (await this.pandocWasmExists()) { if (progress) progress.setProgress(1, "pandoc.wasm déjà présent ✅"); return true; }
     try {
-      await this.downloadPandocWasmZip();
+      await this.downloadPandocWasmZip(progress);
+      if (progress) progress.setProgress(1, "pandoc.wasm installé ✅");
       return await this.pandocWasmExists();
     } catch (e) {
-      new Notice("Échec du bundle WASM pandoc: " + ((e && e.message) || e), 5000);
+      if (!progress) new Notice("Échec du bundle WASM pandoc: " + ((e && e.message) || e), 5000);
       return false;
     }
   }
@@ -1763,34 +1906,35 @@ class Markdown2TexPlugin extends Plugin {
   // Garantit que typst.wasm ET les polices sont présents (2 zips distincts :
   // typst_wasm.zip pour le moteur, typst_fonts.zip pour les polices).
   // Idempotent — retourne true une fois que typst.wasm existe.
-  async ensureTypstWasmZip() {
-    if (await this.typstWasmExists() && await this.typstFontsOk()) return true;
+  async ensureTypstWasmZip(progress) {
+    if (await this.typstWasmExists() && await this.typstFontsOk()) { if (progress) progress.setProgress(1, "typst.wasm + polices déjà présents ✅"); return true; }
     try {
-      await this.downloadTypstWasmZip();
+      await this.downloadTypstWasmZip(progress);
     } catch (e) {
-      new Notice("Échec du bundle WASM typst: " + ((e && e.message) || e), 5000);
+      if (!progress) new Notice("Échec du bundle WASM typst: " + ((e && e.message) || e), 5000);
       return false;
     }
     try {
-      if (!(await this.typstFontsOk())) await this.downloadTypstFontsZip();
+      if (!(await this.typstFontsOk())) await this.downloadTypstFontsZip(progress);
     } catch (e) {
-      new Notice("Échec du bundle des polices typst: " + ((e && e.message) || e), 5000);
+      if (!progress) new Notice("Échec du bundle des polices typst: " + ((e && e.message) || e), 5000);
     }
+    if (progress) progress.setProgress(1, "typst.wasm + polices installés ✅");
     return await this.typstWasmExists();
   }
 
   // Version individuelle : télécharge uniquement typst_wasm.zip (sans les polices).
-  async ensureTypstWasmOnlyZip() {
-    if (await this.typstWasmExists()) return true;
-    try { await this.downloadTypstWasmZip(); return await this.typstWasmExists(); }
-    catch (e) { new Notice("Échec typst.wasm: " + ((e && e.message) || e), 5000); return false; }
+  async ensureTypstWasmOnlyZip(progress) {
+    if (await this.typstWasmExists()) { if (progress) progress.setProgress(1, "typst.wasm déjà présent ✅"); return true; }
+    try { await this.downloadTypstWasmZip(progress); if (progress) progress.setProgress(1, "typst.wasm installé ✅"); return await this.typstWasmExists(); }
+    catch (e) { if (!progress) new Notice("Échec typst.wasm: " + ((e && e.message) || e), 5000); return false; }
   }
 
   // Version individuelle : télécharge uniquement typst_fonts.zip (sans le moteur).
-  async ensureTypstFontsOnlyZip() {
-    if (await this.typstFontsOk()) return true;
-    try { await this.downloadTypstFontsZip(); return await this.typstFontsOk(); }
-    catch (e) { new Notice("Échec polices typst: " + ((e && e.message) || e), 5000); return false; }
+  async ensureTypstFontsOnlyZip(progress) {
+    if (await this.typstFontsOk()) { if (progress) progress.setProgress(1, "Polices déjà présentes ✅"); return true; }
+    try { await this.downloadTypstFontsZip(progress); if (progress) progress.setProgress(1, "Polices installées ✅"); return await this.typstFontsOk(); }
+    catch (e) { if (!progress) new Notice("Échec polices typst: " + ((e && e.message) || e), 5000); return false; }
   }
 
   // Vrai quand au moins 4 polices sont présentes dans wasm/fonts/ (seuil de
@@ -1830,34 +1974,35 @@ class Markdown2TexPlugin extends Plugin {
     await vaultWriteBinary(this.app, relPath, bytes);
   }
 
-  async downloadMermaid() {
-    new Notice("Téléchargement du module Mermaid…");
+  async downloadMermaid(progress) {
+    if (progress) { progress.setTitle("Mermaid (diagrammes)"); progress.setStatus("Connexion au serveur…"); }
+    else new Notice("Téléchargement du module Mermaid…");
     const urls = [
       "https://dvrch.github.io/mergdown2tex/javascripts/mermaid.min.js",
       "https://unpkg.com/mermaid@11.17.2/dist/mermaid.min.js",
     ];
     let lastErr = null;
-    for (const url of urls) {
+    for (let i = 0; i < urls.length; i++) {
+      const url = urls[i];
       try {
-        const resp = await requestUrl({ url, throw: false, responseType: "arraybuffer" });
-        if (resp.status < 200 || resp.status >= 300) {
-          lastErr = new Error("HTTP " + resp.status + " (" + url + ")");
-          continue;
-        }
-        await this._writePluginResource(this.mermaidRel(), new Uint8Array(resp.arrayBuffer));
-        new Notice("Module Mermaid installé !");
+        if (progress) progress.setStatus("Téléchargement (source " + (i + 1) + "/" + urls.length + ")…");
+        const arrayBuffer = await this.downloadBytes(url, progress);
+        await this._writePluginResource(this.mermaidRel(), new Uint8Array(arrayBuffer));
+        if (progress) progress.setProgress(1, "Module Mermaid installé ✅");
+        else new Notice("Module Mermaid installé !");
         return true;
       } catch (e) {
         lastErr = e;
       }
     }
-    new Notice("Échec du téléchargement Mermaid : " + ((lastErr && lastErr.message) || lastErr), 5000);
+    if (progress) progress.setStatus("Échec du téléchargement Mermaid : " + ((lastErr && lastErr.message) || lastErr));
+    else new Notice("Échec du téléchargement Mermaid : " + ((lastErr && lastErr.message) || lastErr), 5000);
     return false;
   }
 
-  async ensureMermaid() {
-    if (await this.mermaidExists()) return true;
-    return this.downloadMermaid();
+  async ensureMermaid(progress) {
+    if (await this.mermaidExists()) { if (progress) progress.setProgress(1, "Mermaid déjà présent ✅"); return true; }
+    return this.downloadMermaid(progress);
   }
 
   // Extrait tous les fichiers d'un .zip (méthodes 0 = stocké, 8 = DEFLATE).
@@ -1906,23 +2051,25 @@ class Markdown2TexPlugin extends Plugin {
   // (.obsidian/) pour reproduire l'environnement de travail fourni dans le
   // bundle. On évite uniquement d'écraser l'état local data.json (le thème actif
   // et les réglages json sont bien restaurés, comme dans le bundle de référence).
-  downloadExampleVault() {
+  downloadExampleVault(progress) {
     const url = "https://github.com/dvrch/mergdown2tex/releases/download/bundle/full_manual_repport_exp.zip";
-    return this._downloadAndExtract(url, new Set(["data.json"]), "Dossier d'exemple + réglages");
+    return this._downloadAndExtract(url, new Set(["data.json"]), "Dossier d'exemple + réglages", progress);
   }
 
-  async _downloadAndExtract(url, skipPrefixes, label) {
-    new Notice("Téléchargement du " + label + "…");
+  async _downloadAndExtract(url, skipPrefixes, label, progress) {
+    if (progress) { progress.setTitle(label); progress.setStatus("Connexion au serveur…"); }
+    else new Notice("Téléchargement du " + label + "…");
     try {
-      const resp = await requestUrl({ url, throw: false, responseType: "arraybuffer" });
-      if (resp.status < 200 || resp.status >= 300) {
-        throw new Error("HTTP " + resp.status);
-      }
-      const all = this.unzipAll(resp.arrayBuffer);
+      const arrayBuffer = await this.downloadBytes(url, progress);
+      const all = this.unzipAll(arrayBuffer);
+      const totalFiles = Object.keys(all).filter((n) => !n.endsWith("/")).length;
       let written = 0, ignored = 0;
       for (const [name, data] of Object.entries(all)) {
         if (name.endsWith("/")) continue;            // entrée dossier
         if (Array.from(skipPrefixes).some((p) => name === p || name.startsWith(p))) { ignored++; continue; }
+        if (progress && totalFiles) {
+          progress.setProgress(0.05 + 0.95 * (written / totalFiles), "Extraction : " + written + " / " + totalFiles + " fichiers…");
+        }
         try {
           await vaultWriteBinary(this.app, name, data);
           written++;
@@ -1936,10 +2083,14 @@ class Markdown2TexPlugin extends Plugin {
           console.warn("[mergdown2tex] " + label + " : écriture impossible pour " + name);
         }
       }
-      new Notice(label + " : " + written + " fichiers extraits à la racine du vault" + (ignored ? " (" + ignored + " ignorés)" : ""));
+      const msg = label + " : " + written + " fichiers extraits à la racine du vault" + (ignored ? " (" + ignored + " ignorés)" : "");
+      if (progress) progress.setProgress(1, msg);
+      else new Notice(msg);
       return true;
     } catch (e) {
-      new Notice("Échec du téléchargement du " + label + " : " + ((e && e.message) || e), 5000);
+      const errMsg = "Échec du téléchargement du " + label + " : " + ((e && e.message) || e);
+      if (progress) progress.setStatus(errMsg);
+      else new Notice(errMsg, 5000);
       return false;
     }
   }
@@ -2339,7 +2490,7 @@ class Markdown2TexPlugin extends Plugin {
       id: "mergdown2tex-download-example-vault",
       name: "Télécharger le dossier d'exemple (vault)",
       callback: async () => {
-        await this.downloadExampleVault();
+        await this.withProgressModal("Vault exemple", (progress) => this.downloadExampleVault(progress));
       },
     });
 
@@ -2347,14 +2498,12 @@ class Markdown2TexPlugin extends Plugin {
       id: "mergdown2tex-download-wasm-all",
       name: "Télécharger les moteurs WASM (DOCX + PDF + polices)",
       callback: async () => {
-        try {
-          new Notice("Téléchargement des moteurs WASM…");
-          const a = await this.ensurePandocWasmZip();
-          const b = await this.ensureTypstWasmZip();
-          new Notice(a && b ? "WASM : les 3 composants installés et prêts ✅" : "WASM : partiellement installés ❌", 4000);
-        } catch (e) {
-          new Notice("WASM : échec — " + ((e && e.message) || e), 5000);
-        }
+        await this.withProgressModal("Moteurs WASM", async (progress) => {
+          const a = await this.ensurePandocWasmZip(progress);
+          const b = await this.ensureTypstWasmZip(progress);
+          progress.setStatus(a && b ? "WASM : les 3 composants installés et prêts ✅" : "WASM : partiellement installés ❌");
+          return a && b;
+        });
       },
     });
 
@@ -2362,8 +2511,11 @@ class Markdown2TexPlugin extends Plugin {
       id: "mergdown2tex-download-wasm-pandoc",
       name: "Télécharger le moteur pandoc.wasm (DOCX)",
       callback: async () => {
-        const a = await this.ensurePandocWasmZip();
-        new Notice(a ? "pandoc.wasm installé et prêt ✅" : "pandoc.wasm : échec ❌", 4000);
+        await this.withProgressModal("Moteur pandoc.wasm", async (progress) => {
+          const a = await this.ensurePandocWasmZip(progress);
+          progress.setStatus(a ? "pandoc.wasm installé et prêt ✅" : "pandoc.wasm : échec ❌");
+          return a;
+        });
       },
     });
 
@@ -2371,8 +2523,11 @@ class Markdown2TexPlugin extends Plugin {
       id: "mergdown2tex-download-wasm-typst",
       name: "Télécharger le moteur typst.wasm (PDF)",
       callback: async () => {
-        const a = await this.ensureTypstWasmOnlyZip();
-        new Notice(a ? "typst.wasm installé et prêt ✅" : "typst.wasm : échec ❌", 4000);
+        await this.withProgressModal("Moteur typst.wasm", async (progress) => {
+          const a = await this.ensureTypstWasmOnlyZip(progress);
+          progress.setStatus(a ? "typst.wasm installé et prêt ✅" : "typst.wasm : échec ❌");
+          return a;
+        });
       },
     });
 
@@ -2380,8 +2535,11 @@ class Markdown2TexPlugin extends Plugin {
       id: "mergdown2tex-download-wasm-fonts",
       name: "Télécharger les polices typst (PDF)",
       callback: async () => {
-        const a = await this.ensureTypstFontsOnlyZip();
-        new Notice(a ? "Polices typst installées et prêtes ✅" : "Polices typst : échec ❌", 4000);
+        await this.withProgressModal("Polices typst", async (progress) => {
+          const a = await this.ensureTypstFontsOnlyZip(progress);
+          progress.setStatus(a ? "Polices typst installées et prêtes ✅" : "Polices typst : échec ❌");
+          return a;
+        });
       },
     });
 
