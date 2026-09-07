@@ -45,6 +45,16 @@ const TARGETS = [
     exclude: new Set(["data.json"]),
     label: "bundle plugin + vault exemple",
   },
+  {
+    // Tout le dossier wasm/ (pandoc.wasm, typst.wasm, fonts/) COMPRESSÉ en un
+    // seul zip pour un téléchargement rapide sur mobile (97 Mo → ~34 Mo).
+    // Le contenu est à la racine du zip (pandoc.wasm, typst.wasm, fonts/...).
+    sources: [{ dir: path.join("mergdowntotex", "wasm"), prefix: "" }],
+    out: "docs/assets/wasm_bundle.zip",
+    exclude: new Set([]),
+    label: "bundle WASM (pandoc+typst+fonts, compressés)",
+    compress: true, // compression maximale pour réduire la taille du téléchargement
+  },
 ];
 
 function run(args, opts) {
@@ -100,13 +110,14 @@ function buildTarget(target) {
   // du dossier ; sinon on zippe le dossier avec son nom comme racine.
   const excludeArgs = [...target.exclude].flatMap((e) => ["-x", `*/${e}`]);
   const names = target.sources.map((src) => (src.prefix ? src.prefix : `${src.dir}/*`));
+  const lvlArgs = target.compress ? ["-9"] : [];
   for (const src of target.sources) {
     if (src.prefix) {
       // dossier complet, zippé sous son propre nom
-      run(["zip", "-q", "-r", "-X", tmp, src.dir, ...excludeArgs]);
+      run(["zip", "-q", "-r", "-X", ...lvlArgs, tmp, src.dir, ...excludeArgs]);
     } else {
       // contenu du dossier à la racine du zip
-      run(["zip", "-q", "-r", "-X", tmp, ".", ...excludeArgs], { cwd: path.join(ROOT, src.dir) });
+      run(["zip", "-q", "-r", "-X", ...lvlArgs, tmp, ".", ...excludeArgs], { cwd: path.join(ROOT, src.dir) });
     }
   }
   fs.copyFileSync(tmp, outPath);

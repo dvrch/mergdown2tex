@@ -1275,6 +1275,21 @@ class Markdown2TexSettingTab extends PluginSettingTab {
     section("Moteurs");
 
     new Setting(containerEl)
+      .setName("Bundle WASM compressé (Pandoc + Typst + polices)")
+      .setDesc("Tout-en-un : télécharge le dossier wasm/ (pandoc.wasm, typst.wasm et les 17 polices) COMPRESSÉ dans un seul zip (~34 Mo au lieu de ~97 Mo), puis le décompresse au bon endroit. Recommandé sur mobile (rapide).")
+      .addButton((btn) => {
+        btn.setButtonText("Télécharger & installer").onClick(async () => {
+          try {
+            const r = await this.plugin.ensureWasmBundle();
+            new Notice(r ? "Bundle WASM : installé et prêt ✅" : "Bundle WASM : introuvable après installation ❌", 4000);
+          } catch (e) {
+            new Notice("Bundle WASM : échec — " + ((e && e.message) || e), 5000);
+          }
+          this.display();
+        });
+      });
+
+    new Setting(containerEl)
       .setName("Moteur Pandoc WASM (DOCX)")
       .setDesc("Compilation DOCX via pandoc.wasm embarqué. Si le fichier manque, cliquez pour le télécharger automatiquement depuis GitHub.")
       .addButton((btn) => {
@@ -1639,6 +1654,62 @@ class Markdown2TexPlugin extends Plugin {
     return true;
   }
 
+  // ── WASM bundle compressé (mobile-friendly) ───────────────────────────────
+  // Le dossier wasm/ (pandoc.wasm + typst.wasm + fonts/) est désormais distribué
+  // COMPRESSÉ dans un seul zip (wasm_bundle.zip, ~34 Mo au lieu de ~97 Mo), servi
+  // par la release "bundle" à bande passante illimitée. On le télécharge UNE fois
+  // et on le décompresse à la racine du dossier wasm/ du plugin (chemin relatif,
+  // identique sur PC et Android). C'est bien plus rapide que de télécharger
+  // pandoc.wasm et typst.wasm bruts séparément, surtout sur mobile.
+  wasmBundleRel() {
+    return ".obsidian/plugins/" + this.manifest.id + "/wasm";
+  }
+
+  wasmBundleUrl() {
+    return "https://github.com/dvrch/mergdown2tex/releases/download/bundle/wasm_bundle.zip";
+  }
+
+  // Télécharge wasm_bundle.zip et décompresse pandoc.wasm, typst.wasm et fonts/
+  // au bon endroit. Le préfixe "wasm/" du zip est retiré : tout est écrit sous
+  // wasmBundleRel(). Retourne un objet { written, files } ou lance une erreur.
+  async downloadWasmBundle() {
+    new Notice("Téléchargement du bundle WASM compressé…");
+    const resp = await requestUrl({ url: this.wasmBundleUrl(), throw: false });
+    if (resp.status < 200 || resp.status >= 300) {
+      throw new Error("Échec du téléchargement du bundle WASM: HTTP " + resp.status);
+    }
+    const all = this.unzipAll(resp.arrayBuffer);
+    const base = this.wasmBundleRel();
+    const a = adapterGet(this.app);
+    // On écrit chaque fichier du zip sous wasm/. La racine "wasm/" du zip est
+    // optionnelle : on la retire si présente (pandoc.wasm, fonts/... dans les 2 cas).
+    let written = 0;
+    const entries = [];
+    for (const [name, data] of Object.entries(all)) {
+      if (name.endsWith("/")) continue; // dossier explicite
+      const clean = name.replace(/^wasm\//, "").replace(/^\/+/, "");
+      if (!clean) continue;
+      const rel = base + "/" + clean;
+      entries.push(rel);
+      const parent = rel.slice(0, rel.lastIndexOf("/"));
+      // Création récursive des parents (adapter.mkdir n'est pas toujours
+      // récursif sur mobile) : on remonte toute la hiérarchie manquante.
+      if (a && typeof a.mkdir === "function") {
+        const segs = parent.split("/");
+        let cur = "";
+        for (const seg of segs) {
+          if (!seg) continue;
+          cur += (cur ? "/" : "") + seg;
+          try { await a.mkdir(cur); } catch (e) { /* déjà présent */ }
+        }
+      }
+      await vaultWriteBinary(this.app, rel, data);
+      written++;
+    }
+    new Notice("Bundle WASM installé : " + written + " fichiers (" + base + ")");
+    return { written, files: entries };
+  }
+
   // ── Mermaid : chargement runtime (module extrait du main.js pour rester < 5 Mo) ──
   mermaidRel() {
     // Le module mermaid.min.js est téléchargé au premier besoin puis caché dans resources/.
@@ -1739,11 +1810,13 @@ class Markdown2TexPlugin extends Plugin {
   }
 
   // Télécharge le dossier d'exemple déjà présent dans le dépôt et l'extrait
-  // dans la racine du vault actuel (le .obsidian du zip est ignoré pour ne pas
-  // écraser la configuration locale du coffre).
+  // dans la racine du vault actuel, EN INCLUANT le thème/les réglages Obsidian
+  // (.obsidian/) pour reproduire l'environnement de travail fourni dans le
+  // bundle. On évite uniquement d'écraser l'état local data.json (le thème actif
+  // et les réglages json sont bien restaurés, comme dans le bundle de référence).
   downloadExampleVault() {
     const url = "https://github.com/dvrch/mergdown2tex/releases/download/bundle/full_manual_repport_exp.zip";
-    return this._downloadAndExtract(url, new Set([".obsidian/"]), "Dossier d'exemple");
+    return this._downloadAndExtract(url, new Set(["data.json"]), "Dossier d'exemple + réglages");
   }
 
   async _downloadAndExtract(url, skipPrefixes, label) {
@@ -1956,6 +2029,12 @@ class Markdown2TexPlugin extends Plugin {
 
   async ensurePandocWasm() {
     if (await this.pandocWasmExists()) return true;
+    // Version compressée préférée : télécharge le bundle WASM global (pandoc+
+    // typst+fonts d'un coup) plutôt que pandoc.wasm brut seul.
+    try {
+      const ok = await this.ensureWasmBundle();
+      if (ok) return await this.pandocWasmExists();
+    } catch (e) { console.warn("[mergdown2tex] ensureWasmBundle failed:", e && e.message); }
     try {
       const release = await this.findLatestPandocWasmRelease();
       if (!release) {
@@ -1967,6 +2046,20 @@ class Markdown2TexPlugin extends Plugin {
     } catch (e) {
       console.error("mergdown2tex téléchargement wasm échoué:", e);
       new Notice("Téléchargement pandoc.wasm échoué: " + e.message, 6000);
+      return false;
+    }
+  }
+
+  // Installe l'ensemble wasm/ (pandoc.wasm, typst.wasm, fonts/) d'un seul coup,
+  // depuis le bundle compressé de la release "bundle". Retourne true une fois que
+  // pandoc.wasm existe. Idempotent : ne re-télécharge que si pandoc.wasm manque.
+  async ensureWasmBundle() {
+    if (await this.pandocWasmExists()) return true;
+    try {
+      await this.downloadWasmBundle();
+      return await this.pandocWasmExists();
+    } catch (e) {
+      new Notice("Échec du bundle WASM: " + ((e && e.message) || e), 5000);
       return false;
     }
   }
@@ -3345,12 +3438,22 @@ class Markdown2TexPlugin extends Plugin {
       }
     } catch (e) { /* ignore */ }
     if (!wasmBytes || wasmBytes.length === 0) {
-      new Notice("Téléchargement de typst.wasm dans le plugin...");
-      const resp = await requestUrl({ url: mp, throw: false });
-      if (resp.status < 200 || resp.status >= 300) throw new Error("Téléchargement typst.wasm échoué (HTTP " + resp.status + ")");
-      wasmBytes = new Uint8Array(resp.arrayBuffer);
-      try { await vaultMkdir(this.app, wasmRel.split("/").slice(0, -1).join("/")); } catch (e) {}
-      try { await vaultWriteBinary(this.app, wasmRel, wasmBytes); } catch (e) {}
+      // Version compressée préférée : le bundle WASM global (pandoc+typst+fonts)
+      // d'un seul téléchargement (~34 Mo au lieu de la somme des fichiers bruts).
+      try {
+        const ok = await this.ensureWasmBundle();
+        if (ok && await vaultExists(this.app, wasmRel)) {
+          wasmBytes = new Uint8Array(await vaultReadBinary(this.app, wasmRel));
+        }
+      } catch (e) { console.warn("[mergdown2tex] ensureWasmBundle failed:", e && e.message); }
+      if (!wasmBytes || wasmBytes.length === 0) {
+        new Notice("Téléchargement de typst.wasm dans le plugin...");
+        const resp = await requestUrl({ url: mp, throw: false });
+        if (resp.status < 200 || resp.status >= 300) throw new Error("Téléchargement typst.wasm échoué (HTTP " + resp.status + ")");
+        wasmBytes = new Uint8Array(resp.arrayBuffer);
+        try { await vaultMkdir(this.app, wasmRel.split("/").slice(0, -1).join("/")); } catch (e) {}
+        try { await vaultWriteBinary(this.app, wasmRel, wasmBytes); } catch (e) {}
+      }
     }
 
     // Rassemble les fonts : toute .ttf/.otf/.ttc/.otc présente dans NOTRE dossier fonts.
@@ -3783,6 +3886,10 @@ class Markdown2TexPlugin extends Plugin {
   isolateTitlePage(typ) {
     if (!typ || typeof typ !== "string") return typ;
     const escT = (s) => String(s || "").replace(/[#&()[\]{}*_\\~<>]/g, (c) => "\\" + c).replace(/\s+/g, " ").trim();
+    // Bloc de titre pandoc (ex: \maketitle réinterprété) suivi du sommaire #outline.
+    // Grâce au réordonnancement, l'#outline a été injecté juste avant le 1er heading,
+    // donc il suit immédiatement le bloc titre : la couverture est placée devant,
+    // et le sommaire apparaît juste après la page de garde.
     const re = /\n#block\[\n#block\[\n#strong\[([^\]]*)\]([\s\S]*?)\n\]\n\]\n(?=#outline)/;
     const m = re.exec(typ);
     if (!m) return typ;
@@ -3790,7 +3897,6 @@ class Markdown2TexPlugin extends Plugin {
     const lines = (m[2] || "").split("\n").map(s => s.trim()).filter(Boolean);
     const author = escT(lines.filter(l => !l.startsWith("#") && !l.startsWith("/")).join(", "));
     const cover = [
-      "#pagebreak()",
       "#place(center + horizon)[",
       "  #set text(size: 2.4em, weight: \"bold\")",
       "  #align(center)[" + title + "]",
@@ -4200,8 +4306,37 @@ class Markdown2TexPlugin extends Plugin {
         }
       } catch (fse) { console.warn("[mergdown2tex][typst] style figure échec:", (fse && fse.message) || fse); }
     }
-    // 1quinquies) Page de garde isolée : on sort le bloc de titre pandoc (\maketitle)
-    // du flot du document pour le placer seul, centré, sur sa propre page.
+    // 1quinquies) Sommaire + listes. On les injecte AVANT d'isoler la page de
+    // garde, pour que le `#outline` existe déjà : isolateTitlePage place alors
+    // la couverture juste devant, et le sommaire suit immédiatement la garde.
+    // NB: #list-of-figures / #list-of-tables exigent typst >= 0.12, absents de
+    // la version embarquée → ils faisaient échouer la compilation (et on perdait
+    // même la TOC). On ne les active que si explicitement demandés (opts), sinon
+    // on n'injecte que #outline, fiable sur toutes les versions.
+    const injectTOC = opts.toc !== false;
+    const injectListFigures = opts.listFigures === true;
+    const injectListTables = opts.listTables === true;
+
+    // Insertion des blocs avant le 1er heading (`= ...`) réel du corps. Pandoc
+    // place l'en-tête (titre/`#set`) avant ; le 1er `=` heading marque le début
+    // du contenu. On garde une marge de sûreté : si on ne trouve aucun heading,
+    // on insère en fin (rare).
+    let listBlock = "";
+    if (injectTOC) listBlock += "\n#outline(title: \"Table des matières\")\n";
+    if (injectListFigures) listBlock += "\n#list-of-figures(title: \"Liste des figures\")\n";
+    if (injectListTables) listBlock += "\n#list-of-tables(title: \"Liste des tableaux\")\n";
+    if (listBlock) {
+      const firstHeading = typ.search(/\n=+(?:[ ]|$)/);
+      if (firstHeading !== -1) {
+        typ = typ.slice(0, firstHeading) + listBlock + "\n#pagebreak()\n" + typ.slice(firstHeading);
+      } else {
+        typ = typ + listBlock;
+      }
+    }
+
+    // 1quinquies-bis) Page de garde isolée : on sort le bloc de titre pandoc
+    // (\maketitle / #block[#block[#strong[...]]]) du flot du document pour le
+    // placer seul, centré, sur sa propre page, immédiatement suivie du sommaire.
     if (opts.titlePage !== false) {
       try { typ = this.isolateTitlePage(typ); }
       catch (tpe) { console.warn("[mergdown2tex][typst] isolateTitlePage échec:", (tpe && tpe.message) || tpe); }
@@ -4234,30 +4369,6 @@ class Markdown2TexPlugin extends Plugin {
         this.app.vault.adapter.write(".obsidian/plugins/mergdowntotex/dbg_typ.txt", dbg).catch(() => {});
     } catch (e) {}
 
-    const injectTOC = opts.toc !== false;
-    // NB: #list-of-figures / #list-of-tables exigent typst >= 0.12, absents de
-    // la version embarquée → ils faisaient échouer la compilation (et on perdait
-    // même la TOC). On ne les active que si explicitement demandés (opts), sinon
-    // on n'injecte que #outline, fiable sur toutes les versions.
-    const injectListFigures = opts.listFigures === true;
-    const injectListTables = opts.listTables === true;
-
-    // Insertion des blocs avant le 1er heading (`= ...`) réel du corps. Pandoc
-    // place l'en-tête (titre/`#set`) avant ; le 1er `=` heading marque le début
-    // du contenu. On garde une marge de sûreté : si on ne trouve aucun heading,
-    // on insère en fin (rare).
-    let listBlock = "";
-    if (injectTOC) listBlock += "\n#outline(title: \"Table des matières\")\n";
-    if (injectListFigures) listBlock += "\n#list-of-figures(title: \"Liste des figures\")\n";
-    if (injectListTables) listBlock += "\n#list-of-tables(title: \"Liste des tableaux\")\n";
-    if (listBlock) {
-      const firstHeading = typ.search(/\n=+(?:[ ]|$)/);
-      if (firstHeading !== -1) {
-        typ = typ.slice(0, firstHeading) + listBlock + "\n#pagebreak()\n" + typ.slice(firstHeading);
-      } else {
-        typ = typ + listBlock;
-      }
-    }
     // DEBUG : écrire le .typ final (celui qui part vers typst.compile) pour
     // inspection de la biblio / 1er titre / emojis. Utile car pandoc écrit le
     // .typ dans le FS wasm éphémère et ne le sauve jamais dans le vault.

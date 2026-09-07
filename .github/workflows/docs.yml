@@ -49,7 +49,7 @@ jobs:
             gh release create bundle --repo dvrch/mergdown2tex \
               --title "Téléchargements MergDown2TeX (bande passante illimitée)" \
               --notes "Zips téléchargeables : bundle plugin+vault, plugin, vault exemple. Générés automatiquement par le CI." || true
-          for f in docs/assets/mergdowntotex_bundle.zip docs/assets/mergdowntotex.zip docs/assets/full_manual_repport_exp.zip; do
+          for f in docs/assets/mergdowntotex_bundle.zip docs/assets/mergdowntotex.zip docs/assets/full_manual_repport_exp.zip docs/assets/wasm_bundle.zip; do
             gh release upload bundle --repo dvrch/mergdown2tex "$f" --clobber || true
           done
 

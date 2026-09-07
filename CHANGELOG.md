@@ -2,6 +2,18 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [2.0.7] — 2026-09-07
+
+### Ajouté
+- **Bundle WASM compressé (`wasm_bundle.zip`, ~34 Mo au lieu de ~97 Mo)** : le dossier `wasm/` du plugin (pandoc.wasm, typst.wasm et les 17 polices) est désormais distribué **compressé dans un seul zip**, publié dans la release `bundle` (bande passante illimitée). Nouveau bouton « Bundle WASM compressé » dans les options ; `ensurePandocWasm` et `getTypstCompiler` tentent automatiquement le bundle d'abord, puis retombent sur les téléchargements bruts individuels en secours.
+
+### Corrigé
+- **Position du sommaire PDF (pipeline Typst)** : la page de garde était suivie du contenu au lieu du sommaire. Le TOC (`#outline`) est désormais injecté **avant** `isolateTitlePage`, pour que la couverture soit placée juste devant le sommaire — l'ordre final est : page de garde → sommaire → contenu.
+- **Bouton « Dossier d'exemple »** : installe désormais aussi le **thème et les réglages `.obsidian/`** (appearance, thème, plugin) contenus dans le vault exemple, pour reproduire l'environnement fourni dans le bundle — seul `data.json` (état local Obsidian) reste préservé.
+
+### CI
+- `docs.yml` : le `wasm_bundle.zip` est ajouté à la liste des assets uploadés sur la release `bundle` (avec `--clobber`).
+
 ## [2.0.6] — 2026-09-06
 
 ### Ajouté
