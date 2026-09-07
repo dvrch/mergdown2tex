@@ -2,6 +2,18 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [2.0.8] — 2026-09-07
+
+### Ajouté
+- **Un zip WASM par moteur** (remplace le `wasm_bundle.zip` unique) : `pandoc_wasm.zip` (~15 Mo, `pandoc.wasm` seul → export **DOCX**) et `typst_wasm.zip` (~18 Mo, `typst.wasm` + les 17 polices → export **PDF**), servis par la release `bundle`. Sur mobile on ne télécharge **que le moteur nécessaire**. Nouveau réglage « Moteurs WASM compressés » ; `ensurePandocWasm` (DOCX) → `pandoc_wasm.zip` et `getTypstCompiler` (PDF) → `typst_wasm.zip` d'abord, téléchargements bruts en secours.
+- `scripts/build_assets.js` : support d'un filtre `include` par source pour ne zipper qu'un sous-ensemble d'un dossier (pandoc seul / typst+fonts), toujours comprimé (`-9`).
+
+### Amélioré
+- **Page de garde (pipeline Typst)** : la couverture est construite depuis les **métadonnées** du document — titre, auteur et date de la front matter YAML (Markdown) ou `\title`/`\author`/`\date` (LaTeX) — comme le `\maketitle` d'un pipeline LaTeX. Ces champs, absents du corps, sont affichés seuls en page 1, immédiatement suivie du sommaire ; le bloc de titre éventuellement inséré par Pandoc est retiré du flot du document.
+
+### CI
+- `docs.yml` : les assets uploadés sur la release `bundle` sont désormais `pandoc_wasm.zip` et `typst_wasm.zip` (au lieu de `wasm_bundle.zip`), toujours en `--clobber`.
+
 ## [2.0.7] — 2026-09-07
 
 ### Ajouté

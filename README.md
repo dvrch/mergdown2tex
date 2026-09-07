@@ -104,12 +104,13 @@ Tous les zips sont servis par la **release `bundle`** (assets de release GitHub 
 | `mergdowntotex_bundle.zip` (~43 MB) | **Tout-en-un** : plugin complet + vault exemple | [Télécharger](https://github.com/dvrch/mergdown2tex/releases/download/bundle/mergdowntotex_bundle.zip) | [Site](https://dvrch.github.io/mergdown2tex/assets/mergdowntotex_bundle.zip) |
 | `mergdowntotex.zip` (~36 MB) | Plugin complet (`main.js`, `manifest.json`, `wasm/`, `resources/`) | [Télécharger](https://github.com/dvrch/mergdown2tex/releases/download/bundle/mergdowntotex.zip) | [Site](https://dvrch.github.io/mergdown2tex/assets/mergdowntotex.zip) |
 | `full_manual_repport_exp.zip` (~6 MB) | Vault exemple seul (déjà inclus dans le bundle) | [Télécharger](https://github.com/dvrch/mergdown2tex/releases/download/bundle/full_manual_repport_exp.zip) | [Site](https://dvrch.github.io/mergdown2tex/assets/full_manual_repport_exp.zip) |
-| `wasm_bundle.zip` (~34 MB) | Moteur WASM **compressé** (`pandoc.wasm` + `typst.wasm` + 17 polices) — pour un vault qui n'a **pas** été installé via le bundle/plugin ci-dessus | [Télécharger](https://github.com/dvrch/mergdown2tex/releases/download/bundle/wasm_bundle.zip) | [Site](https://dvrch.github.io/mergdown2tex/assets/wasm_bundle.zip) |
+| `pandoc_wasm.zip` (~15 MB) | Moteur **DOCX** : `pandoc.wasm` **compressé** (~59 MB décompressé) — pour un vault sans `wasm/` | [Télécharger](https://github.com/dvrch/mergdown2tex/releases/download/bundle/pandoc_wasm.zip) | [Site](https://dvrch.github.io/mergdown2tex/assets/pandoc_wasm.zip) |
+| `typst_wasm.zip` (~18 MB) | Moteur **PDF** : `typst.wasm` + 17 polices **compressés** (~39 MB décompressés) — pour un vault sans `wasm/` | [Télécharger](https://github.com/dvrch/mergdown2tex/releases/download/bundle/typst_wasm.zip) | [Site](https://dvrch.github.io/mergdown2tex/assets/typst_wasm.zip) |
 
 - **Bundle** → dézippé, vous obtenez `mergdowntotex/` (à copier dans `.obsidian/plugins/`) **et** `example_vault/` (vault prêt à ouvrir).
 - **Plugin seul** → dézippez et placez le dossier `mergdowntotex/` dans `.obsidian/plugins/`.
 - Les moteurs `pandoc.wasm` (~59 MB) et `typst.wasm` (~28 MB) sont **déjà inclus** dans les archives ; sinon ils s'auto-téléchargent au premier export.
-- **Mobile** : le `wasm_bundle.zip` compressé (~34 Mo au lieu de ~97 Mo pour les fichiers bruts) accélère fortement l'installation du moteur WASM sur Android. Le plugiciel le télécharge et le décompresse automatiquement ; un bouton manuel « Bundle WASM compressé » existe dans les réglages.
+- **Mobile** : les moteurs sont téléchargés **compressés, un zip par moteur** — `pandoc_wasm.zip` (~15 Mo) pour le DOCX, `typst_wasm.zip` (~18 Mo) pour le PDF — au lieu des fichiers bruts (~59 Mo + ~39 Mo). On ne télécharge que le moteur nécessaire ; bouton « Moteurs WASM compressés » dans les réglages pour tout installer.
 
 ### Manuel
 

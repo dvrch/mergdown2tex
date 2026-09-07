@@ -1275,15 +1275,16 @@ class Markdown2TexSettingTab extends PluginSettingTab {
     section("Moteurs");
 
     new Setting(containerEl)
-      .setName("Bundle WASM compressé (Pandoc + Typst + polices)")
-      .setDesc("Tout-en-un : télécharge le dossier wasm/ (pandoc.wasm, typst.wasm et les 17 polices) COMPRESSÉ dans un seul zip (~34 Mo au lieu de ~97 Mo), puis le décompresse au bon endroit. Recommandé sur mobile (rapide).")
+      .setName("Moteurs WASM compressés (mobile, séparés)")
+      .setDesc("2 archives compressées, une par moteur : pandoc_wasm.zip (~15 Mo) pour le DOCX et typst_wasm.zip (~18 Mo, typst.wasm + polices) pour le PDF — au lieu des fichiers bruts (~59 Mo + ~39 Mo). Ne télécharge que le moteur nécessaire. Bouton = installe les deux.")
       .addButton((btn) => {
-        btn.setButtonText("Télécharger & installer").onClick(async () => {
+        btn.setButtonText("Télécharger & installer (les 2)").onClick(async () => {
           try {
-            const r = await this.plugin.ensureWasmBundle();
-            new Notice(r ? "Bundle WASM : installé et prêt ✅" : "Bundle WASM : introuvable après installation ❌", 4000);
+            const a = await this.plugin.ensurePandocWasmZip();
+            const b = await this.plugin.ensureTypstWasmZip();
+            new Notice(a && b ? "WASM compressés : installés et prêts ✅" : "WASM compressés : partiellement installés ❌", 4000);
           } catch (e) {
-            new Notice("Bundle WASM : échec — " + ((e && e.message) || e), 5000);
+            new Notice("WASM compressés : échec — " + ((e && e.message) || e), 5000);
           }
           this.display();
         });
@@ -1654,35 +1655,33 @@ class Markdown2TexPlugin extends Plugin {
     return true;
   }
 
-  // ── WASM bundle compressé (mobile-friendly) ───────────────────────────────
-  // Le dossier wasm/ (pandoc.wasm + typst.wasm + fonts/) est désormais distribué
-  // COMPRESSÉ dans un seul zip (wasm_bundle.zip, ~34 Mo au lieu de ~97 Mo), servi
-  // par la release "bundle" à bande passante illimitée. On le télécharge UNE fois
-  // et on le décompresse à la racine du dossier wasm/ du plugin (chemin relatif,
-  // identique sur PC et Android). C'est bien plus rapide que de télécharger
-  // pandoc.wasm et typst.wasm bruts séparément, surtout sur mobile.
-  wasmBundleRel() {
+  // ── WASM compressés (mobile-friendly), 1 zip par moteur ───────────────────
+  // Chaque moteur WASM est distribué COMPRESSÉ dans son propre zip, servi par la
+  // release "bundle" à bande passante illimitée :
+  //   - pandoc_wasm.zip : pandoc.wasm seul (~15 Mo au lieu de ~59 Mo)
+  //   - typst_wasm.zip  : typst.wasm + fonts/ (~18 Mo au lieu de ~39 Mo)
+  // Sur mobile on ne télécharge QUE le moteur nécessaire (DOCX → pandoc, PDF →
+  // typst). Chaque zip est décompressé à la racine du dossier wasm/ du plugin
+  // (chemin relatif, identique sur PC et Android).
+  wasmDir() {
     return ".obsidian/plugins/" + this.manifest.id + "/wasm";
   }
 
-  wasmBundleUrl() {
-    return "https://github.com/dvrch/mergdown2tex/releases/download/bundle/wasm_bundle.zip";
+  wasmZipUrl(zipName) {
+    return "https://github.com/dvrch/mergdown2tex/releases/download/bundle/" + zipName;
   }
 
-  // Télécharge wasm_bundle.zip et décompresse pandoc.wasm, typst.wasm et fonts/
-  // au bon endroit. Le préfixe "wasm/" du zip est retiré : tout est écrit sous
-  // wasmBundleRel(). Retourne un objet { written, files } ou lance une erreur.
-  async downloadWasmBundle() {
-    new Notice("Téléchargement du bundle WASM compressé…");
-    const resp = await requestUrl({ url: this.wasmBundleUrl(), throw: false });
+  // Décompresse un zip WASM sous wasmDir(). Le préfixe "wasm/" du zip est retiré
+  // (présent ou non). Retourne { written, files } ou lance une erreur.
+  async installWasmZip(zipName, noticeLabel) {
+    new Notice(noticeLabel + "…");
+    const resp = await requestUrl({ url: this.wasmZipUrl(zipName), throw: false });
     if (resp.status < 200 || resp.status >= 300) {
-      throw new Error("Échec du téléchargement du bundle WASM: HTTP " + resp.status);
+      throw new Error("Téléchargement " + zipName + " échoué: HTTP " + resp.status);
     }
     const all = this.unzipAll(resp.arrayBuffer);
-    const base = this.wasmBundleRel();
+    const base = this.wasmDir();
     const a = adapterGet(this.app);
-    // On écrit chaque fichier du zip sous wasm/. La racine "wasm/" du zip est
-    // optionnelle : on la retire si présente (pandoc.wasm, fonts/... dans les 2 cas).
     let written = 0;
     const entries = [];
     for (const [name, data] of Object.entries(all)) {
@@ -1706,8 +1705,44 @@ class Markdown2TexPlugin extends Plugin {
       await vaultWriteBinary(this.app, rel, data);
       written++;
     }
-    new Notice("Bundle WASM installé : " + written + " fichiers (" + base + ")");
+    new Notice("Installé : " + written + " fichiers (" + base + ")");
     return { written, files: entries };
+  }
+
+  // Télécharge pandoc.wasm COMPRESSÉ (pandoc_wasm.zip) et le décompresse dans wasm/.
+  downloadPandocWasmZip() {
+    return this.installWasmZip("pandoc_wasm.zip", "Téléchargement de pandoc.wasm compressé");
+  }
+
+  // Télécharge typst.wasm + fonts/ COMPRESSÉS (typst_wasm.zip).
+  downloadTypstWasmZip() {
+    return this.installWasmZip("typst_wasm.zip", "Téléchargement de typst.wasm + polices compressé");
+  }
+
+  // Garantit que pandoc.wasm est présent : d'abord via pandoc_wasm.zip.
+  // Idempotent — retourne true une fois que pandoc.wasm existe.
+  async ensurePandocWasmZip() {
+    if (await this.pandocWasmExists()) return true;
+    try {
+      await this.downloadPandocWasmZip();
+      return await this.pandocWasmExists();
+    } catch (e) {
+      new Notice("Échec du bundle WASM pandoc: " + ((e && e.message) || e), 5000);
+      return false;
+    }
+  }
+
+  // Garantit que typst.wasm (et les polices) sont présents via typst_wasm.zip.
+  // Idempotent — retourne true une fois que typst.wasm existe.
+  async ensureTypstWasmZip() {
+    if (await this.typstWasmExists()) return true;
+    try {
+      await this.downloadTypstWasmZip();
+      return await this.typstWasmExists();
+    } catch (e) {
+      new Notice("Échec du bundle WASM typst: " + ((e && e.message) || e), 5000);
+      return false;
+    }
   }
 
   // ── Mermaid : chargement runtime (module extrait du main.js pour rester < 5 Mo) ──
@@ -2029,12 +2064,12 @@ class Markdown2TexPlugin extends Plugin {
 
   async ensurePandocWasm() {
     if (await this.pandocWasmExists()) return true;
-    // Version compressée préférée : télécharge le bundle WASM global (pandoc+
-    // typst+fonts d'un coup) plutôt que pandoc.wasm brut seul.
+    // Version compressée préférée : télécharge pandoc_wasm.zip (pandoc.wasm seul,
+    // ~15 Mo) plutôt que le .wasm brut (~59 Mo).
     try {
-      const ok = await this.ensureWasmBundle();
+      const ok = await this.ensurePandocWasmZip();
       if (ok) return await this.pandocWasmExists();
-    } catch (e) { console.warn("[mergdown2tex] ensureWasmBundle failed:", e && e.message); }
+    } catch (e) { console.warn("[mergdown2tex] ensurePandocWasmZip failed:", e && e.message); }
     try {
       const release = await this.findLatestPandocWasmRelease();
       if (!release) {
@@ -2046,20 +2081,6 @@ class Markdown2TexPlugin extends Plugin {
     } catch (e) {
       console.error("mergdown2tex téléchargement wasm échoué:", e);
       new Notice("Téléchargement pandoc.wasm échoué: " + e.message, 6000);
-      return false;
-    }
-  }
-
-  // Installe l'ensemble wasm/ (pandoc.wasm, typst.wasm, fonts/) d'un seul coup,
-  // depuis le bundle compressé de la release "bundle". Retourne true une fois que
-  // pandoc.wasm existe. Idempotent : ne re-télécharge que si pandoc.wasm manque.
-  async ensureWasmBundle() {
-    if (await this.pandocWasmExists()) return true;
-    try {
-      await this.downloadWasmBundle();
-      return await this.pandocWasmExists();
-    } catch (e) {
-      new Notice("Échec du bundle WASM: " + ((e && e.message) || e), 5000);
       return false;
     }
   }
@@ -3438,14 +3459,14 @@ class Markdown2TexPlugin extends Plugin {
       }
     } catch (e) { /* ignore */ }
     if (!wasmBytes || wasmBytes.length === 0) {
-      // Version compressée préférée : le bundle WASM global (pandoc+typst+fonts)
-      // d'un seul téléchargement (~34 Mo au lieu de la somme des fichiers bruts).
+      // Version compressée préférée : typst_wasm.zip (typst.wasm + fonts/,
+      // ~18 Mo au lieu de ~39 Mo pour les fichiers bruts).
       try {
-        const ok = await this.ensureWasmBundle();
+        const ok = await this.ensureTypstWasmZip();
         if (ok && await vaultExists(this.app, wasmRel)) {
           wasmBytes = new Uint8Array(await vaultReadBinary(this.app, wasmRel));
         }
-      } catch (e) { console.warn("[mergdown2tex] ensureWasmBundle failed:", e && e.message); }
+      } catch (e) { console.warn("[mergdown2tex] ensureTypstWasmZip failed:", e && e.message); }
       if (!wasmBytes || wasmBytes.length === 0) {
         new Notice("Téléchargement de typst.wasm dans le plugin...");
         const resp = await requestUrl({ url: mp, throw: false });
@@ -3881,33 +3902,71 @@ class Markdown2TexPlugin extends Plugin {
     return typ;
   }
 
-  // Page de garde isolée : le bloc de titre pandoc (\maketitle) était fusionné
-  // au contenu. On le sort sur sa propre page, centré verticalement+horizontalement.
-  isolateTitlePage(typ) {
+  // Page de garde isolée, sur sa propre page (page 1), puis le sommaire.
+  // Les éléments affichés (titre, auteur, date) proviennent des MÉTADONNÉES du
+  // document (front matter YAML pour le Markdown, \title/\author/\date pour le
+  // .tex) — comme le \maketitle d'un pipeline LaTeX — et NON du texte du corps.
+  // Si aucune métadonnée n'est disponible, on retombe sur le bloc de titre déjà
+  // inséré par Pandoc dans le .typ.
+  isolateTitlePage(typ, meta) {
     if (!typ || typeof typ !== "string") return typ;
     const escT = (s) => String(s || "").replace(/[#&()[\]{}*_\\~<>]/g, (c) => "\\" + c).replace(/\s+/g, " ").trim();
+    const pick = (v) => (Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean).join(", ") : String(v || "").trim());
+    const metaTitle = pick((meta && (meta.title || meta.subtitle)));
+    const metaAuthor = pick(meta && meta.author);
+    const metaDate = pick(meta && meta.date);
+
     // Bloc de titre pandoc (ex: \maketitle réinterprété) suivi du sommaire #outline.
     // Grâce au réordonnancement, l'#outline a été injecté juste avant le 1er heading,
     // donc il suit immédiatement le bloc titre : la couverture est placée devant,
     // et le sommaire apparaît juste après la page de garde.
     const re = /\n#block\[\n#block\[\n#strong\[([^\]]*)\]([\s\S]*?)\n\]\n\]\n(?=#outline)/;
     const m = re.exec(typ);
-    if (!m) return typ;
-    const title = escT(m[1]);
-    const lines = (m[2] || "").split("\n").map(s => s.trim()).filter(Boolean);
-    const author = escT(lines.filter(l => !l.startsWith("#") && !l.startsWith("/")).join(", "));
-    const cover = [
-      "#place(center + horizon)[",
-      "  #set text(size: 2.4em, weight: \"bold\")",
-      "  #align(center)[" + title + "]",
-      "  #v(1em)",
-      "  #set text(size: 1.3em, weight: \"regular\")",
-      "  #align(center)[" + author + "]",
-      "]",
-      "#pagebreak()",
-      "",
-    ].join("\n");
-    return typ.slice(0, m.index) + "\n" + cover + typ.slice(m.index + m[0].length);
+
+    if (!m && !metaTitle) return typ; // ni bloc pandoc ni métadonnées → rien à isoler
+
+    let title, author, date;
+    if (metaTitle) {
+      title = escT(metaTitle);
+      author = escT(metaAuthor);
+      date = escT(metaDate);
+    } else {
+      title = escT(m[1]);
+      const lines = (m[2] || "").split("\n").map((s) => s.trim()).filter(Boolean);
+      author = escT(lines.filter((l) => !l.startsWith("#") && !l.startsWith("/")).join(", "));
+      date = "";
+    }
+
+    const cover = ["#place(center + horizon)["];
+    cover.push("  #set text(size: 2.4em, weight: \"bold\")");
+    cover.push("  #align(center)[" + title + "]");
+    if (author) {
+      cover.push("  #v(1.2em)");
+      cover.push("  #set text(size: 1.3em, weight: \"regular\")");
+      cover.push("  #align(center)[" + author + "]");
+    }
+    if (date) {
+      cover.push("  #v(0.8em)");
+      cover.push("  #set text(size: 1.1em, weight: \"regular\")");
+      cover.push("  #align(center)[" + date + "]");
+    }
+    cover.push("]");
+    cover.push("#pagebreak()");
+    cover.push("");
+    const coverBlock = cover.join("\n");
+
+    if (m) {
+      // Remplace le bloc de titre pandoc (dans le flot) par la couverture isolée :
+      // le titre/auteur/date ne sourcouvrent plus dans le corps du document.
+      return typ.slice(0, m.index) + "\n" + coverBlock + typ.slice(m.index + m[0].length);
+    }
+    // Pas de bloc pandoc (métadonnées fournies mais la variante pandoc n'a pas
+    // inséré de titre) : on injecte la couverture juste avant l'#outline.
+    const outlineIdx = typ.indexOf("#outline");
+    if (outlineIdx !== -1) {
+      return typ.slice(0, outlineIdx) + coverBlock + "\n" + typ.slice(outlineIdx);
+    }
+    return coverBlock + "\n" + typ;
   }
 
   // Tableaux longs multi-pages : les `#figure(... kind: table)` sont des floats
@@ -4338,7 +4397,7 @@ class Markdown2TexPlugin extends Plugin {
     // (\maketitle / #block[#block[#strong[...]]]) du flot du document pour le
     // placer seul, centré, sur sa propre page, immédiatement suivie du sommaire.
     if (opts.titlePage !== false) {
-      try { typ = this.isolateTitlePage(typ); }
+      try { typ = this.isolateTitlePage(typ, opts.meta); }
       catch (tpe) { console.warn("[mergdown2tex][typst] isolateTitlePage échec:", (tpe && tpe.message) || tpe); }
     }
     // 1sexies) Redimensionnement des images à l'échelle (mermaid SVG portrait
@@ -4781,6 +4840,7 @@ listBibCslSources(ext) {
       // les caches disque que materializeMissingImagesMobile consomme ensuite.
       const rawContent = await this.app.vault.read(activeFile).catch(() => "");
       const parentDirHint = (activeFile.parent ? activeFile.parent.path : "").replace(/^\/+/, "").replace(/\\/g, "/");
+      const docMeta = this._extractDocMeta(rawContent);
       try { this.prefetchRemoteAssets(rawContent, parentDirHint); } catch (_p) {}
       const conv = await this.convertToLatexMobile(activeFile);
       console.log("[mergdown2tex][mobile] convertToLatexMobile revenu, fullTex.len=" + (conv && conv.fullTex ? conv.fullTex.length : "?"));
@@ -4939,7 +4999,7 @@ listBibCslSources(ext) {
             // Réinjecte TOC + listes dans le typst Pandoc (il les supprime sinon).
             // Uniquement sur la variante --standalone (en-tête complet), sinon la
             // tentative suivante retombe sur le typst brut.
-            typstTransform: v.std ? (src) => this.postProcessTypst(src, { toc: true, bibEntries: bibEntriesForTypst }) : undefined,
+            typstTransform: v.std ? (src) => this.postProcessTypst(src, { toc: true, bibEntries: bibEntriesForTypst, meta: docMeta }) : undefined,
           });
           if (result && result.stderr) console.log("[mergdown2tex][mobile] pandoc stderr:", result.stderr);
           // Vérification de la sortie : on tolère l'échec de lecture binaire
@@ -5079,6 +5139,60 @@ listBibCslSources(ext) {
     await this.app.vault.adapter.writeBinary(rel, bytes);
   }
 
+  // Extrait les métadonnées « de titre » d'un document, comme le ferait le
+  // \maketitle d'un pipeline LaTeX :
+  //   - Markdown : front matter YAML (--- title:/author:/date: ---)
+  //   - LaTeX .tex : \title{...}, \author{...}, \date{...}
+  // Ces champs NE SONT PAS dans le corps du document → ils alimentent la couverture.
+  _extractDocMeta(src) {
+    const meta = {};
+    if (!src || typeof src !== "string") return meta;
+    const stripQuotes = (v) => v.trim().replace(/^['"`]+|['"`]+$/g, "");
+    const fm = /^---\r?\n([\s\S]*?)\r?\n---/m.exec(src);
+    if (fm) {
+      const body = fm[1];
+      const grab = (key) => {
+        const re = new RegExp("^" + key + "\\s*:\\s*(.*)$", "m");
+        const mm = re.exec(body);
+        if (!mm) return null;
+        let v = mm[1].trim();
+        if (v === "" || v.startsWith("#")) return null;
+        // liste YAML [a, b, c]
+        if (/^\[/.test(v)) {
+          const inner = v.replace(/^\[/, "").replace(/\]\s*$/, "");
+          return inner.split(",").map((s) => stripQuotes(s)).filter(Boolean);
+        }
+        return stripQuotes(v);
+      };
+      meta.title = grab("title");
+      meta.subtitle = grab("subtitle");
+      meta.author = grab("author");
+      meta.date = grab("date");
+      if (!meta.title) {
+        const t = grab("title-short");
+        if (t) meta.title = t;
+      }
+    } else if (/\\title\{/.test(src)) {
+      const tex = (label) => {
+        const m2 = new RegExp("\\\\" + label + "\\{([^}]*)\\}").exec(src);
+        if (!m2) return null;
+        const v = m2[1].trim().replace(/\s*\n\s*%[^\n]*/g, "").replace(/\\thanks\{[^}]*\}/g, "").trim();
+        if (!v) return null;
+        return v;
+      };
+      meta.title = tex("title");
+      meta.author = tex("author");
+      meta.date = tex("date");
+    }
+    // Normalise : champs vides → undefined (à l'exclusion d'une persistance)
+    for (const k of ["title", "subtitle", "author", "date"]) {
+      if (meta[k] == null) continue;
+      if (Array.isArray(meta[k])) meta[k] = meta[k].map((x) => x.replace(/^\{|\}$/g, ""));
+      else meta[k] = String(meta[k]).replace(/^\{|\}$/g, "");
+    }
+    return meta;
+  }
+
   // Convertit le .tex jumeau de la note active en PDF, DOCX ou TYP, sans repartir
   // du Markdown : on reprend exactement le fichier .tex (que l'utilisateur a pu
   // ajuster à la main) et on lance Pandoc WASM (+ Typst pour le PDF).
@@ -5110,8 +5224,9 @@ listBibCslSources(ext) {
       if (fmt === "pdf") {
         new Notice("Conversion .tex → PDF (Pandoc + Typst)…");
         const typCompiler = await this.getTypstCompiler();
+        const docMeta = this._extractDocMeta(texSrc);
         options.typst = typCompiler;
-        options.typstTransform = (src) => this.postProcessTypst(src, { toc: true });
+        options.typstTransform = (src) => this.postProcessTypst(src, { toc: true, meta: docMeta });
       } else {
         new Notice("Conversion .tex → " + fmt.toUpperCase() + "…");
       }
@@ -5123,7 +5238,7 @@ listBibCslSources(ext) {
         try {
           const tsrc = await this._readVaultText(outRel);
           if (tsrc != null) {
-            const processed = this.postProcessTypst(tsrc, { toc: true });
+            const processed = this.postProcessTypst(tsrc, { toc: true, meta: this._extractDocMeta(texSrc) });
             await this.app.vault.adapter.write(outRel, processed);
           }
         } catch (pe) { console.warn("[mergdown2tex] post-process .typ échec:", (pe && pe.message) || pe); }
