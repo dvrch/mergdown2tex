@@ -1356,6 +1356,16 @@ class Markdown2TexSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
+      .setName("Télécharger vault_test (mini vault de test)")
+      .setDesc("Récupère le mini vault de test MergDown2TeX (léger, ~1,4 Mo : 2 notes + plugin installés) et l'extrait dans la racine du vault actuel. Idéal pour vérifier le plugin (palette, ruban, PDF temps réel) sans le dossier d'exemple complet.")
+      .addButton((btn) => {
+        btn.setButtonText("Télécharger & extraire").onClick(async () => {
+          await this.plugin.withProgressModal("vault_test", (progress) => this.plugin.downloadVaultTest(progress));
+          this.display();
+        });
+      });
+
+    new Setting(containerEl)
       .setName("Ajouter .obsidian au ZIP")
       .setDesc("Inclure le dossier .obsidian (plugins, thèmes, config) dans la racine du zip, afin de l'utiliser directement comme vault Obsidian.")
       .addToggle((toggle) =>
@@ -2056,6 +2066,13 @@ class Markdown2TexPlugin extends Plugin {
     return this._downloadAndExtract(url, new Set(["data.json"]), "Dossier d'exemple + réglages", progress);
   }
 
+  // Vault de TEST minimal (léger) : sert à vérifier le plugin (palette, ruban,
+  // PDF temps réel) sans télécharger le dossier d'exemple complet.
+  downloadVaultTest(progress) {
+    const url = "https://github.com/dvrch/mergdown2tex/releases/download/bundle/vault_test.zip";
+    return this._downloadAndExtract(url, new Set(["data.json"]), "Vault de test", progress);
+  }
+
   async _downloadAndExtract(url, skipPrefixes, label, progress) {
     if (progress) { progress.setTitle(label); progress.setStatus("Connexion au serveur…"); }
     else new Notice("Téléchargement du " + label + "…");
@@ -2495,6 +2512,14 @@ class Markdown2TexPlugin extends Plugin {
     });
 
     this.addCommand({
+      id: "mergdown2tex-download-vault-test",
+      name: "Télécharger vault_test (mini vault de test)",
+      callback: async () => {
+        await this.withProgressModal("vault_test", (progress) => this.downloadVaultTest(progress));
+      },
+    });
+
+    this.addCommand({
       id: "mergdown2tex-download-wasm-all",
       name: "Télécharger les moteurs WASM (DOCX + PDF + polices)",
       callback: async () => {
@@ -2553,6 +2578,10 @@ class Markdown2TexPlugin extends Plugin {
 
     this.addRibbonIcon("file-code", "Convertir en PDF", () => {
       this.compilePdf();
+    });
+
+    this.addRibbonIcon("download", "Télécharger vault_test (mini vault de test)", () => {
+      this.withProgressModal("vault_test", (progress) => this.downloadVaultTest(progress));
     });
   }
 

@@ -1,0 +1,10 @@
+{
+  "id": "mergdowntotex",
+  "name": "MergDown2TeX",
+  "version": "2.1.4",
+  "minAppVersion": "1.4.0",
+  "description": "Vault de test minimal pour vérifier MergDown2TeX (palette, ruban, PDF temps réel, DOCX, PDF).",
+  "author": "dvrch",
+  "authorUrl": "https://github.com/dvrch/mergdown2tex",
+  "isDesktopOnly": false
+}

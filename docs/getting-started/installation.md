@@ -126,7 +126,9 @@ Chargement de Pandoc WASM...
 Chargement de Typst WASM...
 ```
 
-Un **téléchargement manuel** est également possible dans les réglages : la rubrique *Export ZIP* (tout en haut) permet de récupérer le **dossier d'exemple** en premier, puis la rubrique *Moteurs — téléchargements* propose **3 cases à cocher** (`pandoc_wasm.zip`, `typst_wasm.zip`, `typst_fonts.zip`) et **un seul bouton** « Télécharger la sélection » pour lancer tous les zips cochés d'un coup.
+Un **téléchargement manuel** est également possible dans les réglages : la rubrique *Export ZIP* (tout en haut) permet de récupérer le **dossier d'exemple** en premier (et le **mini vault de test** `vault_test`), puis la rubrique *Moteurs — téléchargements* propose **3 cases à cocher** (`pandoc_wasm.zip`, `typst_wasm.zip`, `typst_fonts.zip`) et **un seul bouton** « Télécharger la sélection » pour lancer tous les zips cochés d'un coup.
+
+> **💡 Raccourcis** : le **vault de test** (`vault_test`, ~1,4 Mo) et le **vault d'exemple** sont aussi accessibles via la **palette de commandes** (*Télécharger vault_test…* / *Télécharger le dossier d'exemple…*) et via le **ruban** (icône ⬇ dans la barre latérale gauche). Idéal pour vérifier le plugin (palette, ruban, PDF temps réel) sur n'importe quel appareil.
 
 > **💡 Mobile (Android)** : le plugiciel télécharge désormais les moteurs **compressés, un zip par composant (jamais mélangés)** :
 > - `pandoc_wasm.zip` (~15 Mo) — `pandoc.wasm` **seul**, pour l'export **DOCX** (~59 Mo décompressé) ;

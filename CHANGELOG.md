@@ -2,6 +2,15 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [2.1.5] — 2026-09-07
+
+### Ajouté
+- **Téléchargement du mini vault de test `vault_test`** (~1,4 Mo) : 2 notes + plugin MergDown2TeX pré-installé + fichier `.bib`. Pour vérifier le plugin rapidement (palette, ruban, PDF temps réel) sans le lourd dossier d'exemple.
+  - **Commande palette** : *Télécharger vault_test (mini vault de test)* ;
+  - **Bouton ruban** : icône ⬇ dans la barre latérale gauche ;
+  - **Bouton réglages** : rubrique *Export ZIP*.
+  - Nouvel asset CI `docs/assets/vault_test.zip` publié sur la release `bundle` (source unzippée committée dans `vault_test/`).
+
 ## [2.1.4] — 2026-09-07
 
 ### Ajouté
