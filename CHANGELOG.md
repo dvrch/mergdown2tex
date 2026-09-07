@@ -2,6 +2,14 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [2.1.4] — 2026-09-07
+
+### Ajouté
+- **2 nouveaux boutons dans le ruban (barre latérale gauche, icônes de l'édition)** :
+  - **Convertir en DOCX (Word)** → `compileDocx()` ;
+  - **Convertir en PDF** → `compilePdf()`.
+  Ils rejoignent le bouton existant « Aperçu PDF côte-à-côte » : 3 raccourcis d'un clic dans le ruban.
+
 ## [2.1.3] — 2026-09-07
 
 ### Ajouté

@@ -2546,6 +2546,14 @@ class Markdown2TexPlugin extends Plugin {
     this.addRibbonIcon("file-pdf", "Aperçu PDF côte-à-côte (md → pdf)", () => {
       this.startLivePdfPreview();
     });
+
+    this.addRibbonIcon("file-text", "Convertir en DOCX (Word)", () => {
+      this.compileDocx();
+    });
+
+    this.addRibbonIcon("file-code", "Convertir en PDF", () => {
+      this.compilePdf();
+    });
   }
 
   /**
