@@ -1331,6 +1331,24 @@ class Markdown2TexSettingTab extends PluginSettingTab {
       });
     });
 
+    const dlLinksSetting = new Setting(containerEl)
+      .setName("Liens de téléchargement manuels (dépannage)")
+      .setDesc("Si l'installation automatique échoue sur mobile : ouvrez un lien dans le navigateur du téléphone, téléchargez le zip, puis décompressez son contenu dans " + this.plugin.manifest.dir + "/wasm/ (pandoc_wasm.zip → pandoc.wasm ; typst_wasm.zip → typst.wasm ; typst_fonts.zip → sous-dossier fonts/). Revenir ensuite : « Télécharger la sélection » détectera les fichiers déjà présents.");
+    const linkRow = dlLinksSetting.settingEl.createDiv({ attr: { style: "display:flex;flex-wrap:wrap;gap:8px;margin-top:6px" } });
+    const mkLink = (label, url) => {
+      const a = linkRow.createEl("a", { text: label, href: url, attr: { target: "_blank", rel: "noopener", style: "display:inline-block;border:1px solid var(--interactive-accent);border-radius:6px;padding:3px 10px;text-decoration:none;color:var(--interactive-accent)" } });
+      a.addEventListener("click", (ev) => {
+        ev.preventDefault();
+        if (Platform.isDesktop) {
+          try { const { shell } = require("electron"); shell.openExternal(url); return; } catch (e) {}
+        }
+        (globalThis.open ? globalThis.open(url, "_blank") : null) || (window.open && window.open(url, "_blank"));
+      });
+    };
+    mkLink("pandoc_wasm.zip — DOCX", "https://github.com/dvrch/mergdown2tex/releases/download/bundle/pandoc_wasm.zip");
+    mkLink("typst_wasm.zip — typst.wasm", "https://github.com/dvrch/mergdown2tex/releases/download/bundle/typst_wasm.zip");
+    mkLink("typst_fonts.zip — polices", "https://github.com/dvrch/mergdown2tex/releases/download/bundle/typst_fonts.zip");
+
     new Setting(containerEl)
       .setName("Moteur Mermaid (diagrammes)")
       .setDesc("Rendu des blocs ```mermaid``` en PNG. Le module mermaid.min.js est téléchargé automatiquement depuis l'hébergeur du plugin puis mis en cache local. Cliquez pour vérifier/installer manuellement.")
@@ -1640,7 +1658,7 @@ class Markdown2TexPlugin extends Plugin {
 
   async downloadPandocWasm(release) {
     new Notice("Téléchargement de pandoc.wasm (" + (release.size || "?") + " octets)...");
-    const resp = await requestUrl({ url: release.browser_download_url, throw: false });
+    const resp = await requestUrl({ url: release.browser_download_url, throw: false, responseType: "arraybuffer" });
     if (resp.status < 200 || resp.status >= 300) {
       throw new Error("Échec du téléchargement: HTTP " + resp.status);
     }
@@ -1679,7 +1697,7 @@ class Markdown2TexPlugin extends Plugin {
   // (présent ou non). Retourne { written, files } ou lance une erreur.
   async installWasmZip(zipName, noticeLabel) {
     new Notice(noticeLabel + "…");
-    const resp = await requestUrl({ url: this.wasmZipUrl(zipName), throw: false });
+    const resp = await requestUrl({ url: this.wasmZipUrl(zipName), throw: false, responseType: "arraybuffer" });
     if (resp.status < 200 || resp.status >= 300) {
       throw new Error("Téléchargement " + zipName + " échoué: HTTP " + resp.status);
     }
@@ -1821,7 +1839,7 @@ class Markdown2TexPlugin extends Plugin {
     let lastErr = null;
     for (const url of urls) {
       try {
-        const resp = await requestUrl({ url, throw: false });
+        const resp = await requestUrl({ url, throw: false, responseType: "arraybuffer" });
         if (resp.status < 200 || resp.status >= 300) {
           lastErr = new Error("HTTP " + resp.status + " (" + url + ")");
           continue;
@@ -1896,7 +1914,7 @@ class Markdown2TexPlugin extends Plugin {
   async _downloadAndExtract(url, skipPrefixes, label) {
     new Notice("Téléchargement du " + label + "…");
     try {
-      const resp = await requestUrl({ url, throw: false });
+      const resp = await requestUrl({ url, throw: false, responseType: "arraybuffer" });
       if (resp.status < 200 || resp.status >= 300) {
         throw new Error("HTTP " + resp.status);
       }
@@ -3509,7 +3527,7 @@ class Markdown2TexPlugin extends Plugin {
       } catch (e) { console.warn("[mergdown2tex] ensureTypstWasmZip failed:", e && e.message); }
       if (!wasmBytes || wasmBytes.length === 0) {
         new Notice("Téléchargement de typst.wasm dans le plugin...");
-        const resp = await requestUrl({ url: mp, throw: false });
+        const resp = await requestUrl({ url: mp, throw: false, responseType: "arraybuffer" });
         if (resp.status < 200 || resp.status >= 300) throw new Error("Téléchargement typst.wasm échoué (HTTP " + resp.status + ")");
         wasmBytes = new Uint8Array(resp.arrayBuffer);
         try { await vaultMkdir(this.app, wasmRel.split("/").slice(0, -1).join("/")); } catch (e) {}
@@ -3531,7 +3549,7 @@ class Markdown2TexPlugin extends Plugin {
       try { await vaultMkdir(this.app, fontRelDir); } catch (e) {}
       for (const file of files) {
         try {
-          const resp = await requestUrl({ url: `${hp}/${vp.base.repo}/files/fonts/${file}`, throw: false });
+          const resp = await requestUrl({ url: `${hp}/${vp.base.repo}/files/fonts/${file}`, throw: false, responseType: "arraybuffer" });
           if (resp.status < 200 || resp.status >= 300) continue;
           const arr = new Uint8Array(resp.arrayBuffer);
           fonts.push(arr);

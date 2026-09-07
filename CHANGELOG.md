@@ -2,6 +2,14 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [2.1.1] — 2026-09-07
+
+### Corrigé
+- **Téléchargement typst.wasm sur mobile (Android)** : les téléchargements binaires (`installWasmZip`, pandoc.wasm brut, typst.wasm brut, polices, vault dense, Mermaid, zips) déclarent désormais `responseType: "arraybuffer"`. Sans cet attribut, Obsidian mobile pouvait retourner un `arrayBuffer` vide → `typst.wasm` ne s'installait jamais. Fix appliqué à *tous* les `requestUrl` binaires.
+
+### Ajouté
+- **Liens de téléchargement manuels visibles dans les réglages** : sous « Moteurs — téléchargements », un bloc « Liens de téléchargement manuels (dépannage) » expose 3 liens cliquables (`pandoc_wasm.zip`, `typst_wasm.zip`, `typst_fonts.zip`) qui ouvrent la release `bundle` dans le navigateur (openExternal sur PC, window.open sur mobile). Le texte explique où décompresser les fichiers (`<plugin>/wasm/`, `fonts/`).
+
 ## [2.0.10] — 2026-09-07
 
 ### Amélioré (onglet Réglages)
