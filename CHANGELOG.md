@@ -2,6 +2,12 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [2.0.10] — 2026-09-07
+
+### Amélioré (onglet Réglages)
+- **Dossier d'exemple en tête d'onglet** : la rubrique *Export ZIP* (avec le bouton « Télécharger & extraire ») est désormais la **première** de l'onglet, pour pouvoir récupérer le vault d'exemple sans défiler.
+- **Cases à cocher + un seul bouton** à la place de plusieurs boutons de téléchargement : la rubrique *Moteurs — téléchargements* propose 3 cases (`pandoc_wasm.zip`, `typst_wasm.zip`, `typst_fonts.zip`) cochées par défaut et **un unique bouton « Télécharger la sélection »** qui lance tous les zips cochés d'un coup (séparés selon les nouveaux méthodes `ensureTypstWasmOnlyZip()` / `ensureTypstFontsOnlyZip()`). Les rubriques de configuration moteur ont été séparées (« Moteurs — configuration »).
+
 ## [2.0.9] — 2026-09-07
 
 ### Modifié

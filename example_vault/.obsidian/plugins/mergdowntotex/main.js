@@ -1271,46 +1271,65 @@ class Markdown2TexSettingTab extends PluginSettingTab {
     containerEl.createEl("h2", { text: "MergDown2TeX Settings" });
     const section = (title) => containerEl.createEl("h3", { text: title, attr: { style: "border-bottom:1px solid var(--background-modifier-border);padding-bottom:4px;margin-top:22px" } });
 
-    // ── Rubrique : Moteurs ────────────────────────────────────────────────
-    section("Moteurs");
+    // ── Rubrique : Export ZIP (vault exemple, en 1er) ─────────────────────
+    section("Export ZIP");
 
     new Setting(containerEl)
-      .setName("Moteurs WASM compressés (mobile, séparés)")
-      .setDesc("3 archives compressées, une par composant, jamais mélangés : pandoc_wasm.zip (~15 Mo) → DOCX ; typst_wasm.zip (~10 Mo, typst.wasm SEUL) + typst_fonts.zip (~8 Mo, les polices) → PDF. Au lieu des fichiers bruts (~59 Mo + ~28 Mo + ~11 Mo). Ne télécharge que ce qui manque. Bouton = installe les trois.")
+      .setName("Télécharger le dossier d'exemple")
+      .setDesc("Récupère le dossier d'exemple (déjà dans le dépôt du plugin) et l'extrait dans la racine du vault actuel. Idéal pour découvrir la structure/manual de référence sans toucher à votre .obsidian local.")
       .addButton((btn) => {
-        btn.setButtonText("Télécharger & installer (les 3)").onClick(async () => {
-          try {
-            const a = await this.plugin.ensurePandocWasmZip();
-            const b = await this.plugin.ensureTypstWasmZip();
-            new Notice(a && b ? "WASM compressés : installés et prêts ✅" : "WASM compressés : partiellement installés ❌", 4000);
-          } catch (e) {
-            new Notice("WASM compressés : échec — " + ((e && e.message) || e), 5000);
-          }
+        btn.setButtonText("Télécharger & extraire").onClick(async () => {
+          await this.plugin.downloadExampleVault();
           this.display();
         });
       });
 
     new Setting(containerEl)
-      .setName("Moteur Pandoc WASM (DOCX)")
-      .setDesc("Compilation DOCX via pandoc.wasm embarqué. Si le fichier manque, cliquez pour le télécharger automatiquement depuis GitHub.")
-      .addButton((btn) => {
-        btn.setButtonText("Statut & installer").onClick(async () => {
-          const ok = await this.plugin.ensurePandocWasm(this.plugin);
-          new Notice(ok ? "Pandoc WASM : installé et prêt ✅" : "Pandoc WASM : introuvable après installation ❌", 4000);
-          this.display();
-        });
-      });
+      .setName("Ajouter .obsidian au ZIP")
+      .setDesc("Inclure le dossier .obsidian (plugins, thèmes, config) dans la racine du zip, afin de l'utiliser directement comme vault Obsidian.")
+      .addToggle((toggle) =>
+        toggle.setValue(s.zipIncludeObsidian).onChange(async (v) => { s.zipIncludeObsidian = v; await this.plugin.saveSettings(); }),
+      );
 
-    new Setting(containerEl)
-      .setName("Moteur Typst WASM (PDF)")
-      .setDesc("Compilation PDF via pandoc.wasm + typst.wasm. Si typst.wasm (ou les polices) manquent, cliquez pour télécharger automatiquement depuis GitHub.")
-      .addButton((btn) => {
-        btn.setButtonText("Statut & installer").onClick(async () => {
-          const ok = await this.plugin.ensureTypstWasm();
-          new Notice(ok ? "Typst WASM : installé et prêt ✅" : "Typst WASM : introuvable après installation ❌", 4000);
-          this.display();
-        });
+    // ── Rubrique : Moteurs (téléchargements) ──────────────────────────────
+    section("Moteurs — téléchargements");
+
+    // Cases à cocher + UN SEUL bouton pour lancer les zips cochés.
+    const want = { pandoc: true, typst: true, fonts: true };
+    const cbSetting = new Setting(containerEl)
+      .setName("Téléchargements WASM")
+      .setDesc("Archives compressées séparées : pandoc_wasm.zip (~15 Mo, DOCX), typst_wasm.zip (~10 Mo, typst.wasm SEUL) et typst_fonts.zip (~8 Mo, les polices → PDF). Cochez ce qu'il faut, puis UN SEUL clic sur le bouton. Les 3 cases sont cochées par défaut = tout installer.");
+
+    const cbBox = cbSetting.settingEl.createDiv({ cls: "mod-mergdown2tex-cb", attr: { style: "display:flex;flex-wrap:wrap;gap:10px;margin-top:6px" } });
+    const mkCb = (key, label) => {
+      const l = cbBox.createEl("label", { attr: { style: "display:inline-flex;align-items:center;gap:5px;font-size:0.92em;border:1px solid var(--background-modifier-border);border-radius:6px;padding:4px 8px" } });
+      const c = l.createEl("input", { type: "checkbox" });
+      c.checked = want[key];
+      c.onclick = () => { want[key] = c.checked; };
+      l.createSpan({ text: label });
+    };
+    mkCb("pandoc", "pandoc_wasm.zip — DOCX");
+    mkCb("typst", "typst_wasm.zip — typst.wasm (PDF)");
+    mkCb("fonts", "typst_fonts.zip — polices (PDF)");
+
+    cbSetting.addButton((btn) => {
+      btn.setButtonText("Télécharger la sélection").setCta().onClick(async () => {
+        if (!want.pandoc && !want.typst && !want.fonts) {
+          new Notice("Cochez au moins un composant avant de télécharger.", 4000);
+          return;
+        }
+        let ok = true, n = 0;
+        try {
+          if (want.pandoc) { const a = await this.plugin.ensurePandocWasmZip(); ok = ok && a; n += a ? 1 : 0; }
+          if (want.typst) { const b = await this.plugin.ensureTypstWasmOnlyZip(); ok = ok && b; n += b ? 1 : 0; }
+          if (want.fonts) { const c = await this.plugin.ensureTypstFontsOnlyZip(); ok = ok && c; n += c ? 1 : 0; }
+          new Notice(ok ? (n + " composant(s) WASM installé(s) et prêt(s) ✅") : "Téléchargement(s) partiellement échoué(s) ❌", 4000);
+        } catch (e) {
+          new Notice("Téléchargement WASM : échec — " + ((e && e.message) || e), 5000);
+        }
+        this.display();
       });
+    });
 
     new Setting(containerEl)
       .setName("Moteur Mermaid (diagrammes)")
@@ -1322,6 +1341,9 @@ class Markdown2TexSettingTab extends PluginSettingTab {
           this.display();
         });
       });
+
+    // ── Rubrique : Moteurs (configuration) ─────────────────────────────
+    section("Moteurs — configuration");
 
     new Setting(containerEl)
       .setName("Moteur LaTeX (PDF direct)")
@@ -1551,26 +1573,6 @@ class Markdown2TexSettingTab extends PluginSettingTab {
       .addText((text) =>
         text.setPlaceholder("0.95").setValue(s.defaultTableWidth).onChange(async (v) => { s.defaultTableWidth = v; await this.plugin.saveSettings(); }),
       );
-
-    // ── Rubrique : Export ZIP ─────────────────────────────────────────────
-    section("Export ZIP");
-
-    new Setting(containerEl)
-      .setName("Télécharger le dossier d'exemple")
-      .setDesc("Récupère le dossier d'exemple (déjà dans le dépôt du plugin) et l'extrait dans la racine du vault actuel. Idéal pour découvrir la structure/manual de référence sans toucher à votre .obsidian local.")
-      .addButton((btn) => {
-        btn.setButtonText("Télécharger & extraire").onClick(async () => {
-          await this.plugin.downloadExampleVault();
-          this.display();
-        });
-      });
-
-    new Setting(containerEl)
-      .setName("Ajouter .obsidian au ZIP")
-      .setDesc("Inclure le dossier .obsidian (plugins, thèmes, config) dans la racine du zip, afin de l'utiliser directement comme vault Obsidian.")
-      .addToggle((toggle) =>
-        toggle.setValue(s.zipIncludeObsidian).onChange(async (v) => { s.zipIncludeObsidian = v; await this.plugin.saveSettings(); }),
-      );
   }
 }
 
@@ -1757,6 +1759,20 @@ class Markdown2TexPlugin extends Plugin {
       new Notice("Échec du bundle des polices typst: " + ((e && e.message) || e), 5000);
     }
     return await this.typstWasmExists();
+  }
+
+  // Version individuelle : télécharge uniquement typst_wasm.zip (sans les polices).
+  async ensureTypstWasmOnlyZip() {
+    if (await this.typstWasmExists()) return true;
+    try { await this.downloadTypstWasmZip(); return await this.typstWasmExists(); }
+    catch (e) { new Notice("Échec typst.wasm: " + ((e && e.message) || e), 5000); return false; }
+  }
+
+  // Version individuelle : télécharge uniquement typst_fonts.zip (sans le moteur).
+  async ensureTypstFontsOnlyZip() {
+    if (await this.typstFontsOk()) return true;
+    try { await this.downloadTypstFontsZip(); return await this.typstFontsOk(); }
+    catch (e) { new Notice("Échec polices typst: " + ((e && e.message) || e), 5000); return false; }
   }
 
   // Vrai quand au moins 4 polices sont présentes dans wasm/fonts/ (seuil de

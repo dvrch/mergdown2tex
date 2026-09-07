@@ -126,14 +126,14 @@ Chargement de Pandoc WASM...
 Chargement de Typst WASM...
 ```
 
-Un **bouton de téléchargement manuel** est également disponible dans les réglages du plugin (rubriques *Moteur Pandoc WASM (DOCX)*, *Moteur Typst WASM (PDF)* et *Moteurs WASM compressés*) si vous préférez déclencher le téléchargement à la main.
+Un **téléchargement manuel** est également possible dans les réglages : la rubrique *Export ZIP* (tout en haut) permet de récupérer le **dossier d'exemple** en premier, puis la rubrique *Moteurs — téléchargements* propose **3 cases à cocher** (`pandoc_wasm.zip`, `typst_wasm.zip`, `typst_fonts.zip`) et **un seul bouton** « Télécharger la sélection » pour lancer tous les zips cochés d'un coup.
 
 > **💡 Mobile (Android)** : le plugiciel télécharge désormais les moteurs **compressés, un zip par composant (jamais mélangés)** :
 > - `pandoc_wasm.zip` (~15 Mo) — `pandoc.wasm` **seul**, pour l'export **DOCX** (~59 Mo décompressé) ;
 > - `typst_wasm.zip` (~10 Mo) — `typst.wasm` **seul**, pour l'export **PDF** (~28 Mo décompressé) ;
 > - `typst_fonts.zip` (~8 Mo) — les **17 polices** dans un **zip à part** (~13 Mo décompressés), nécessaires au rendu PDF.
 >
-> On ne télécharge **que ce qui manque**, bien plus rapide que les ~98 Mo de fichiers bruts. Téléchargement/décompression automatiques au premier export (typst.wasm d'abord, polices ensuite) ; bouton *Moteurs WASM compressés* dans les réglages pour tout installer d'un coup. La source de vérité reste le dossier `wasm/` du dépôt (ou des zips plugin/bundle).
+> On ne télécharge **que ce qui manque**, bien plus rapide que les ~98 Mo de fichiers bruts. Téléchargement/décompression automatiques au premier export (typst.wasm d'abord, polices ensuite) ; dans les réglages, les 3 cases sont cochées par défaut → un seul clic sur *Télécharger la sélection* installe tout. La source de vérité reste le dossier `wasm/` du dépôt (ou des zips plugin/bundle).
 
 ---
 
