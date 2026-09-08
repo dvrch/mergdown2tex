@@ -2,6 +2,20 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [2.1.8] — 2026-09-08
+
+### Corrigé
+- **Popup de téléchargement vide (« ne se ferme jamais ») — cause racine trouvée** : Obsidian a renommé l'API `ProgressBar` → `ProgressBarComponent`. `new ProgressBar(...)` levait « ProgressBar is not a constructor » → la popup s'ouvrait **vide** (juste le titre « Téléchargement WASM ») et le téléchargement ne **démarrait jamais**. La barre de progression est désormais un simple `<div>` natif (sans dépendance à l'API Obsidian), le statut (« Préparation… », progression %, résultat ✅/❌) s'affiche et la popup se ferme à la fin.
+
+### Renforcé (téléchargements)
+- **Voie réseau système en priorité sur PC** (`https` natif de Node) : contourne le netlayer Chromium d'Obsidian, parfois bloqué/timeout sur le CDN GitHub alors que le réseau système (navigateur, curl) fonctionne.
+- **Timeouts durs partout** (20 s / 90 s) + **3 essais automatiques** avec backoff : plus aucune popup bloquée silencieusement à l'infini (auparavant `requestUrl` sans timeout pouvait pendre pour toujours).
+- **`cache-dl/`** : le zip téléchargé est écrit en clair dans `<plugin>/cache-dl/`, décompressé, puis **effacé**. Un zip téléchargé à la main (liens de dépannage) et déposé dans `cache-dl/` est décompressé **sans repasser par le réseau**.
+- **`dbg_dl.txt`** : chaque étape de téléchargement est journalisée dans le dossier du plugin (diagnostic express si un cas reste coincé).
+
+### Corrigé (ruban)
+- **Icône du bouton « Aperçu PDF côte-à-côte » absente** : `file-pdf` n'existe pas dans le jeu d'icônes d'Obsidian → remplacée par `columns-2` (les 3 icônes du ruban sont désormais vérifiées présentes).
+
 ## [2.1.7] — 2026-09-08
 
 ### Corrigé (mode PDF Typst)
