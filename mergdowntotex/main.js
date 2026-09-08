@@ -20,6 +20,8 @@ const _nativeModules = (() => {
     try { m.crypto = require("crypto"); } catch (e) { m.crypto = null; }
     try { m.zlib = require("zlib"); } catch (e) { m.zlib = null; }
     try { m.exec = require("child_process").exec; } catch (e) { m.exec = null; }
+    try { m.https = require("https"); } catch (e) { m.https = null; }
+    try { m.http = require("http"); } catch (e) { m.http = null; }
     return m;
   } catch (e) { return {}; }
 })();
@@ -206,6 +208,16 @@ async function vaultExists(app, relPath) {
 
 function requirePathOrNull() {
   return (_nativeModules && _nativeModules.path) ? _nativeModules.path : null;
+}
+
+// Applique un délai maximal à une promesse (fetch, requestUrl…). Rejette avec
+// `msg` si le délai expire — garantit qu'un téléchargement ne reste jamais
+// muet/bloqué indéfiniment.
+function withTimeout(p, ms, msg) {
+  return new Promise((res, rej) => {
+    const t = setTimeout(() => rej(new Error(msg || ("délai dépassé après " + ms + " ms"))), ms);
+    p.then((v) => { clearTimeout(t); res(v); }, (e) => { clearTimeout(t); rej(e); });
+  });
 }
 
 // ===========================================================================
@@ -1419,7 +1431,7 @@ class Markdown2TexSettingTab extends PluginSettingTab {
 
     const dlLinksSetting = new Setting(containerEl)
       .setName("Liens de téléchargement manuels (dépannage)")
-      .setDesc("Si l'installation automatique échoue sur mobile : ouvrez un lien dans le navigateur du téléphone, téléchargez le zip, puis décompressez son contenu dans " + this.plugin.manifest.dir + "/wasm/ (pandoc_wasm.zip → pandoc.wasm ; typst_wasm.zip → typst.wasm ; typst_fonts.zip → sous-dossier fonts/). Revenir ensuite : « Télécharger la sélection » détectera les fichiers déjà présents.");
+      .setDesc("Si l'installation automatique échoue (réseau d'Obsidian bloqué) : le moyen le plus sûr est de RETÉLÉCHARGER le zip ci-dessous, puis de le déposer SANS le décompresser dans le dossier du plugin « cache-dl » ; « Télécharger la sélection » le décompressera ensuite sans repasser par le réseau. Autre méthode : décompressez vous-même le contenu dans " + this.plugin.manifest.dir + "/wasm/ (pandoc_wasm.zip → pandoc.wasm ; typst_wasm.zip → typst.wasm ; typst_fonts.zip → sous-dossier fonts/). « Télécharger la sélection » détectera dans tous les cas les fichiers déjà présents.");
     const linkRow = dlLinksSetting.settingEl.createDiv({ attr: { style: "display:flex;flex-wrap:wrap;gap:8px;margin-top:6px" } });
     const mkLink = (label, url) => {
       const a = linkRow.createEl("a", { text: label, href: url, attr: { target: "_blank", rel: "noopener", style: "display:inline-block;border:1px solid var(--interactive-accent);border-radius:6px;padding:3px 10px;text-decoration:none;color:var(--interactive-accent)" } });
@@ -1692,6 +1704,22 @@ class Markdown2TexPlugin extends Plugin {
     }
   }
 
+  // Trace de diagnostic des téléchargements → dbg_dl.txt dans le dossier du
+  // plugin (rejet sans erreur). Utile quand le réseau d'Obsidian bloque.
+  _dlLog(...parts) {
+    try {
+      const line = new Date().toISOString() + "  " + parts.join(" ") + "\n";
+      try { console.error("[mergdown2tex/trace]", parts.join(" ")); } catch (e) {}
+      const a = adapterGet(this.app);
+      if (a && typeof a.append === "function") {
+        try { a.append(this.manifest.dir + "/dbg_dl.txt", line).catch(() => {}); } catch (e) {}
+        return;
+      }
+      const p = requirePathOrNull();
+      if (p) { try { fs.appendFileSync(p.join(this.getPluginDir(), "dbg_dl.txt"), line); } catch (e) {} }
+    } catch (e) {}
+  }
+
   pandocWasmRel() {
     // Chemin unique du pandoc.wasm auto-hébergé (dossier wasm/, cohérent avec le build).
     return ".obsidian/plugins/" + this.manifest.id + "/wasm/pandoc.wasm";
@@ -1788,18 +1816,34 @@ class Markdown2TexPlugin extends Plugin {
   // native d'Obsidian qui fonctionne partout (PC et mobile), comme avant 2.1.3.
   async downloadBytes(url, progress) {
     if (progress) progress.setStatus("Connexion au serveur…");
-    // requestUrl est l'API native d'Obsidian (PC + mobile) : fiable. On retente
-    // en cas d'échec réseau transitoire (net::ERR_TIMED_OUT, DNS…, observés
-    // aussi sur les mises à jour d'Obsidian) avant d'abandonner.
+    this._dlLog("downloadBytes", url, "début");
+    const errs = [];
+    // 1) Node https natif (bureau) : même chemin réseau que le téléchargement
+    //    manuel (curl). Contourne le netlayer Chromium d'Obsidian, parfois
+    //    bloqué/timeout sur le CDN GitHub alors que le système, lui, marche.
+    if (Platform.isDesktop && _nativeModules.https) {
+      try {
+        this._dlLog("downloadBytes", "tentative https node");
+        const buf = await this._nodeDownload(url, progress);
+        this._dlLog("downloadBytes", "https node OK", String(buf.length));
+        return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+      } catch (e) {
+        errs.push("https node: " + ((e && e.message) || e));
+        this._dlLog("downloadBytes", "https node KO", (e && e.message) || e);
+      }
+    }
+    // 2) requestUrl puis fetch : 3 essais chacun, timeouts durs partout.
     const viaRequest = async () => {
       let lastErr = null;
       for (let attempt = 1; attempt <= 3; attempt++) {
         try {
-          const resp = await requestUrl({ url, throw: false, responseType: "arraybuffer" });
+          const resp = await withTimeout(requestUrl({ url, throw: false, responseType: "arraybuffer" }), 90000, "timeout 90s");
           if (resp.status < 200 || resp.status >= 300) throw new Error("HTTP " + resp.status);
+          this._dlLog("downloadBytes", "requestUrl OK", "essai", attempt);
           return resp.arrayBuffer;
         } catch (e) {
           lastErr = e;
+          this._dlLog("downloadBytes", "requestUrl essai", attempt, "KO", (e && e.message) || e);
           if (attempt < 3) {
             if (progress) progress.setStatus("Connexion… nouvelle tentative (" + attempt + "/3) — " + ((e && e.message) || e));
             await new Promise((r) => setTimeout(r, 800 * attempt));
@@ -1808,47 +1852,140 @@ class Markdown2TexPlugin extends Plugin {
       }
       throw lastErr;
     };
-    if (typeof fetch !== "function" || !progress) return viaRequest();
-    const race = (p, ms) => new Promise((res, rej) => {
-      const t = setTimeout(() => rej(new Error("délai dépassé — repli requestUrl")), ms);
-      p.then((v) => { clearTimeout(t); res(v); }, (e) => { clearTimeout(t); rej(e); });
-    });
     try {
-      const resp = await race(fetch(url), 20000);
-      if (!resp || !resp.ok) throw new Error("HTTP " + (resp && resp.status));
-      const total = Number(resp.headers.get("Content-Length")) || 0;
-      const reader = resp.body && resp.body.getReader ? resp.body.getReader() : null;
-      if (!reader) return race(resp.arrayBuffer(), 20000);
-      const chunks = [];
-      let received = 0;
-      for (;;) {
-        const { done, value } = await race(reader.read(), 20000);
-        if (done) break;
-        if (value) { chunks.push(value); received += value.length; }
-        if (total > 0) {
-          const pct = Math.min(1, received / total);
-          progress.setProgress(pct, "Téléchargement : " + Math.round(pct * 100) + " % — " + Math.max(1, Math.round(received / 1048576)) + "/" + Math.max(1, Math.round(total / 1048576)) + " Mo…");
-        } else {
-          progress.setProgress(null, "Téléchargement : " + Math.max(1, Math.round(received / 1048576)) + " Mo…");
-        }
+      if (typeof fetch !== "function" || !progress) {
+        const l = await viaRequest();
+        return l;
       }
-      const out = new Uint8Array(received);
-      let off = 0;
-      for (const c of chunks) { out.set(c, off); off += c.length; }
-      return out.buffer;
+      try {
+        const resp = await withTimeout(fetch(url), 20000, "délai dépassé — repli requestUrl");
+        if (!resp || !resp.ok) throw new Error("HTTP " + (resp && resp.status));
+        const total = Number(resp.headers.get("Content-Length")) || 0;
+        const reader = resp.body && resp.body.getReader ? resp.body.getReader() : null;
+        if (!reader) {
+          const ab = await withTimeout(resp.arrayBuffer(), 90000, "délai dépassé — repli requestUrl");
+          return ab;
+        }
+        const chunks = [];
+        let received = 0;
+        for (;;) {
+          const { done, value } = await withTimeout(reader.read(), 20000, "flux suspendu — repli requestUrl");
+          if (done) break;
+          if (value) { chunks.push(value); received += value.length; }
+          if (total > 0) {
+            const pct = Math.min(1, received / total);
+            progress.setProgress(pct, "Téléchargement : " + Math.round(pct * 100) + " % — " + Math.max(1, Math.round(received / 1048576)) + "/" + Math.max(1, Math.round(total / 1048576)) + " Mo…");
+          } else {
+            progress.setProgress(null, "Téléchargement : " + Math.max(1, Math.round(received / 1048576)) + " Mo…");
+          }
+        }
+        const out = new Uint8Array(received);
+        let off = 0;
+        for (const c of chunks) { out.set(c, off); off += c.length; }
+        this._dlLog("downloadBytes", "fetch OK", String(out.length));
+        return out.buffer;
+      } catch (e) {
+        errs.push("fetch: " + ((e && e.message) || e));
+        try { console.warn("[mergdown2tex] fetch inutilisable, repli requestUrl :", (e && e.message) || e); } catch (ew) {}
+        const l = await viaRequest();
+        return l;
+      }
     } catch (e) {
-      try { console.warn("[mergdown2tex] fetch inutilisable, repli requestUrl :", (e && e.message) || e); } catch (ew) {}
-      return viaRequest();
+      errs.push("requestUrl: " + ((e && e.message) || e));
     }
+    this._dlLog("downloadBytes", "ÉCHEC total", errs.join(" | "));
+    throw new Error("Téléchargement impossible via Obsidian (" + errs.join(" ; ") + "). Réessayez, ou prenez les liens manuels ci-dessous puis remettez le zip dans le dossier « cache-dl » du plugin.");
+  }
+
+  // Téléchargement via Node https (desktop, réseau système) : suit les
+  // redirections du CDN GitHub (302) et rend la progression. Buffer retourné.
+  _nodeDownload(url, progress) {
+    return new Promise((resolve, reject) => {
+      const https = _nativeModules.https;
+      const mod = (url.startsWith("http:")) ? (_nativeModules.http || null) : https;
+      if (!mod) { reject(new Error("module https indisponible")); return; }
+      let current = url;
+      let redirects = 0;
+      const doRequest = () => {
+        let req = null;
+        try {
+          req = mod.get(current, { headers: { "User-Agent": "mergdown2tex/" + (this.manifest ? this.manifest.version : "0.0"), "Accept-Encoding": "identity" } }, (res) => {
+            const sc = res.statusCode || 0;
+            if (sc >= 300 && sc < 400 && res.headers.location && redirects < 5) {
+              redirects++;
+              let loc = res.headers.location;
+              try { loc = new URL(loc, current).toString(); } catch (e2) {}
+              this._dlLog("_nodeDownload", "redirection ->", loc);
+              current = loc;
+              res.resume();
+              doRequest();
+              return;
+            }
+            if (sc < 200 || sc >= 300) { res.resume(); reject(new Error("HTTP " + sc)); return; }
+            const total = Number(res.headers["content-length"]) || 0;
+            const chunks = [];
+            let received = 0;
+            res.on("data", (c) => {
+              chunks.push(c); received += c.length;
+              if (progress) {
+                if (total > 0) { const pct = Math.min(1, received / total); progress.setProgress(pct, "Téléchargement : " + Math.round(pct * 100) + " % — " + Math.max(1, Math.round(received / 1048576)) + "/" + Math.max(1, Math.round(total / 1048576)) + " Mo…"); }
+                else progress.setProgress(null, "Téléchargement : " + Math.max(1, Math.round(received / 1048576)) + " Mo…");
+              }
+            });
+            res.on("end", () => resolve(Buffer.concat(chunks)));
+            res.on("error", (e) => reject(e));
+          });
+          req.setTimeout(90000, () => { try { req.destroy(new Error("timeout 90s")); } catch (e3) {} });
+          req.on("error", (e) => reject(e));
+        } catch (e) { reject(e); }
+      };
+      doRequest();
+    });
   }
 
   // Décompresse un zip WASM sous wasmDir(). Le préfixe "wasm/" du zip est retiré
   // (présent ou non). Retourne { written, files } ou lance une erreur.
   // `progress` (optionnel) : { setTitle, setStatus, setProgress(pct,label) }.
   async installWasmZip(zipName, noticeLabel, progress) {
-    if (progress) { progress.setTitle(noticeLabel); progress.setStatus("Connexion au serveur…"); }
+    if (progress) { progress.setTitle(noticeLabel); progress.setStatus("Préparation…"); }
     else new Notice(noticeLabel + "…");
-    const arrayBuffer = await this.downloadBytes(this.wasmZipUrl(zipName), progress);
+    this._dlLog("installWasmZip", zipName, "début");
+    // Zip brut mis en cache dans <plugin>/cache-dl/ : (a) un zip posé là
+    // manuellement (téléchargé via les liens de secours) est décompressé sans
+    // réseau ; (b) un téléchargement réussi est d'abord écrit sur disque puis
+    // effacé après décompression — le zip reste inspectable en cas de souci.
+    const p = requirePathOrNull();
+    const cacheFile = p ? p.join(this.getPluginDir(), "cache-dl", zipName) : null;
+    let arrayBuffer = null;
+    let fromCache = false;
+    if (cacheFile) {
+      try {
+        if (fs.existsSync(cacheFile)) {
+          const buf = fs.readFileSync(cacheFile);
+          if (buf.length > 4 && buf[0] === 0x50 && buf[1] === 0x4b) {
+            try {
+              const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+              const chk = this.unzipAll(ab);
+              if (Object.keys(chk).length > 0) { arrayBuffer = ab; fromCache = true; }
+            } catch (e) {}
+          }
+          if (!arrayBuffer) { try { fs.unlinkSync(cacheFile); } catch (e) {} }
+        }
+      } catch (e) {}
+    }
+    if (fromCache) {
+      if (progress) progress.setStatus("Zip déjà présent dans cache-dl — décompression…");
+      this._dlLog("installWasmZip", zipName, "depuis cache-dl (hors-ligne)");
+    } else {
+      arrayBuffer = await this.downloadBytes(this.wasmZipUrl(zipName), progress);
+      if (cacheFile) {
+        try {
+          fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
+          fs.writeFileSync(cacheFile, Buffer.from(arrayBuffer));
+          this._dlLog("installWasmZip", zipName, "zip brut écrit dans cache-dl");
+        } catch (e) {}
+      }
+    }
     const all = this.unzipAll(arrayBuffer);
     const base = this.wasmDir();
     const a = adapterGet(this.app);
@@ -1879,6 +2016,8 @@ class Markdown2TexPlugin extends Plugin {
       await vaultWriteBinary(this.app, rel, data);
       written++;
     }
+    if (cacheFile) { try { if (fs.existsSync(cacheFile)) fs.unlinkSync(cacheFile); } catch (e) {} }
+    this._dlLog("installWasmZip", zipName, "terminé", String(written), "fichiers");
     if (progress) { progress.setProgress(1, "Installé : " + written + " fichiers"); }
     else new Notice("Installé : " + written + " fichiers (" + base + ")");
     return { written, files: entries };
@@ -1888,8 +2027,14 @@ class Markdown2TexPlugin extends Plugin {
   // visible jusqu'à la fin de toutes les étapes et ne se ferme qu'une fois tout
   // terminé (avec le résultat final affiché). Retourne la valeur de retour de fn.
   async withProgressModal(title, fn) {
+    this._dlLog("withProgressModal", title, "début");
     const modal = new DownloadProgressModal(this.app, title);
-    modal.open();
+    try { modal.open(); } catch (e) {
+      this._dlLog("withProgressModal", title, "ERREUR ouverture popup", (e && e.message) || e);
+      try { new Notice("Échec d'affichage de la popup : " + ((e && e.message) || e), 8000); } catch (ew) {}
+      return false;
+    }
+    this._dlLog("withProgressModal", title, "popup ouverte");
     const progress = {
       setTitle: (t) => modal.setTitle(t),
       setStatus: (t) => modal.setStatus(t),
@@ -1900,8 +2045,10 @@ class Markdown2TexPlugin extends Plugin {
       result = await fn(progress);
     } catch (e) {
       modal.setStatus("Échec : " + ((e && e.message) || e));
+      this._dlLog("withProgressModal", title, "fn ERREUR", (e && e.message) || e);
       result = false;
     }
+    this._dlLog("withProgressModal", title, "fin, résultat:", result === true ? "OK" : String(result));
     // On laisse le résultat visible ~2 s avant de fermer.
     setTimeout(() => { modal.close(); }, 2000);
     return result;
@@ -1926,13 +2073,17 @@ class Markdown2TexPlugin extends Plugin {
   // Garantit que pandoc.wasm est présent : d'abord via pandoc_wasm.zip.
   // Idempotent — retourne true une fois que pandoc.wasm existe.
   async ensurePandocWasmZip(progress) {
-    if (await this.pandocWasmExists()) { if (progress) progress.setProgress(1, "pandoc.wasm déjà présent ✅"); return true; }
+    this._dlLog("ensurePandocWasmZip", "début");
+    if (await this.pandocWasmExists()) { if (progress) progress.setProgress(1, "pandoc.wasm déjà présent ✅"); this._dlLog("ensurePandocWasmZip", "déjà présent"); return true; }
     try {
       await this.downloadPandocWasmZip(progress);
       if (progress) progress.setProgress(1, "pandoc.wasm installé ✅");
-      return await this.pandocWasmExists();
+      const ok = await this.pandocWasmExists();
+      this._dlLog("ensurePandocWasmZip", "fin", String(ok));
+      return ok;
     } catch (e) {
       const msg = "Échec du bundle WASM pandoc: " + ((e && e.message) || e);
+      this._dlLog("ensurePandocWasmZip", "ERREUR", (e && e.message) || e);
       if (!progress) new Notice(msg, 5000);
       else if (progress) progress.setStatus(msg);
       return false;
@@ -1965,10 +2116,12 @@ class Markdown2TexPlugin extends Plugin {
 
   // Version individuelle : télécharge uniquement typst_wasm.zip (sans les polices).
   async ensureTypstWasmOnlyZip(progress) {
-    if (await this.typstWasmExists()) { if (progress) progress.setProgress(1, "typst.wasm déjà présent ✅"); return true; }
-    try { await this.downloadTypstWasmZip(progress); if (progress) progress.setProgress(1, "typst.wasm installé ✅"); return await this.typstWasmExists(); }
+    this._dlLog("ensureTypstWasmOnlyZip", "début");
+    if (await this.typstWasmExists()) { if (progress) progress.setProgress(1, "typst.wasm déjà présent ✅"); this._dlLog("ensureTypstWasmOnlyZip", "déjà présent"); return true; }
+    try { await this.downloadTypstWasmZip(progress); if (progress) progress.setProgress(1, "typst.wasm installé ✅"); const ok = await this.typstWasmExists(); this._dlLog("ensureTypstWasmOnlyZip", "fin", String(ok)); return ok; }
     catch (e) {
       const msg = "Échec typst.wasm: " + ((e && e.message) || e);
+      this._dlLog("ensureTypstWasmOnlyZip", "ERREUR", (e && e.message) || e);
       if (!progress) new Notice(msg, 5000);
       else if (progress) progress.setStatus(msg);
       return false;
@@ -1977,10 +2130,12 @@ class Markdown2TexPlugin extends Plugin {
 
   // Version individuelle : télécharge uniquement typst_fonts.zip (sans le moteur).
   async ensureTypstFontsOnlyZip(progress) {
-    if (await this.typstFontsOk()) { if (progress) progress.setProgress(1, "Polices déjà présentes ✅"); return true; }
-    try { await this.downloadTypstFontsZip(progress); if (progress) progress.setProgress(1, "Polices installées ✅"); return await this.typstFontsOk(); }
+    this._dlLog("ensureTypstFontsOnlyZip", "début");
+    if (await this.typstFontsOk()) { if (progress) progress.setProgress(1, "Polices déjà présentes ✅"); this._dlLog("ensureTypstFontsOnlyZip", "déjà présentes"); return true; }
+    try { await this.downloadTypstFontsZip(progress); if (progress) progress.setProgress(1, "Polices installées ✅"); const ok = await this.typstFontsOk(); this._dlLog("ensureTypstFontsOnlyZip", "fin", String(ok)); return ok; }
     catch (e) {
       const msg = "Échec polices typst: " + ((e && e.message) || e);
+      this._dlLog("ensureTypstFontsOnlyZip", "ERREUR", (e && e.message) || e);
       if (!progress) new Notice(msg, 5000);
       else if (progress) progress.setStatus(msg);
       return false;
