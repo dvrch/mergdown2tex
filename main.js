@@ -2568,7 +2568,7 @@ class Markdown2TexPlugin extends Plugin {
       },
     });
 
-    this.addRibbonIcon("file-pdf", "Aperçu PDF côte-à-côte (md → pdf)", () => {
+    this.addRibbonIcon("columns-2", "Aperçu PDF côte-à-côte (md → pdf)", () => {
       this.startLivePdfPreview();
     });
 
