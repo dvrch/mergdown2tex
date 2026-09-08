@@ -1782,6 +1782,10 @@ class Markdown2TexPlugin extends Plugin {
   // erreur). Si `progress` est fourni ET que `fetch` est disponible, on
   // rapporte une VRAIE progression en octets (barre déterminée + Mo) ; sinon
   // repli sûr sur requestUrl en barre indéterminée.
+  // Le chemin fetch est blindé au cas où il resterait bloqué (proxy, CSP,
+  // flux qui ne répond plus) : chaque étape (en-têtes, paquet, body entier) a
+  // un délai de garde ; au moindre blocage on retombe sur requestUrl, l'API
+  // native d'Obsidian qui fonctionne partout (PC et mobile), comme avant 2.1.3.
   async downloadBytes(url, progress) {
     if (progress) progress.setStatus("Connexion au serveur…");
     const viaRequest = async () => {
@@ -1790,16 +1794,20 @@ class Markdown2TexPlugin extends Plugin {
       return resp.arrayBuffer;
     };
     if (typeof fetch !== "function" || !progress) return viaRequest();
+    const race = (p, ms) => new Promise((res, rej) => {
+      const t = setTimeout(() => rej(new Error("délai dépassé — repli requestUrl")), ms);
+      p.then((v) => { clearTimeout(t); res(v); }, (e) => { clearTimeout(t); rej(e); });
+    });
     try {
-      const resp = await fetch(url);
+      const resp = await race(fetch(url), 20000);
       if (!resp || !resp.ok) throw new Error("HTTP " + (resp && resp.status));
       const total = Number(resp.headers.get("Content-Length")) || 0;
       const reader = resp.body && resp.body.getReader ? resp.body.getReader() : null;
-      if (!reader) return resp.arrayBuffer();
+      if (!reader) return race(resp.arrayBuffer(), 20000);
       const chunks = [];
       let received = 0;
       for (;;) {
-        const { done, value } = await reader.read();
+        const { done, value } = await race(reader.read(), 20000);
         if (done) break;
         if (value) { chunks.push(value); received += value.length; }
         if (total > 0) {
@@ -1814,6 +1822,7 @@ class Markdown2TexPlugin extends Plugin {
       for (const c of chunks) { out.set(c, off); off += c.length; }
       return out.buffer;
     } catch (e) {
+      try { console.warn("[mergdown2tex] fetch inutilisable, repli requestUrl :", (e && e.message) || e); } catch (ew) {}
       return viaRequest();
     }
   }
