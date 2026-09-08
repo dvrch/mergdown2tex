@@ -2,6 +2,24 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [2.1.7] — 2026-09-08
+
+### Corrigé (mode PDF Typst)
+- **Texte des diagrammes Mermaid absent du PDF** : resvg (utilisé en mode Typst) ignore les `<foreignObject>` HTML que Mermaid utilise pour étiqueter ses nœuds → seules les formes étaient visibles. Le SVG est désormais **aplati avant compilation** (`_flattenSvgForeignObjects`) : chaque `<foreignObject>` est converti en un vrai élément `<text>` (`<tspan>` par ligne, `text-anchor="middle"`, fonte/couleur/taille héritées du style inline), d'où un rendu fidèle des étiquettes dans le PDF.
+- **En-tête / pied de page et ligne horizontale absents du PDF (pipeline Pandoc WASM + Typst)** : les commandes LaTeX `\fancyhead`/`\fancyfoot`/`\rule` n'avaient pas d'équivalent Typst. Un bloc `#set page(header: … , footer: …)` est désormais **injecté automatiquement en tête du flux `.typ`** (`applyTypstHeaderFooter`) qui reproduit le comportement LaTeX :
+  - en-tête : le **contenu de l'en-tête** aligné à droite (gris, 9 pt, écrasant tout défaut) ;
+  - pied de page : le **contenu du pied de page** avec `\thepage` traduit (`#context counter(page).display()`) et le mot « Page » retiré, **numéro de page** toujours affiché à droite ;
+  - **ligne horizontale** `#line(length: 100%, stroke: 0.5pt + rgb("#808080"))` présente sous l'en-tête et au-dessus du pied (seulement si le réglage correspondant est activé).
+  - Les caractères spéciaux Typst (`\ [ ] # * _ $`, retours à ligne) du contenu saisi par l'utilisateur sont échappés. Désactivable via `opts.headerFooter === false` (inutile de fuiter sur les `.typ` compilés manuellement).
+
+## [2.1.6] — 2026-09-07
+
+### Corrigé
+- **Page de garde (PDF Typst) réduite à l'essentiel** : la couverture ne contenait plus qu'**un titre et un auteur**, mais l'ancien repli (absence de métadonnées) aspirait tout le premier bloc du document (`#block[#block[#strong[...]...]]`) comme contenu de la page de garde → « toute la première partie » apparaissait sur la couverture. Désormais :
+  - Le titre et l'auteur proviennent **uniquement** des **champs dédiés des Réglages** (« Titre du document », « Auteur du document (Force) ») — en priorité — sinon des métadonnées du document (front matter YAML / `\title` `\author` `\date`) ;
+  - Le bloc de titre pandoc n'est **jamais** utilisé comme source de contenu ; s'il existe dans le flux, il est simplement retiré (la page de garde isolée le remplace) ;
+  - **Si ni les options ni les métadonnées ne fournissent de titre → aucune page de garde n'est générée** (le document sort tel quel, sans couverture aspirée).
+
 ## [2.1.5] — 2026-09-07
 
 ### Ajouté

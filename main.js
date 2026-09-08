@@ -4206,39 +4206,29 @@ class Markdown2TexPlugin extends Plugin {
   }
 
   // Page de garde isolée, sur sa propre page (page 1), puis le sommaire.
-  // Les éléments affichés (titre, auteur, date) proviennent des MÉTADONNÉES du
-  // document (front matter YAML pour le Markdown, \title/\author/\date pour le
-  // .tex) — comme le \maketitle d'un pipeline LaTeX — et NON du texte du corps.
-  // Si aucune métadonnée n'est disponible, on retombe sur le bloc de titre déjà
-  // inséré par Pandoc dans le .typ.
+  // Les éléments affichés (titre, auteur, date) proviennent TOUJOURS des champs
+  // dédiés des OPTIONS (Réglages → Document : « Titre du document » /
+  // « Auteur du document (Force) »), sinon des MÉTADONNÉES du document
+  // (front matter YAML pour le Markdown, \title/\author/\date pour le .tex) —
+  // comme le \maketitle d'un pipeline LaTeX — et JAMAIS du texte du corps.
+  // Sinon, pas de page de garde du tout (on ne l'ingénie pas depuis le contenu).
   isolateTitlePage(typ, meta) {
     if (!typ || typeof typ !== "string") return typ;
     const escT = (s) => String(s || "").replace(/[#&()[\]{}*_\\~<>]/g, (c) => "\\" + c).replace(/\s+/g, " ").trim();
     const pick = (v) => (Array.isArray(v) ? v.map((x) => String(x).trim()).filter(Boolean).join(", ") : String(v || "").trim());
-    const metaTitle = pick((meta && (meta.title || meta.subtitle)));
-    const metaAuthor = pick(meta && meta.author);
+    const st = this.settings || {};
+    const sTitle = String(st.documentTitle || "").trim();
+    const sAuthor = String(st.authorName || "").trim();
+    const metaTitle = sTitle || pick(meta && (meta.title || meta.subtitle));
+    const metaAuthor = sAuthor || pick(meta && meta.author);
     const metaDate = pick(meta && meta.date);
 
-    // Bloc de titre pandoc (ex: \maketitle réinterprété) suivi du sommaire #outline.
-    // Grâce au réordonnancement, l'#outline a été injecté juste avant le 1er heading,
-    // donc il suit immédiatement le bloc titre : la couverture est placée devant,
-    // et le sommaire apparaît juste après la page de garde.
-    const re = /\n#block\[\n#block\[\n#strong\[([^\]]*)\]([\s\S]*?)\n\]\n\]\n(?=#outline)/;
-    const m = re.exec(typ);
+    // Pas de titre (ni options, ni métadonnées) → pas de page de garde.
+    if (!metaTitle) return typ;
 
-    if (!m && !metaTitle) return typ; // ni bloc pandoc ni métadonnées → rien à isoler
-
-    let title, author, date;
-    if (metaTitle) {
-      title = escT(metaTitle);
-      author = escT(metaAuthor);
-      date = escT(metaDate);
-    } else {
-      title = escT(m[1]);
-      const lines = (m[2] || "").split("\n").map((s) => s.trim()).filter(Boolean);
-      author = escT(lines.filter((l) => !l.startsWith("#") && !l.startsWith("/")).join(", "));
-      date = "";
-    }
+    const title = escT(metaTitle);
+    const author = escT(metaAuthor);
+    const date = escT(metaDate);
 
     const cover = ["#place(center + horizon)["];
     cover.push("  #set text(size: 2.4em, weight: \"bold\")");
@@ -4258,13 +4248,15 @@ class Markdown2TexPlugin extends Plugin {
     cover.push("");
     const coverBlock = cover.join("\n");
 
+    // On retire du flot le bloc de titre pandoc s'il existe (le titre n'apparaît
+    // alors qu'une seule fois, sur la page de garde), sans jamais s'en servir de
+    // source de contenu.
+    const re = /\n#block\[\n#block\[\n#strong\[[^\]]*\][\s\S]*?\n\]\n\]\n(?=#outline)/;
+    const m = re.exec(typ);
     if (m) {
-      // Remplace le bloc de titre pandoc (dans le flot) par la couverture isolée :
-      // le titre/auteur/date ne sourcouvrent plus dans le corps du document.
       return typ.slice(0, m.index) + "\n" + coverBlock + typ.slice(m.index + m[0].length);
     }
-    // Pas de bloc pandoc (métadonnées fournies mais la variante pandoc n'a pas
-    // inséré de titre) : on injecte la couverture juste avant l'#outline.
+    // Pas de bloc pandoc : on injecte la couverture juste avant l'#outline.
     const outlineIdx = typ.indexOf("#outline");
     if (outlineIdx !== -1) {
       return typ.slice(0, outlineIdx) + coverBlock + "\n" + typ.slice(outlineIdx);
@@ -4572,9 +4564,86 @@ class Markdown2TexPlugin extends Plugin {
   // avant la compilation par typst.wasm. Retourne le typst transformé (ou
   // l'original si le transform n'est pas applicable, pour retomber sur une
   // tentative sans TOC plutôt que de faire échouer toute la compilation).
+  // Équivalent typst de la configuration fancyhdr (postProcessTypst) : prépende
+  // un #set page(header: …, footer: …) pour reproduire l'en-tête/pied + lignes
+  // horizontales grises du chemin pdflatex. Traduit les macros LaTeX de
+  // l'utilisateur (\thetitle, \theauthor, \thedate/\today, \thepage).
+  applyTypstHeaderFooter(typ, meta) {
+    const s = this.settings || {};
+    const enableHeader = !!s.enableHeader;
+    const enableFooter = !!s.enableFooter;
+    if (!enableHeader && !enableFooter) return typ;
+    meta = meta || {};
+    const norm = (v) => Array.isArray(v) ? v.join(", ") : v;
+    const title = (s.documentTitle || norm(meta.title) || norm(meta.subtitle) || "").toString().trim();
+    const author = (s.authorName || norm(meta.author) || "").toString().trim();
+    const date = (norm(meta.date) || "").toString().trim();
+    // `#context counter(page).display()` = équivalent typst de \thepage.
+    const PAGE_EXPR = "#context counter(page).display()";
+    const esc = (t) => String(t == null ? "" : t)
+      .replace(/\\/g, "\\\\")
+      .replace(/[\[\]#*_$]/g, "\\$&")
+      .replace(/\s*\n\s+/g, " ")
+      .trim();
+    const resolve = (raw, keepPage) => {
+      let t = String(raw == null ? "" : raw);
+      t = t.replace(/\\thetitle\b/gi, "@@TITLE@@")
+           .replace(/\\theauthor\b/gi, "@@AUTHOR@@")
+           .replace(/\\(?:thedate|today)\b/gi, "@@DATE@@")
+           .replace(/\\thepage\b/gi, "@@PAGE@@")
+           .replace(/[{}]/g, "")
+           .replace(/\\[a-zA-Z@]+\b/g, "");
+      let out = esc(t);
+      out = out.replace(/@@TITLE@@/g, esc(title))
+               .replace(/@@AUTHOR@@/g, esc(author))
+               .replace(/@@DATE@@/g, esc(date))
+               .replace(/@@PAGE@@/g, keepPage ? PAGE_EXPR : "");
+      return out;
+    };
+    const headerText = enableHeader ? resolve(s.headerContent, true) : "";
+    // Comme côté LaTeX, on retire \thepage ET le mot « Page » du pied de gauche
+    // (le numéro de page est reporté à droite).
+    let footerText = "";
+    if (enableFooter) {
+      footerText = resolve(String(s.footerContent == null ? "" : s.footerContent)
+        .replace(/\\thepage\b/gi, "")
+        .replace(/\bPage\b/gi, ""), false);
+    }
+    let setRule = "#set page(\n";
+    if (enableHeader) {
+      setRule += "  header: block(width: 100%)[\n" +
+        "    #set text(size: 9pt, fill: rgb(\"#808080\"))\n" +
+        (headerText ? "    #align(right)[" + headerText + "]\n" : "") +
+        "    #v(0.45em)\n" +
+        "    #line(length: 100%, stroke: 0.5pt + rgb(\"#808080\"))\n" +
+        "  ],\n";
+    }
+    if (enableFooter) {
+      setRule += "  footer: block(width: 100%)[\n" +
+        "    #set text(size: 9pt, fill: rgb(\"#808080\"))\n" +
+        "    #line(length: 100%, stroke: 0.5pt + rgb(\"#808080\"))\n" +
+        "    #v(0.45em)\n" +
+        "    #grid(columns: (1fr, auto), column-gutter: 0.6em)[\n" +
+        "      #align(left)[" + footerText + "]\n" +
+        "      #align(right)[" + PAGE_EXPR + "]\n" +
+        "    ]\n" +
+        "  ]\n";
+    }
+    setRule += ")\n\n";
+    return setRule + typ;
+  }
+
   async postProcessTypst(typ, opts) {
     if (!typ || typeof typ !== "string") return typ;
     opts = opts || {};
+    // 0) En-tête / pied de page Typst. Pandoc N'ÉCRIT PAS #set page(header: …) :
+    // sans cette injection, le PDF issu du pipeline typst n'a NI en-tête, NI pied,
+    // NI ligne horizontale — contrairement à fancyhdr côté LaTeX. On traduit ici
+    // la configuration utilisateur (\thetitle, \thepage…) au format Typst.
+    if (opts.headerFooter !== false) {
+      try { typ = this.applyTypstHeaderFooter(typ, opts.meta); }
+      catch (hfe) { console.warn("[mergdown2tex][typst] en-tête/pied échec:", (hfe && hfe.message) || hfe); }
+    }
     // 1) Emojis : remplacer \twemoji{nom} par le glyphe Unicode.
     if (opts.emojis !== false) { try { typ = this.fixTwemoji(typ); } catch (et) { console.warn("[mergdown2tex][typst] fixTwemoji échec:", (et && et.message) || et); } }
     // 1bis) Citations + bibliographie réalisées manuellement (pandoc.wasm n'a
@@ -5032,6 +5101,87 @@ listBibCslSources(ext) {
     });
   }
 
+  // Mermaid met le texte de ses étiquettes dans des éléments HTML `<foreignObject>`
+  // (`.nodeLabel`, `.edgeLabel`…). Le moteur SVG de Typst (resvg/usvg) IGNORE les
+  // `<foreignObject>` : sur le PDF typst, seules les formes s'affichent, TEXTE
+  // ABSENT. On remplace donc chaque `<foreignObject>` par un vrai `<text>` SVG
+  // (mêmes coordonnées locales, même police/taille/couleur), pour que le texte des
+  // diagrammes réapparaisse dans le PDF typst (et reste vectoriel).
+  _flattenSvgForeignObjects(svg) {
+    try {
+      if (!svg || svg.indexOf("<foreignObject") === -1) return svg;
+      if (typeof DOMParser === "undefined" || typeof XMLSerializer === "undefined") return svg;
+      const doc = new DOMParser().parseFromString(svg, "image/svg+xml");
+      if (!doc || !doc.querySelectorAll) return svg;
+      if (doc.querySelector("parsererror")) return svg;
+      const NS = "http://www.w3.org/2000/svg";
+      const fos = Array.prototype.slice.call(doc.querySelectorAll("foreignObject"));
+      if (!fos.length) return svg;
+      for (const fo of fos) {
+        const parent = fo.parentNode;
+        if (!parent) continue;
+        const x = parseFloat(fo.getAttribute("x")) || 0;
+        const y = parseFloat(fo.getAttribute("y")) || 0;
+        const w = parseFloat(fo.getAttribute("width")) || 0;
+        const h = parseFloat(fo.getAttribute("height")) || 0;
+        if (!w || !h) continue;
+        // Styling inline porté par le <div> enfant (mermaid l'injecte en dur).
+        const div = fo.querySelector("div");
+        const st = div ? (div.getAttribute("style") || "") : "";
+        let fontSize = 16;
+        const fsM = /font-size\s*:\s*([\d.]+)px/.exec(st);
+        if (fsM) fontSize = parseFloat(fsM[1]);
+        let fontFamily = "";
+        const ffM = /(?:^|[;])\s*font-family\s*:\s*([^;]+)/.exec(st);
+        if (ffM) fontFamily = ffM[1].trim();
+        let fill = "#333333";
+        const colM = /(?:^|[;])\s*color\s*:\s*([^;]+)/.exec(st);
+        if (colM) fill = colM[1].trim();
+        // Extraire le texte en conservant les retours à la ligne (<br>).
+        const chuncks = [];
+        const walk = (node) => {
+          for (let i = 0; i < node.childNodes.length; i++) {
+            const child = node.childNodes[i];
+            if (!child) continue;
+            if (child.nodeType === 3) { chuncks.push(child.nodeValue || ""); }
+            else if (child.nodeType === 1) {
+              const tag = (child.tagName || "").toLowerCase();
+              if (tag === "br") { chuncks.push("\n"); continue; }
+              walk(child);
+            }
+          }
+        };
+        chuncks.length = 0;
+        walk(fo);
+        const raw = chuncks.join("").replace(/\s*\n\s*/g, "\n").trim();
+        if (!raw) continue;
+        const parts = raw.split("\n").map(s => s.trim()).filter(Boolean);
+        if (!parts.length) continue;
+        const cx = x + w / 2;
+        const cy = y + h / 2;
+        const text = doc.createElementNS(NS, "text");
+        text.setAttribute("x", String(cx));
+        text.setAttribute("text-anchor", "middle");
+        text.setAttribute("font-size", fontSize + "px");
+        if (fontFamily) text.setAttribute("font-family", fontFamily);
+        text.setAttribute("fill", fill);
+        const lh = Math.round(fontSize * 1.2);
+        parts.forEach((ln, i) => {
+          const tspan = doc.createElementNS(NS, "tspan");
+          tspan.setAttribute("x", String(cx));
+          tspan.setAttribute("y", String(cy - ((parts.length - 1) / 2 - i) * lh + fontSize * 0.35));
+          tspan.textContent = ln;
+          text.appendChild(tspan);
+        });
+        parent.replaceChild(text, fo);
+      }
+      return new XMLSerializer().serializeToString(doc.documentElement || doc);
+    } catch (e) {
+      console.warn("[mergdown2tex][mermaid] aplatissement foreignObject échoué:", (e && e.message) || e);
+      return svg;
+    }
+  }
+
   // Rend les blocs mermaid en PNG. EXECUTION NON-BLOQUANTE : on donne au
   // rendu une fenêtre de temps maximale (TIMEOUT_MS) et on libère le thread
   // (await/raf) entre chaque diagramme. Si le temps est dépassé, on abandonne
@@ -5103,13 +5253,15 @@ listBibCslSources(ext) {
         const fileName = `diagram_${Date.now()}_${idx}.svg`;
         const diagDir = relParent ? `${relParent}/mermaid_diagrams` : "mermaid_diagrams";
         const filePath = `${diagDir}/${fileName}`;
-        // On sauvegarde le SVG TELLE QUEL (texte) : le canvas ne rend pas les
-        // <foreignObject> de mermaid (labels vides en PNG), alors que Typst
-        // importe natifivement le SVG → diagramme complet avec texte. On écrit en
-        // TEXTE (adapter.write) puisque c'est un .svg.
+        // On sauvegarde le SVG en TEXTE (adapter.write), après avoir aplati les
+        // <foreignObject> de mermaid (labels HTML) en vrais <text> SVG : le
+        // canvas ne rend pas les <foreignObject> (labels vides en PNG) et le
+        // moteur SVG de Typst (resvg) les IGNORE aussi → texte absent du PDF.
+        // Les <text> aplatis garantissent que label, police et taille survivent.
+        const svgOut = this._flattenSvgForeignObjects(svg);
         if (this.app.vault.adapter && this.app.vault.adapter.write) {
           await vaultMkdir(this.app, diagDir);
-          await this.app.vault.adapter.write(filePath, svg);
+          await this.app.vault.adapter.write(filePath, svgOut);
           // Légende : on extrait un titre éventuel du bloc mermaid (ligne
           // `%%caption: ...%%` en tout début), sinon on met une légende neutre.
           const capMatch = def.match(/^\s*%%\s*caption\s*:\s*(.+?)\s*%%\s*[\r\n]*/i);
@@ -5117,7 +5269,7 @@ listBibCslSources(ext) {
           parts.push(`![${cap}](${diagDir}/${fileName})`);
           console.log(`[mergdown2tex][mobile] Diagramme Mermaid (SVG) sauvegardé : ${filePath}`);
         } else {
-          parts.push(`![](${"data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svg)))})`);
+          parts.push(`![](${"data:image/svg+xml;base64," + btoa(unescape(encodeURIComponent(svgOut)))})`);
         }
       } catch (e) {
         console.warn("[mergdown2tex] mermaid render failed:", (e && e.message) || e);

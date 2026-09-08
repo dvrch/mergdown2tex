@@ -49,6 +49,30 @@ Par défaut, le fichier `.typ` n'existe que temporairement en mémoire. Activez 
 
 - `MergDown2TeX: Compile le .typ jumeau en PDF (reprend le .typ produit)`
 
+### Page de garde
+
+Un PDF compilé via **Typst** reçoit une **page de garde simple** (une seule page isolée) qui affiche uniquement :
+
+- le **titre** — d'abord le champ **`Titre du document`** des Réglages, sinon celui des métadonnées du fichier (front matter YAML `title`/`subtitle`, ou `\title{}`) ;
+- l'**auteur** — d'abord le champ **`Auteur du document (Force)`** des Réglages, sinon celui des métadonnées (`author`/`\author{}`) ;
+- la **date** — uniquement si elle provient des métadonnées (`date`/`\date{}`).
+
+Le premier bloc du document n'est **jamais** utilisé comme contenu de la couverture. Si ni les Réglages ni les métadonnées ne fournissent un titre, **aucune page de garde n'est générée** (le document démarre directement par son sommaire).
+
+### En-tête et pied de page
+
+Les réglages **`En-tête personnalisé`** / **`Contenu de l'en-tête`** et **`Pied de page personnalisé`** / **`Contenu du pied de page`** s'appliquent **aussi en mode Typst**, avec un rendu équivalent à LaTeX :
+
+- **En-tête** : texte aligné à droite, gris, 9 pt ;
+- **Pied de page** : contenu du pied + **numéro de page** toujours affiché à droite (`\thepage` → `#context counter(page).display()`) ;
+- **Ligne horizontale** grise sous l'en-tête et au-dessus du pied de page (présente dès que le réglage correspondant est activé).
+
+Les métadonnées `\thetitle`, `\theauthor` et `\thedate`/`\today` sont traduites dans l'en-tête/pied.
+
+### Diagrammes Mermaid
+
+Dans le pipeline **Pandoc WASM + Typst**, les **étiquettes des diagrammes Mermaid sont maintenant rendues** dans le PDF : les blocs `<foreignObject>` (contenus HTML) sont automatiquement aplatis en éléments SVG `<text>` avant compilation, avec fonte, couleur et taille reprises des styles du diagramme. Auparavant, seules les formes (boîtes, flèches) apparaissaient.
+
 ---
 
 ## Mode 2 : pdflatex + Podman/Docker (PC, LaTeX natif)

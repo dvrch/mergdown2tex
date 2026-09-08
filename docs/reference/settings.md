@@ -78,8 +78,8 @@ Les réglages de MergDown2TeX se configurent dans Obsidian.
 
 | Réglage | Type | Description |
 |---|---|---|
-| `Titre du document` | Texte | Titre par défaut |
-| `Auteur du document (Force)` | Texte | Auteur forcé |
+| `Titre du document` | Texte | Titre affiché sur la page de garde du PDF (prioritaire sur les métadonnées du fichier) |
+| `Auteur du document (Force)` | Texte | Auteur affiché sur la page de garde du PDF (prioritaire sur les métadonnées du fichier) |
 | `Préambule LaTeX personnalisé` | Textarea | Preamble LaTeX personnalisé |
 | `Style de citation (CSL)` | Sélection | Fichier `.csl` utilisé (styles auto-hébergés dans `resources/csl/`) |
 | `Chemin de la bibliographie (.bib)` | Texte | Chemin vers le fichier `.bib` |
@@ -90,10 +90,10 @@ Les réglages de MergDown2TeX se configurent dans Obsidian.
 
 | Réglage | Type | Description |
 |---|---|---|
-| `En-tête personnalisé` | Toggle | Active un texte d'en-tête |
-| `Contenu de l'en-tête` | Texte | Texte en haut de chaque page |
-| `Pied de page personnalisé` | Toggle | Active un texte de pied de page |
-| `Contenu du pied de page` | Texte | Texte en bas de chaque page |
+| `En-tête personnalisé` | Toggle | Active un texte d'en-tête (appliqué aussi en mode PDF Typst : texte à droite, gris 9 pt, + ligne horizontale) |
+| `Contenu de l'en-tête` | Texte | Texte en haut de chaque page (supporte `\thetitle`, `\theauthor`, `\thedate`) |
+| `Pied de page personnalisé` | Toggle | Active un texte de pied de page (appliqué aussi en mode PDF Typst ; numéro de page toujours affiché à droite) |
+| `Contenu du pied de page` | Texte | Texte en bas de chaque page (supporte `\thepage`, `\thetitle`, `\theauthor`, `\thedate` ; le mot « Page » est retiré en mode Typst) |
 | `Largeur par défaut des tableaux` | Nombre (défaut `0.95`) | Fraction de `\textwidth` pour les tableaux sans largeur spécifiée |
 
 ---
