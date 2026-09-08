@@ -1865,6 +1865,7 @@ class Markdown2TexPlugin extends Plugin {
     };
     try {
       if (typeof fetch !== "function" || !progress) {
+        if (progress) progress.setStatus("Téléchargement en cours… (progression continue non affichable sur cet appareil)");
         const l = await viaRequest();
         return l;
       }
@@ -1961,53 +1962,53 @@ class Markdown2TexPlugin extends Plugin {
     if (progress) { progress.setTitle(noticeLabel); progress.setStatus("Préparation…"); }
     else new Notice(noticeLabel + "…");
     this._dlLog("installWasmZip", zipName, "début");
-    // Zip brut mis en cache dans <plugin>/cache-dl/ : (a) un zip posé là
-    // manuellement (téléchargé via les liens de secours) est décompressé sans
-    // réseau ; (b) un téléchargement réussi est d'abord écrit sur disque puis
-    // effacé après décompression — le zip reste inspectable en cas de souci.
-    const p = requirePathOrNull();
-    const cacheFile = p ? p.join(this.getPluginDir(), "cache-dl", zipName) : null;
+    // Disk-first (PC ET mobile) : le zip est d'abord écrit en clair dans
+    // <plugin>/cache-dl/, le tampon du téléchargement est libéré, PUIS on
+    // décompresse le fichier écrit sur disque, et on efface la source à la fin.
+    // Avantages : moitié moins de mémoire en pointe (crucial sur Android), et un
+    // zip déposé à la main dans cache-dl/ (liens de dépannage) est décompressé
+    // sans repasser par le réseau.
+    const cacheRel = this.manifest.dir + "/cache-dl/" + zipName;
+    const a = adapterGet(this.app);
     let arrayBuffer = null;
     let fromCache = false;
-    if (cacheFile) {
-      try {
-        if (fs.existsSync(cacheFile)) {
-          const buf = fs.readFileSync(cacheFile);
-          if (buf.length > 4 && buf[0] === 0x50 && buf[1] === 0x4b) {
-            try {
-              const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-              const chk = this.unzipAll(ab);
-              if (Object.keys(chk).length > 0) { arrayBuffer = ab; fromCache = true; }
-            } catch (e) {}
-          }
-          if (!arrayBuffer) { try { fs.unlinkSync(cacheFile); } catch (e) {} }
+    try {
+      if (await vaultExists(this.app, cacheRel)) {
+        const raw = await vaultReadBinary(this.app, cacheRel);
+        if (raw && raw.length > 4 && raw[0] === 0x50 && raw[1] === 0x4b) {
+          try {
+            const ab = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
+            const chk = this.unzipAll(ab);
+            if (Object.keys(chk).length > 0) { arrayBuffer = ab; fromCache = true; }
+          } catch (e) {}
         }
-      } catch (e) {}
-    }
+        if (!arrayBuffer && a && typeof a.remove === "function") { try { await a.remove(cacheRel); } catch (e) {} }
+      }
+    } catch (e) {}
     if (fromCache) {
-      if (progress) progress.setStatus("Zip déjà présent dans cache-dl — décompression…");
+      if (progress) progress.setStatus("Zip déjà présent (cache-dl) — décompression…");
       this._dlLog("installWasmZip", zipName, "depuis cache-dl (hors-ligne)");
     } else {
-      arrayBuffer = await this.downloadBytes(this.wasmZipUrl(zipName), progress);
-      if (cacheFile) {
-        try {
-          fs.mkdirSync(path.dirname(cacheFile), { recursive: true });
-          fs.writeFileSync(cacheFile, Buffer.from(arrayBuffer));
-          this._dlLog("installWasmZip", zipName, "zip brut écrit dans cache-dl");
-        } catch (e) {}
+      const buf = new Uint8Array(await this.downloadBytes(this.wasmZipUrl(zipName), progress));
+      try {
+        await vaultMkdir(this.app, cacheRel.slice(0, cacheRel.lastIndexOf("/")));
+        await vaultWriteBinary(this.app, cacheRel, buf);
+        this._dlLog("installWasmZip", zipName, "zip écrit sur disque avant extraction");
+        buf.fill(0); // libère la mémoire du tampon téléchargé avant d'extraire
+        const reloaded = await vaultReadBinary(this.app, cacheRel);
+        arrayBuffer = reloaded.buffer.slice(reloaded.byteOffset, reloaded.byteOffset + reloaded.byteLength);
+      } catch (e) {
+        this._dlLog("installWasmZip", zipName, "cache disque indisponible, extraction en mémoire", (e && e.message) || e);
+        arrayBuffer = buf.buffer;
       }
     }
     const all = this.unzipAll(arrayBuffer);
     const base = this.wasmDir();
-    const a = adapterGet(this.app);
     let written = 0;
     const entries = [];
     const totalWritable = Object.keys(all).filter((n) => !n.endsWith("/")).length;
     for (const [name, data] of Object.entries(all)) {
       if (name.endsWith("/")) continue; // dossier explicite
-      if (progress && totalWritable) {
-        progress.setProgress(0.05 + 0.95 * (written / totalWritable), "Décompression et installation : " + written + " / " + totalWritable + " fichiers…");
-      }
       const clean = name.replace(/^wasm\//, "").replace(/^\/+/, "");
       if (!clean) continue;
       const rel = base + "/" + clean;
@@ -2026,8 +2027,14 @@ class Markdown2TexPlugin extends Plugin {
       }
       await vaultWriteBinary(this.app, rel, data);
       written++;
+      // Repaint de la popup à chaque fichier (l'extraction était synchrone et
+      // figeait l'écran pendant « décompression et installation »).
+      if (progress && totalWritable) {
+        progress.setProgress(0.05 + 0.95 * (written / totalWritable), "Décompression et installation : " + written + " / " + totalWritable + " fichiers…");
+      }
+      await new Promise((r) => setTimeout(r, 0));
     }
-    if (cacheFile) { try { if (fs.existsSync(cacheFile)) fs.unlinkSync(cacheFile); } catch (e) {} }
+    if (a && typeof a.remove === "function") { try { await a.remove(cacheRel); } catch (e) {} }
     this._dlLog("installWasmZip", zipName, "terminé", String(written), "fichiers");
     if (progress) { progress.setProgress(1, "Installé : " + written + " fichiers"); }
     else new Notice("Installé : " + written + " fichiers (" + base + ")");
