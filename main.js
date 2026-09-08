@@ -2,7 +2,7 @@
 // All memory management functions, raw bindings, and high-level wrappers
 // from vlatex_bg.js and vlatex.js merged here
 
-const { Plugin, Notice, PluginSettingTab, Setting, requestUrl, Platform, Modal, ProgressBar } = require("obsidian");
+const { Plugin, Notice, PluginSettingTab, Setting, requestUrl, Platform, Modal } = require("obsidian");
 
 // --- Multiplateforme (PC + Android) ---
 // fs/path/crypto/zlib/child_process n'existent pas sur Obsidian mobile.
@@ -1293,7 +1293,18 @@ class DownloadProgressModal extends Modal {
       cls: "mergdown2tex-dl-title",
       attr: { style: "font-weight:600;margin-bottom:10px;font-size:1.05em" },
     });
-    this._bar = new ProgressBar(contentEl);
+    // Barre de progression en DOM pur. L'API Obsidian « ProgressBar » a été
+    // renommée « ProgressBarComponent » dans les versions récentes : la
+    // créer avec `new ProgressBar(...)` lève « ProgressBar is not a
+    // constructor » et laisse la popup vide (aucun téléchargement ne
+    // démarrait). Un <div> natif évite toute dépendance à cette API.
+    const track = contentEl.createEl("div", {
+      attr: { style: "width:100%;height:8px;background:var(--background-modifier-border);border-radius:4px;overflow:hidden" },
+    });
+    const fill = track.createEl("div", {
+      attr: { style: "width:0%;height:100%;background:var(--interactive-accent);border-radius:4px;transition:width .2s ease" },
+    });
+    this._bar = { setValue: (v) => { fill.style.width = (Math.max(0, Math.min(1, v)) * 100) + "%"; } };
     this._statusEl = contentEl.createEl("div", {
       text: "Préparation…",
       cls: "mergdown2tex-dl-status",
