@@ -1788,10 +1788,25 @@ class Markdown2TexPlugin extends Plugin {
   // native d'Obsidian qui fonctionne partout (PC et mobile), comme avant 2.1.3.
   async downloadBytes(url, progress) {
     if (progress) progress.setStatus("Connexion au serveur…");
+    // requestUrl est l'API native d'Obsidian (PC + mobile) : fiable. On retente
+    // en cas d'échec réseau transitoire (net::ERR_TIMED_OUT, DNS…, observés
+    // aussi sur les mises à jour d'Obsidian) avant d'abandonner.
     const viaRequest = async () => {
-      const resp = await requestUrl({ url, throw: false, responseType: "arraybuffer" });
-      if (resp.status < 200 || resp.status >= 300) throw new Error("HTTP " + resp.status);
-      return resp.arrayBuffer;
+      let lastErr = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          const resp = await requestUrl({ url, throw: false, responseType: "arraybuffer" });
+          if (resp.status < 200 || resp.status >= 300) throw new Error("HTTP " + resp.status);
+          return resp.arrayBuffer;
+        } catch (e) {
+          lastErr = e;
+          if (attempt < 3) {
+            if (progress) progress.setStatus("Connexion… nouvelle tentative (" + attempt + "/3) — " + ((e && e.message) || e));
+            await new Promise((r) => setTimeout(r, 800 * attempt));
+          }
+        }
+      }
+      throw lastErr;
     };
     if (typeof fetch !== "function" || !progress) return viaRequest();
     const race = (p, ms) => new Promise((res, rej) => {
@@ -1917,7 +1932,9 @@ class Markdown2TexPlugin extends Plugin {
       if (progress) progress.setProgress(1, "pandoc.wasm installé ✅");
       return await this.pandocWasmExists();
     } catch (e) {
-      if (!progress) new Notice("Échec du bundle WASM pandoc: " + ((e && e.message) || e), 5000);
+      const msg = "Échec du bundle WASM pandoc: " + ((e && e.message) || e);
+      if (!progress) new Notice(msg, 5000);
+      else if (progress) progress.setStatus(msg);
       return false;
     }
   }
@@ -1930,13 +1947,17 @@ class Markdown2TexPlugin extends Plugin {
     try {
       await this.downloadTypstWasmZip(progress);
     } catch (e) {
-      if (!progress) new Notice("Échec du bundle WASM typst: " + ((e && e.message) || e), 5000);
+      const msg = "Échec du bundle WASM typst: " + ((e && e.message) || e);
+      if (!progress) new Notice(msg, 5000);
+      else if (progress) progress.setStatus(msg);
       return false;
     }
     try {
       if (!(await this.typstFontsOk())) await this.downloadTypstFontsZip(progress);
     } catch (e) {
-      if (!progress) new Notice("Échec du bundle des polices typst: " + ((e && e.message) || e), 5000);
+      const msg = "Échec du bundle des polices typst: " + ((e && e.message) || e);
+      if (!progress) new Notice(msg, 5000);
+      else if (progress) progress.setStatus(msg);
     }
     if (progress) progress.setProgress(1, "typst.wasm + polices installés ✅");
     return await this.typstWasmExists();
@@ -1946,14 +1967,24 @@ class Markdown2TexPlugin extends Plugin {
   async ensureTypstWasmOnlyZip(progress) {
     if (await this.typstWasmExists()) { if (progress) progress.setProgress(1, "typst.wasm déjà présent ✅"); return true; }
     try { await this.downloadTypstWasmZip(progress); if (progress) progress.setProgress(1, "typst.wasm installé ✅"); return await this.typstWasmExists(); }
-    catch (e) { if (!progress) new Notice("Échec typst.wasm: " + ((e && e.message) || e), 5000); return false; }
+    catch (e) {
+      const msg = "Échec typst.wasm: " + ((e && e.message) || e);
+      if (!progress) new Notice(msg, 5000);
+      else if (progress) progress.setStatus(msg);
+      return false;
+    }
   }
 
   // Version individuelle : télécharge uniquement typst_fonts.zip (sans le moteur).
   async ensureTypstFontsOnlyZip(progress) {
     if (await this.typstFontsOk()) { if (progress) progress.setProgress(1, "Polices déjà présentes ✅"); return true; }
     try { await this.downloadTypstFontsZip(progress); if (progress) progress.setProgress(1, "Polices installées ✅"); return await this.typstFontsOk(); }
-    catch (e) { if (!progress) new Notice("Échec polices typst: " + ((e && e.message) || e), 5000); return false; }
+    catch (e) {
+      const msg = "Échec polices typst: " + ((e && e.message) || e);
+      if (!progress) new Notice(msg, 5000);
+      else if (progress) progress.setStatus(msg);
+      return false;
+    }
   }
 
   // Vrai quand au moins 4 polices sont présentes dans wasm/fonts/ (seuil de
