@@ -2,6 +2,14 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [2.1.9] — 2026-09-09
+
+### Renforcé (téléchargements — PC ET mobile)
+- **Zone de dépôt `mergdown2tex_cache/` à la racine du vault** (visible dans l'explorateur) : chaque zip téléchargé est d'abord écrit ici, puis décompressé vers le bon dossier du plugin (`wasm/`, `fonts/`) et **effacé**. On peut y déposer soi-même un zip (liens de dépannage, glisser-déposer) : « Télécharger la sélection » le décompresse **au bon endroit sans réseau**, sur PC **et** sur Android.
+- **Mobile : extraction non bloquante et économe en mémoire** — sur Android, `requestUrl` téléchargeait tout en mémoire puis une extraction synchrone figeait l'écran (popup « décompression » immobile) et doublait la mémoire en pointe (crashs). Désormais : le zip est écrit sur disque (`mergdown2tex_cache/`), le tampon téléchargé est libéré, puis l'extraction se fait **fichier par fichier avec repaint** (« Décompression et installation : n/N fichiers ») et la source est effacée à la fin.
+- Message explicite quand la progression en octets n'est pas affichable (repli `requestUrl` sans streaming) — la barre de balayage reste animée.
+- Vérifié : les assets GitHub sont publics ; **aucun compte GitHub n'est requis** pour télécharger (URL signée auto-générée, comme un lien manuel).
+
 ## [2.1.8] — 2026-09-08
 
 ### Corrigé
