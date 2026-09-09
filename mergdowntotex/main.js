@@ -1738,16 +1738,9 @@ class Markdown2TexPlugin extends Plugin {
 
   async pandocWasmExists() {
     const rel = this.pandocWasmRel();
-    const a = adapterGet(this.app);
-    if (a && typeof a.exists === "function") {
-      // Mobile ou desktop : écoute via l'adapter (app.vault.adapter)
-      try { return await a.exists(rel); } catch (e) { /* fallback fs */ }
-    }
-    try {
-      return fs.existsSync(path.join(this.getPluginDir(), "wasm", "pandoc.wasm"));
-    } catch (e) {
-      return false;
-    }
+    // Pleine taille exigée : un pandoc.wasm de 0 octet (tronqué/écriture
+    // interrompue) ne doit PAS être considéré comme installé.
+    return this.wasmFileComplete(rel, this.WASM_EXPECTED_BYTES()["pandoc.wasm"]);
   }
 
   typstWasmRel() {
@@ -1757,15 +1750,7 @@ class Markdown2TexPlugin extends Plugin {
 
   async typstWasmExists() {
     const rel = this.typstWasmRel();
-    const a = adapterGet(this.app);
-    if (a && typeof a.exists === "function") {
-      try { return await a.exists(rel); } catch (e) { /* fallback fs */ }
-    }
-    try {
-      return fs.existsSync(path.join(this.getPluginDir(), "wasm", "typst.wasm"));
-    } catch (e) {
-      return false;
-    }
+    return this.wasmFileComplete(rel, this.WASM_EXPECTED_BYTES()["typst.wasm"]);
   }
 
   async ensureTypstWasm() {
@@ -1782,12 +1767,15 @@ class Markdown2TexPlugin extends Plugin {
 
   async downloadPandocWasm(release) {
     new Notice("Téléchargement de pandoc.wasm (" + (release.size || "?") + " octets)...");
-    const resp = await requestUrl({ url: release.browser_download_url, throw: false, responseType: "arraybuffer" });
-    if (resp.status < 200 || resp.status >= 300) {
-      throw new Error("Échec du téléchargement: HTTP " + resp.status);
-    }
-    const arrBuf = resp.arrayBuffer;
+    // Via downloadBytes (retries, redirections, timeouts) plutôt qu'un
+    // requestUrl brut : évite les téléchargements interrompus.
+    const arrBuf = await this.downloadBytes(release.browser_download_url, null);
     const wasmBytes = this.extractWasmFromZip(arrBuf, release.browser_download_url);
+    // Pleine taille exigée : refuse d'écrire un pandoc.wasm tronqué/0 octet.
+    const want = this.WASM_EXPECTED_BYTES()["pandoc.wasm"];
+    if (!wasmBytes || wasmBytes.byteLength !== want) {
+      throw new Error("pandoc.wasm extrait tronqué (" + ((wasmBytes && wasmBytes.byteLength) || 0) + " octets, attendu " + want + ").");
+    }
     // Chemin RELATIF au vault (.obsidian/plugins/<id>/wasm/pandoc.wasm) : identique
     // sur PC et Android. Sur mobile, tout chemin absolu système via le stub path
     // serait recopié dans le vault (préfixe système doublé) → on écrit en relatif.
@@ -1817,6 +1805,42 @@ class Markdown2TexPlugin extends Plugin {
     return "https://github.com/dvrch/mergdown2tex/releases/download/bundle/" + zipName;
   }
 
+  // Tailles de référence (octets) des fichiers extraits du bundle publié dans
+  // la release "bundle". Servent à ne jamais laisser passer un fichier "0
+  // octet" ou tronqué qui ferait croire que la ressource est installée : un
+  // pandoc.wasm de 0 octet affiché comme téléchargé trompe l'utilisateur puis
+  // fait échouer la compilation. À synchroniser avec les zips publiés.
+  WASM_EXPECTED_BYTES() {
+    return { "pandoc.wasm": 59075382, "typst.wasm": 28325178, fontsTotal: 13419040 };
+  }
+
+  // Taille réelle (octets) d'un fichier relatif au vault, via l'adapter
+  // d'Obsidian (fiable PC et mobile). Retourne 0 si absent, null si
+  // indéterminable (jamais fs.statSync seul sur mobile : le stub répond 0).
+  async vaultFileSize(rel) {
+    const a = adapterGet(this.app);
+    if (a && typeof a.stat === "function") {
+      try {
+        const st = await a.stat(rel);
+        if (st && typeof st.size === "number") return st.size;
+      } catch (e) { /* absent ou erreur */ }
+    }
+    try {
+      const abs = path.join(this.getPluginDir(), rel.slice(this.manifest.dir.length));
+      return fs.statSync(abs).size;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  // Vrai quand le fichier attendu existe ET fait exactement la taille de
+  // référence. Un fichier tronqué/partiel (0 octet entre autres) n'est donc
+  // JAMAIS considéré comme installé → le moteur le retélécharge/réinstalle.
+  async wasmFileComplete(rel, expectedBytes) {
+    const size = await this.vaultFileSize(rel);
+    return size === expectedBytes;
+  }
+
   // Télécharge une ressource binaire. Retourne un ArrayBuffer (ou lance une
   // erreur). Si `progress` est fourni ET que `fetch` est disponible, on
   // rapporte une VRAIE progression en octets (barre déterminée + Mo) ; sinon
@@ -1843,7 +1867,12 @@ class Markdown2TexPlugin extends Plugin {
         this._dlLog("downloadBytes", "https node KO", (e && e.message) || e);
       }
     }
-    // 2) requestUrl puis fetch : 3 essais chacun, timeouts durs partout.
+    // 2) requestUrl D'ABORD : API native d'Obsidian (réseau système), rapide
+    //    sur PC ET mobile ; 3 essais, timeouts durs. 3) fetch en repli : seule
+    //    variante à rapporter une vraie progression en octets quand requestUrl
+    //    échoue. On essayait auparavant fetch en premier, ce qui rendait les
+    //    téléchargements lents/instables sur mobile (le pont fetch y est
+    //    capricieux) alors que le PC, lui, passait par le https natif.
     const viaRequest = async () => {
       let lastErr = null;
       for (let attempt = 1; attempt <= 3; attempt++) {
@@ -1863,25 +1892,23 @@ class Markdown2TexPlugin extends Plugin {
       }
       throw lastErr;
     };
-    try {
-      if (typeof fetch !== "function" || !progress) {
-        if (progress) progress.setStatus("Téléchargement en cours… (progression continue non affichable sur cet appareil)");
-        const l = await viaRequest();
-        return l;
-      }
+    // 3) fetch : uniquement en secours si requestUrl a échoué (progression réelle).
+    const viaFetch = async () => {
+      if (typeof fetch !== "function" || !progress) return null;
       try {
-        const resp = await withTimeout(fetch(url), 20000, "délai dépassé — repli requestUrl");
+        const resp = await withTimeout(fetch(url), 20000, "délai dépassé — repli");
         if (!resp || !resp.ok) throw new Error("HTTP " + (resp && resp.status));
         const total = Number(resp.headers.get("Content-Length")) || 0;
         const reader = resp.body && resp.body.getReader ? resp.body.getReader() : null;
         if (!reader) {
-          const ab = await withTimeout(resp.arrayBuffer(), 90000, "délai dépassé — repli requestUrl");
+          const ab = await withTimeout(resp.arrayBuffer(), 90000, "délai dépassé");
+          if (progress && ab && ab.byteLength) progress.setProgress(1, "Téléchargement : " + Math.max(1, Math.round(ab.byteLength / 1048576)) + " Mo…");
           return ab;
         }
         const chunks = [];
         let received = 0;
         for (;;) {
-          const { done, value } = await withTimeout(reader.read(), 20000, "flux suspendu — repli requestUrl");
+          const { done, value } = await withTimeout(reader.read(), 20000, "flux suspendu — repli");
           if (done) break;
           if (value) { chunks.push(value); received += value.length; }
           if (total > 0) {
@@ -1898,12 +1925,22 @@ class Markdown2TexPlugin extends Plugin {
         return out.buffer;
       } catch (e) {
         errs.push("fetch: " + ((e && e.message) || e));
-        try { console.warn("[mergdown2tex] fetch inutilisable, repli requestUrl :", (e && e.message) || e); } catch (ew) {}
+        return null;
+      }
+    };
+    if (typeof requestUrl !== "function") {
+      const f = await viaFetch();
+      if (f) return f;
+    } else {
+      try {
         const l = await viaRequest();
         return l;
+      } catch (e) {
+        errs.push("requestUrl: " + ((e && e.message) || e));
+        if (progress) progress.setStatus("requestUrl indisponible — tentative par fetch…");
+        const f = await viaFetch();
+        if (f) return f;
       }
-    } catch (e) {
-      errs.push("requestUrl: " + ((e && e.message) || e));
     }
     this._dlLog("downloadBytes", "ÉCHEC total", errs.join(" | "));
     throw new Error("Téléchargement impossible via Obsidian (" + errs.join(" ; ") + "). Réessayez, ou prenez les liens manuels ci-dessous puis déposez le zip à la RACINE du vault (téléchargement de la sélection le décompresse ensuite sans réseau).");
@@ -2009,6 +2046,26 @@ class Markdown2TexPlugin extends Plugin {
       }
     }
     const all = this.unzipAll(arrayBuffer);
+    // Validation des tailles extraites : un fichier "0 octet" ou tronqué issue
+    // d'un téléchargement interrompu ne doit JAMAIS écraser une installation
+    // correcte ni laisser croire qu'elle est faite.
+    const expected = this.WASM_EXPECTED_BYTES();
+    if (zipName === "pandoc_wasm.zip" || zipName === "typst_wasm.zip") {
+      const wantName = zipName === "pandoc_wasm.zip" ? "pandoc.wasm" : "typst.wasm";
+      const d = all[wantName];
+      const got = d && d.length ? d.length : 0;
+      if (got !== expected[wantName]) {
+        if (a && typeof a.remove === "function") { try { await a.remove(cacheRel); } catch (e) {} }
+        throw new Error("Archive " + zipName + " tronquée ou corrompue : " + wantName + " = " + got + " octets (attendu : " + expected[wantName] + "). Téléchargement incomplet — réessayez ou déposez le zip complet à la racine du vault.");
+      }
+    } else if (zipName === "typst_fonts.zip") {
+      let tot = 0;
+      for (const d of Object.values(all)) if (d && d.length) tot += d.length;
+      if (tot < expected.fontsTotal) {
+        if (a && typeof a.remove === "function") { try { await a.remove(cacheRel); } catch (e) {} }
+        throw new Error("Archive typst_fonts.zip tronquée (" + tot + " octets, attendu " + expected.fontsTotal + "). Téléchargement incomplet — réessayez.");
+      }
+    }
     const base = this.wasmDir();
     let written = 0;
     const entries = [];
@@ -2018,6 +2075,10 @@ class Markdown2TexPlugin extends Plugin {
       const clean = name.replace(/^wasm\//, "").replace(/^\/+/, "");
       if (!clean) continue;
       const rel = base + "/" + clean;
+      if (!(data && data.length > 0)) {
+        if (a && typeof a.remove === "function") { try { await a.remove(rel); } catch (e) {} }
+        continue;
+      }
       entries.push(rel);
       const parent = rel.slice(0, rel.lastIndexOf("/"));
       // Création récursive des parents (adapter.mkdir n'est pas toujours
@@ -2033,6 +2094,13 @@ class Markdown2TexPlugin extends Plugin {
       }
       await vaultWriteBinary(this.app, rel, data);
       written++;
+      // Vérifie que le fichier a bien été écrit à pleine taille : une écriture
+      // interrompue à 0 octet est détectée et signalée, jamais affichée installée.
+      const szWritten = await this.vaultFileSize(rel);
+      if (szWritten === null || szWritten === 0) {
+        if (a && typeof a.remove === "function") { try { await a.remove(rel); } catch (e) {} }
+        throw new Error("Écriture incomplète de " + rel + " (" + (szWritten === null ? "taille indéterminable" : "0 octet") + "). Réessayez.");
+      }
       // Repaint de la popup à chaque fichier (l'extraction était synchrone et
       // figeait l'écran pendant « décompression et installation »).
       if (progress && totalWritable) {
@@ -3994,6 +4062,10 @@ class Markdown2TexPlugin extends Plugin {
         const resp = await requestUrl({ url: mp, throw: false, responseType: "arraybuffer" });
         if (resp.status < 200 || resp.status >= 300) throw new Error("Téléchargement typst.wasm échoué (HTTP " + resp.status + ")");
         wasmBytes = new Uint8Array(resp.arrayBuffer);
+        // Pleine taille exigée : refuse d'écrire un typst.wasm tronqué/0 octet.
+        if (wasmBytes.length !== this.WASM_EXPECTED_BYTES()["typst.wasm"]) {
+          throw new Error("typst.wasm téléchargé tronqué (" + wasmBytes.length + " octets, attendu " + this.WASM_EXPECTED_BYTES()["typst.wasm"] + ").");
+        }
         try { await vaultMkdir(this.app, wasmRel.split("/").slice(0, -1).join("/")); } catch (e) {}
         try { await vaultWriteBinary(this.app, wasmRel, wasmBytes); } catch (e) {}
       }
@@ -4016,6 +4088,7 @@ class Markdown2TexPlugin extends Plugin {
           const resp = await requestUrl({ url: `${hp}/${vp.base.repo}/files/fonts/${file}`, throw: false, responseType: "arraybuffer" });
           if (resp.status < 200 || resp.status >= 300) continue;
           const arr = new Uint8Array(resp.arrayBuffer);
+          if (!arr || arr.length === 0) continue; // jamais de police à 0 octet
           fonts.push(arr);
           try { await vaultWriteBinary(this.app, fontRelDir + "/" + file, arr); } catch (e) {}
         } catch (e) { console.warn("[mergdown2tex] font dl failed:", file, e.message); }
