@@ -1442,7 +1442,7 @@ class Markdown2TexSettingTab extends PluginSettingTab {
 
     const dlLinksSetting = new Setting(containerEl)
       .setName("Liens de téléchargement manuels (dépannage)")
-      .setDesc("Si l'installation automatique échoue (réseau d'Obsidian bloqué) : le moyen le plus sûr est de RETÉLÉCHARGER le zip ci-dessous, puis de le déposer SANS le décompresser dans le dossier du plugin « cache-dl » ; « Télécharger la sélection » le décompressera ensuite sans repasser par le réseau. Autre méthode : décompressez vous-même le contenu dans " + this.plugin.manifest.dir + "/wasm/ (pandoc_wasm.zip → pandoc.wasm ; typst_wasm.zip → typst.wasm ; typst_fonts.zip → sous-dossier fonts/). « Télécharger la sélection » détectera dans tous les cas les fichiers déjà présents.");
+      .setDesc("Si l'installation automatique échoue (réseau d'Obsidian bloqué) : le moyen le plus sûr est de RETÉLÉCHARGER le zip ci-dessous, puis de le déposer SANS le décompresser dans le dossier « mergdown2tex_cache » créé à la RACINE de votre vault (visible dans l'explorateur, glisser-déposer possible) ; « Télécharger la sélection » le décompressera ensuite au bon endroit sans repasser par le réseau. Autre méthode : décompressez vous-même le contenu dans " + this.plugin.manifest.dir + "/wasm/ (pandoc_wasm.zip → pandoc.wasm ; typst_wasm.zip → typst.wasm ; typst_fonts.zip → sous-dossier fonts/). « Télécharger la sélection » détectera dans tous les cas les fichiers déjà présents.");
     const linkRow = dlLinksSetting.settingEl.createDiv({ attr: { style: "display:flex;flex-wrap:wrap;gap:8px;margin-top:6px" } });
     const mkLink = (label, url) => {
       const a = linkRow.createEl("a", { text: label, href: url, attr: { target: "_blank", rel: "noopener", style: "display:inline-block;border:1px solid var(--interactive-accent);border-radius:6px;padding:3px 10px;text-decoration:none;color:var(--interactive-accent)" } });
@@ -1906,7 +1906,7 @@ class Markdown2TexPlugin extends Plugin {
       errs.push("requestUrl: " + ((e && e.message) || e));
     }
     this._dlLog("downloadBytes", "ÉCHEC total", errs.join(" | "));
-    throw new Error("Téléchargement impossible via Obsidian (" + errs.join(" ; ") + "). Réessayez, ou prenez les liens manuels ci-dessous puis remettez le zip dans le dossier « cache-dl » du plugin.");
+    throw new Error("Téléchargement impossible via Obsidian (" + errs.join(" ; ") + "). Réessayez, ou prenez les liens manuels ci-dessous puis remettez le zip dans le dossier « mergdown2tex_cache » à la racine du vault.");
   }
 
   // Téléchargement via Node https (desktop, réseau système) : suit les
@@ -1962,13 +1962,14 @@ class Markdown2TexPlugin extends Plugin {
     if (progress) { progress.setTitle(noticeLabel); progress.setStatus("Préparation…"); }
     else new Notice(noticeLabel + "…");
     this._dlLog("installWasmZip", zipName, "début");
-    // Disk-first (PC ET mobile) : le zip est d'abord écrit en clair dans
-    // <plugin>/cache-dl/, le tampon du téléchargement est libéré, PUIS on
-    // décompresse le fichier écrit sur disque, et on efface la source à la fin.
-    // Avantages : moitié moins de mémoire en pointe (crucial sur Android), et un
-    // zip déposé à la main dans cache-dl/ (liens de dépannage) est décompressé
-    // sans repasser par le réseau.
-    const cacheRel = this.manifest.dir + "/cache-dl/" + zipName;
+// Disk-first (PC ET mobile) : le zip est d'abord écrit en clair dans
+    // <vault>/mergdown2tex_cache/, le tampon du téléchargement est libéré, PUIS
+    // on décompresse le fichier écrit sur disque, et on efface la source à la
+    // fin. Placement à la RACINE du vault (visible dans l'explorateur) : on
+    // peut y déposer soi-même des zips (liens de dépannage, glisser-déposer)
+    // et le plugin les décompresse au bon endroit sans repasser par le réseau.
+    const cacheRel = "mergdown2tex_cache/" + zipName;
+    try { await vaultMkdir(this.app, "mergdown2tex_cache"); } catch (e) {}
     const a = adapterGet(this.app);
     let arrayBuffer = null;
     let fromCache = false;
@@ -1986,8 +1987,8 @@ class Markdown2TexPlugin extends Plugin {
       }
     } catch (e) {}
     if (fromCache) {
-      if (progress) progress.setStatus("Zip déjà présent (cache-dl) — décompression…");
-      this._dlLog("installWasmZip", zipName, "depuis cache-dl (hors-ligne)");
+      if (progress) progress.setStatus("Zip déjà présent (mergdown2tex_cache) — décompression…");
+      this._dlLog("installWasmZip", zipName, "depuis mergdown2tex_cache (hors-ligne)");
     } else {
       const buf = new Uint8Array(await this.downloadBytes(this.wasmZipUrl(zipName), progress));
       try {
