@@ -1442,7 +1442,7 @@ class Markdown2TexSettingTab extends PluginSettingTab {
 
     const dlLinksSetting = new Setting(containerEl)
       .setName("Liens de téléchargement manuels (dépannage)")
-      .setDesc("Si l'installation automatique échoue (réseau d'Obsidian bloqué) : le moyen le plus sûr est de RETÉLÉCHARGER le zip ci-dessous, puis de le déposer SANS le décompresser dans le dossier « mergdown2tex_cache » créé à la RACINE de votre vault (visible dans l'explorateur, glisser-déposer possible) ; « Télécharger la sélection » le décompressera ensuite au bon endroit sans repasser par le réseau. Autre méthode : décompressez vous-même le contenu dans " + this.plugin.manifest.dir + "/wasm/ (pandoc_wasm.zip → pandoc.wasm ; typst_wasm.zip → typst.wasm ; typst_fonts.zip → sous-dossier fonts/). « Télécharger la sélection » détectera dans tous les cas les fichiers déjà présents.");
+      .setDesc("Si l'installation automatique échoue (réseau d'Obsidian bloqué) : le moyen le plus sûr est de RETÉLÉCHARGER le zip ci-dessous, puis de le déposer SANS le décompresser à la RACINE de votre vault (typst_wasm.zip, pandoc_wasm.zip, typst_fonts.zip, visibles dans l'explorateur — glisser-déposer possible) ; « Télécharger la sélection » le décompressera ensuite au bon endroit sans repasser par le réseau. Autre méthode : décompressez vous-même le contenu dans " + this.plugin.manifest.dir + "/wasm/ (pandoc_wasm.zip → pandoc.wasm ; typst_wasm.zip → typst.wasm ; typst_fonts.zip → sous-dossier fonts/). « Télécharger la sélection » détectera dans tous les cas les fichiers déjà présents.");
     const linkRow = dlLinksSetting.settingEl.createDiv({ attr: { style: "display:flex;flex-wrap:wrap;gap:8px;margin-top:6px" } });
     const mkLink = (label, url) => {
       const a = linkRow.createEl("a", { text: label, href: url, attr: { target: "_blank", rel: "noopener", style: "display:inline-block;border:1px solid var(--interactive-accent);border-radius:6px;padding:3px 10px;text-decoration:none;color:var(--interactive-accent)" } });
@@ -1906,7 +1906,7 @@ class Markdown2TexPlugin extends Plugin {
       errs.push("requestUrl: " + ((e && e.message) || e));
     }
     this._dlLog("downloadBytes", "ÉCHEC total", errs.join(" | "));
-    throw new Error("Téléchargement impossible via Obsidian (" + errs.join(" ; ") + "). Réessayez, ou prenez les liens manuels ci-dessous puis remettez le zip dans le dossier « mergdown2tex_cache » à la racine du vault.");
+    throw new Error("Téléchargement impossible via Obsidian (" + errs.join(" ; ") + "). Réessayez, ou prenez les liens manuels ci-dessous puis déposez le zip à la RACINE du vault (téléchargement de la sélection le décompresse ensuite sans réseau).");
   }
 
   // Téléchargement via Node https (desktop, réseau système) : suit les
@@ -1962,39 +1962,44 @@ class Markdown2TexPlugin extends Plugin {
     if (progress) { progress.setTitle(noticeLabel); progress.setStatus("Préparation…"); }
     else new Notice(noticeLabel + "…");
     this._dlLog("installWasmZip", zipName, "début");
-// Disk-first (PC ET mobile) : le zip est d'abord écrit en clair dans
-    // <vault>/mergdown2tex_cache/, le tampon du téléchargement est libéré, PUIS
-    // on décompresse le fichier écrit sur disque, et on efface la source à la
-    // fin. Placement à la RACINE du vault (visible dans l'explorateur) : on
-    // peut y déposer soi-même des zips (liens de dépannage, glisser-déposer)
-    // et le plugin les décompresse au bon endroit sans repasser par le réseau.
-    const cacheRel = "mergdown2tex_cache/" + zipName;
-    try { await vaultMkdir(this.app, "mergdown2tex_cache"); } catch (e) {}
+// Disk-first (PC ET mobile) : le zip est d'abord écrit en clair à la RACINE
+    // du vault (typst_wasm.zip, pandoc_wasm.zip, typst_fonts.zip, visibles dans
+    // l'explorateur), le tampon du téléchargement est libéré, PUIS on décompresse
+    // le fichier écrit sur disque, et on efface la source à la fin. On peut donc
+    // déposer soi-même un zip directement à la racine (liens de dépannage,
+    // glisser-déposer) et « Télécharger la sélection » le décompresse au bon
+    // endroit sans repasser par le réseau. L'ancien sous-dossier
+    // mergdown2tex_cache/ reste accepté en lecture (repli).
+    const cacheRel = zipName;
+    const legacyRel = "mergdown2tex_cache/" + zipName;
+    let usedRel = cacheRel;
     const a = adapterGet(this.app);
     let arrayBuffer = null;
     let fromCache = false;
-    try {
-      if (await vaultExists(this.app, cacheRel)) {
-        const raw = await vaultReadBinary(this.app, cacheRel);
-        if (raw && raw.length > 4 && raw[0] === 0x50 && raw[1] === 0x4b) {
-          try {
-            const ab = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
-            const chk = this.unzipAll(ab);
-            if (Object.keys(chk).length > 0) { arrayBuffer = ab; fromCache = true; }
-          } catch (e) {}
+    for (const rel of [cacheRel, legacyRel]) {
+      if (arrayBuffer) break;
+      try {
+        if (await vaultExists(this.app, rel)) {
+          const raw = await vaultReadBinary(this.app, rel);
+          if (raw && raw.length > 4 && raw[0] === 0x50 && raw[1] === 0x4b) {
+            try {
+              const ab = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
+              const chk = this.unzipAll(ab);
+              if (Object.keys(chk).length > 0) { arrayBuffer = ab; fromCache = true; usedRel = rel; }
+            } catch (e) {}
+          }
+          if (!arrayBuffer && a && typeof a.remove === "function") { try { await a.remove(rel); } catch (e) {} }
         }
-        if (!arrayBuffer && a && typeof a.remove === "function") { try { await a.remove(cacheRel); } catch (e) {} }
-      }
-    } catch (e) {}
+      } catch (e) {}
+    }
     if (fromCache) {
-      if (progress) progress.setStatus("Zip déjà présent (mergdown2tex_cache) — décompression…");
-      this._dlLog("installWasmZip", zipName, "depuis mergdown2tex_cache (hors-ligne)");
+      if (progress) progress.setStatus("Zip déposé à la racine du vault — décompression…");
+      this._dlLog("installWasmZip", zipName, "depuis vault racine/" + usedRel + " (hors-ligne)");
     } else {
       const buf = new Uint8Array(await this.downloadBytes(this.wasmZipUrl(zipName), progress));
       try {
-        await vaultMkdir(this.app, cacheRel.slice(0, cacheRel.lastIndexOf("/")));
         await vaultWriteBinary(this.app, cacheRel, buf);
-        this._dlLog("installWasmZip", zipName, "zip écrit sur disque avant extraction");
+        this._dlLog("installWasmZip", zipName, "zip écrit à la racine du vault avant extraction");
         buf.fill(0); // libère la mémoire du tampon téléchargé avant d'extraire
         const reloaded = await vaultReadBinary(this.app, cacheRel);
         arrayBuffer = reloaded.buffer.slice(reloaded.byteOffset, reloaded.byteOffset + reloaded.byteLength);
@@ -2035,7 +2040,7 @@ class Markdown2TexPlugin extends Plugin {
       }
       await new Promise((r) => setTimeout(r, 0));
     }
-    if (a && typeof a.remove === "function") { try { await a.remove(cacheRel); } catch (e) {} }
+    if (a && typeof a.remove === "function") { try { await a.remove(usedRel); } catch (e) {} }
     this._dlLog("installWasmZip", zipName, "terminé", String(written), "fichiers");
     if (progress) { progress.setProgress(1, "Installé : " + written + " fichiers"); }
     else new Notice("Installé : " + written + " fichiers (" + base + ")");
