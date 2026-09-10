@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
-      - name: Transpile to ES2017 (max compat : vieux WebView Android/iOS)
+      - name: "Transpile to ES2017 (max compat : vieux WebView Android/iOS)"
         run: node scripts/transpile.js
 
       - name: Extract changelog section
