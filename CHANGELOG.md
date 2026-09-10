@@ -2,6 +2,17 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [2.2.4] — 2026-09-10
+
+### Corrigé
+- **« Tous les éléments du vault ne sont pas téléchargés »** (dossiers et sous-dossiers manquants après « Télécharger le dossier d'exemple ») : l'extraction ne créait que **un** niveau de dossier parent avant de réécrire. Tout fichier rangé dans un dossier ou sous-dossier (`Writing/…`, `Literature/…`, `.obsidian/themes/…`…) était perdu → on ne voyait que les fichiers principaux à la racine. La création des dossiers est désormais **récursive** (`vaultMkdirRecursive`) : toute l'arborescence du zip est reconstituée, y compris les sous-sous-dossiers et le thème.
+
+### Ajouté
+- **Pré-téléchargement automatique des moteurs WASM avant chaque conversion** : lancer *PDF* / *DOCX* / *TEX* / *TYP* vérifie d'abord si `pandoc.wasm`, `typst.wasm` et les **polices typst** sont présents, et les télécharge lui-même (popup de progression « Moteurs requis ») **si absents**, avant d'exécuter réellement la compilation. Plus d'erreurs « vLaTeX WASM non initialisé » ou « moteur manquant » en pleine conversion sur un appareil neuf :
+  - PDF / TEX : `pandoc` (+ `typst` + polices pour le PDF) ;
+  - DOCX : `pandoc` ;
+  - TYP direct : `typst`.
+
 ## [2.2.3] — 2026-09-10
 
 ### Corrigé

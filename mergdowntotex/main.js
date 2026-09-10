@@ -415,6 +415,30 @@ async function vaultMkdir(app, relPath) {
     fs.mkdirSync(p.join(root, relPath), { recursive: true });
   }
 }
+async function vaultMkdirRecursive(app, relDir) {
+  const parts = String(relDir || "").split("/").filter(Boolean);
+  if (parts.length === 0) return;
+  const a2 = adapterGet(app);
+  if (a2 && typeof a2.mkdir === "function") {
+    let cur = "";
+    for (const part of parts) {
+      cur = cur ? cur + "/" + part : part;
+      try {
+        await a2.mkdir(cur);
+      } catch (e15) {
+      }
+    }
+    return;
+  }
+  const p = requirePathOrNull();
+  const root = app && app.vault && app.vault.adapter && app.vault.adapter.getBasePath ? app.vault.adapter.getBasePath() : null;
+  if (p && root) {
+    try {
+      fs.mkdirSync(p.join(root, relDir), { recursive: true });
+    } catch (e15) {
+    }
+  }
+}
 async function vaultExists(app, relPath) {
   const a2 = adapterGet(app);
   if (a2 && typeof a2.exists === "function") {
@@ -3654,6 +3678,36 @@ class Markdown2TexPlugin extends Plugin {
     if (progress) progress.setProgress(1, "typst.wasm + polices installés ✅");
     return await this.typstWasmExists();
   }
+  // Pré-vérifie (et pré-télécharge) les moteurs WASM nécessaires AVANT toute
+  // conversion, pour éviter les erreurs en plein pipeline : docx/tex → pandoc ;
+  // pdf/typ → pandoc + typst (+ polices, gérées par ensureTypstWasmZip) ; typ
+  // direct → typst. Retourne false (avec message) si un moteur manque vraiment.
+  async preflightEngines(kinds) {
+    const want = new Set(kinds || []);
+    const missing = [];
+    try {
+      if (want.has("pandoc") && !await this.pandocWasmExists()) missing.push("pandoc.wasm");
+    } catch (e15) {
+      missing.push("pandoc.wasm");
+    }
+    try {
+      if (want.has("typst")) {
+        if (!await this.typstWasmExists()) missing.push("typst.wasm");
+        if (!await this.typstFontsOk()) missing.push("polices typst");
+      }
+    } catch (e15) {
+      if (want.has("typst")) missing.push("moteur typst");
+    }
+    if (missing.length === 0) return true;
+    if (typeof console !== "undefined" && console.log) console.log("[mergdown2tex] preflight : moteurs manquants → pré-téléchargement", missing.join(", "));
+    new Notice("MergDown2TeX : moteurs manquants, pré-téléchargement (" + missing.join(", ") + ")…");
+    const run = async (progress) => {
+      if (want.has("pandoc") && !await this.ensurePandocWasmZip(progress)) return false;
+      if (want.has("typst") && !await this.ensureTypstWasmZip(progress)) return false;
+      return true;
+    };
+    return await this.withProgressModal("Moteurs requis", run);
+  }
   // Version individuelle : télécharge uniquement typst_wasm.zip (sans les polices).
   async ensureTypstWasmOnlyZip(progress) {
     this._dlLog("ensureTypstWasmOnlyZip", "début");
@@ -3848,19 +3902,14 @@ class Markdown2TexPlugin extends Plugin {
           await vaultWriteBinary(this.app, name, data);
           written++;
         } catch (e15) {
-          const a2 = adapterGet(this.app);
-          if (a2 && typeof a2.mkdir === "function") {
-            const parent = name.slice(0, name.lastIndexOf("/"));
-            try {
-              await a2.mkdir(parent);
-            } catch (e22) {
-            }
-            try {
-              await vaultWriteBinary(this.app, name, data);
-              written++;
-              continue;
-            } catch (e32) {
-            }
+          const slashIdx = name.lastIndexOf("/");
+          const parent = slashIdx > 0 ? name.slice(0, slashIdx) : "";
+          if (parent) await vaultMkdirRecursive(this.app, parent);
+          try {
+            await vaultWriteBinary(this.app, name, data);
+            written++;
+            continue;
+          } catch (e32) {
           }
           console.warn("[mergdown2tex] " + label + " : écriture impossible pour " + name);
         }
@@ -7004,6 +7053,7 @@ ${ind}#figure(${img}, kind: image)`);
   }
   async compilePdfMobile(opts = {}) {
     console.log("[mergdown2tex][mobile] compilePdfMobile() lancé (silent=" + !!opts.silent + ")");
+    if (opts._preflighted !== true && !await this.preflightEngines(["pandoc", "typst"])) return;
     if (!this.vlatex) {
       new Notice("vLaTeX WASM non initialisé.");
       return;
@@ -7226,6 +7276,7 @@ ${ind}#figure(${img}, kind: image)`);
     if (!Platform.isDesktop || this.settings.pcUseTypstPdf) {
       return this.compilePdfMobile();
     }
+    if (!await this.preflightEngines(["pandoc"])) return;
     if (!this.vlatex) {
       new Notice("vLaTeX WASM non initialisé.");
       return;
@@ -7377,6 +7428,7 @@ ${ind}#figure(${img}, kind: image)`);
       return;
     }
     const fmt = String(format || "pdf").toLowerCase();
+    if (!await this.preflightEngines(fmt === "pdf" ? ["pandoc", "typst"] : ["pandoc"])) return;
     try {
       const wasmEngine = await this.getPandocWasmEngine();
       const wasmFS = new WasmFileSystem(this.app.vault, "");
@@ -7432,6 +7484,7 @@ ${ind}#figure(${img}, kind: image)`);
       new Notice("Aucun fichier .typ jumeau trouvé pour « " + tw.fileStem + " ». Lancez d'abord une conversion qui garde le .typ.");
       return;
     }
+    if (!await this.preflightEngines(["typst"])) return;
     try {
       new Notice("Chargement de Typst WASM…");
       const typCompiler = await this.getTypstCompiler();
@@ -7728,6 +7781,7 @@ ${ind}#figure(${img}, kind: image)`);
     return ("00000000" + h1.toString(16)).slice(-8) + ("00000000" + h2.toString(16)).slice(-8);
   }
   async compileDocxMobile() {
+    if (!await this.preflightEngines(["pandoc"])) return;
     if (!this.vlatex) {
       new Notice("vLaTeX WASM non initialisé.");
       return;
@@ -7921,6 +7975,7 @@ ${ind}#figure(${img}, kind: image)`);
     if (!Platform.isDesktop) {
       return this.compileDocxMobile();
     }
+    if (!await this.preflightEngines(["pandoc"])) return;
     if (!this.vlatex) {
       new Notice("vLaTeX WASM non initialisé.");
       return;
