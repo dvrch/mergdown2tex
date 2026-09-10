@@ -20,6 +20,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Transpile to ES2017 (max compat : vieux WebView Android/iOS)
+        run: node scripts/transpile.js
+
       - name: Extract changelog section
         id: notes
         env:

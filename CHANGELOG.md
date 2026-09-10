@@ -2,6 +2,16 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [2.2.2] — 2026-09-10
+
+### Corrigé (compatibilité universelle — PC Linux/Mac/Windows, Android, iOS, vieux appareils)
+- **Le plugin refusait de s'activer sur Android 8 (et tout WebView ancien)** : `main.js` contenait le code généré WASM (wasm-bindgen) utilisant des syntaxes modernes que les vieux WebView ne savent pas analyser — champs privés `#x` (ES2022), `??=`/`||=`/`&&=` (ES2021), `?.`/`??` (ES2020), littéraux `0n` (ES2020). Le fichier exigeait une analyse ES2022 (≈ **Chrome/WebView 94+**) : en dessous, Obsidian ne peut pas charger le plugin et désactive l'interrupteur. L'Android 12 (WebView récent) le charge, l'Android 8 (WebView < 94) refuse. D'où « ça marche sur le A12, pas sur le A8 ».
+- **Transpilation dans la release** : une étape de build (`node scripts/transpile.js`, esbuild cible **ES2017**) abaisse maintenant `main.js` en syntaxe ES8 — analysable par ~tout moteur depuis 2017 (Chrome/WebView 55+, vieux Android, iOS anciens, vieux navigateurs PC). Vérifié par `es-check es2017` : plus aucun `?.`, `??`, `??=`, `||=`, `&&=`, littéral BigInt ni champ privé.
+- **BigInt en dur contourné** : les littéraux `0n` deviennent `BigInt(0)` (analyse ES2016) et le seul BigInt exécuté au chargement du module est mis derrière un `typeof` → un WebView sans BigInt (< Chrome 67) **démarre quand même** le plugin (Pandoc/LaTeX fonctionnent).
+- **Message clair sur vieux moteurs** : si BigInt n'existe pas, la conversion Typst affiche « Votre WebView est trop ancien pour le moteur Typst (BigInt requis, Chrome 67+) » au lieu d'une erreur opaque.
+- **Dégradation propre** : polyfills locaux pour `String.prototype.replaceAll` et `Object.fromEntries` ; `globalThis` adressé via un alias sûr (`self`→`window`→`global`) — plus aucune dépendance aux API Chrome 71+.
+- Fichiers inchangés sinon : mêmes téléchargements, mêmes zips à la racine, mêmes correctifs 2.2.1.
+
 ## [2.2.1] — 2026-09-10
 
 ### Corrigé (mobile — durable)
