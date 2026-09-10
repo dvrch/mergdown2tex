@@ -238,7 +238,12 @@ const zlib = _nativeModules.zlib || null;
 const exec = _nativeModules.exec || _stubUnavailable("exec");
 if (typeof Buffer === "undefined") {
   const _b64toBytes = (b64) => {
-    const bin = _GLB_.atob ? _GLB_.atob(b64) : null;
+    let bin = null;
+    try {
+      bin = _GLB_.atob ? _GLB_.atob(b64) : null;
+    } catch (e15) {
+      bin = null;
+    }
     if (bin !== null) {
       const out2 = new Uint8Array(bin.length);
       for (let i2 = 0; i2 < bin.length; i2++) out2[i2] = bin.charCodeAt(i2);
@@ -2671,15 +2676,9 @@ class Markdown2TexSettingTab extends PluginSettingTab {
     containerEl.createEl("h2", { text: "MergDown2TeX Settings" });
     const section = (title) => containerEl.createEl("h3", { text: title, attr: { style: "border-bottom:1px solid var(--background-modifier-border);padding-bottom:4px;margin-top:22px" } });
     section("Export ZIP");
-    new Setting(containerEl).setName("Télécharger le dossier d'exemple").setDesc("Récupère le dossier d'exemple (déjà dans le dépôt du plugin) et l'extrait dans la racine du vault actuel. Idéal pour découvrir la structure/manual de référence sans toucher à votre .obsidian local.").addButton((btn) => {
-      btn.setButtonText("Télécharger & extraire").onClick(async () => {
+    new Setting(containerEl).setName("Télécharger le dossier d'exemple (vault complet)").setDesc("Met à jour le vault actuel : il copie les fichiers de référence ET remplace vos réglages Obsidian (.obsidian : thème actif, plugins, config…) ainsi que le thème. Si le thème ne se met pas à jour immédiatement, redémarrez Obsidian.").addButton((btn) => {
+      btn.setButtonText("Télécharger, remplacer & extraire").onClick(async () => {
         await this.plugin.withProgressModal("Vault exemple", (progress) => this.plugin.downloadExampleVault(progress));
-        this.display();
-      });
-    });
-    new Setting(containerEl).setName("Télécharger vault_test (mini vault de test)").setDesc("Récupère le mini vault de test MergDown2TeX (léger, ~1,4 Mo : 2 notes + plugin installés) et l'extrait dans la racine du vault actuel. Idéal pour vérifier le plugin (palette, ruban, PDF temps réel) sans le dossier d'exemple complet.").addButton((btn) => {
-      btn.setButtonText("Télécharger & extraire").onClick(async () => {
-        await this.plugin.withProgressModal("vault_test", (progress) => this.plugin.downloadVaultTest(progress));
         this.display();
       });
     });
@@ -3821,13 +3820,10 @@ class Markdown2TexPlugin extends Plugin {
   // et les réglages json sont bien restaurés, comme dans le bundle de référence).
   downloadExampleVault(progress) {
     const url = "https://github.com/dvrch/mergdown2tex/releases/download/bundle/full_manual_repport_exp.zip";
-    return this._downloadAndExtract(url, /* @__PURE__ */ new Set(["data.json"]), "Dossier d'exemple + réglages", progress);
-  }
-  // Vault de TEST minimal (léger) : sert à vérifier le plugin (palette, ruban,
-  // PDF temps réel) sans télécharger le dossier d'exemple complet.
-  downloadVaultTest(progress) {
-    const url = "https://github.com/dvrch/mergdown2tex/releases/download/bundle/vault_test.zip";
-    return this._downloadAndExtract(url, /* @__PURE__ */ new Set(["data.json"]), "Vault de test", progress);
+    return this._downloadAndExtract(url, /* @__PURE__ */ new Set(["data.json"]), "Dossier d'exemple (fichiers + .obsidian + thème)", progress).then((ok) => {
+      if (ok) new Notice("Réglages, thème et fichiers du vault restaurés. Si le thème ne change pas immédiatement, redémarrez Obsidian.", 8e3);
+      return ok;
+    });
   }
   async _downloadAndExtract(url, skipPrefixes, label, progress) {
     if (progress) {
@@ -4273,16 +4269,9 @@ class Markdown2TexPlugin extends Plugin {
     });
     this.addCommand({
       id: "mergdown2tex-download-example-vault",
-      name: "Télécharger le dossier d'exemple (vault)",
+      name: "Télécharger le dossier d'exemple (réglages + thème + fichiers)",
       callback: async () => {
         await this.withProgressModal("Vault exemple", (progress) => this.downloadExampleVault(progress));
-      }
-    });
-    this.addCommand({
-      id: "mergdown2tex-download-vault-test",
-      name: "Télécharger vault_test (mini vault de test)",
-      callback: async () => {
-        await this.withProgressModal("vault_test", (progress) => this.downloadVaultTest(progress));
       }
     });
     this.addCommand({
@@ -4339,8 +4328,8 @@ class Markdown2TexPlugin extends Plugin {
     this.addRibbonIcon("file-code", "Convertir en PDF", () => {
       this.compilePdf();
     });
-    this.addRibbonIcon("download", "Télécharger vault_test (mini vault de test)", () => {
-      this.withProgressModal("vault_test", (progress) => this.downloadVaultTest(progress));
+    this.addRibbonIcon("download", "Télécharger le dossier d'exemple (réglages + thème + fichiers)", () => {
+      this.withProgressModal("Vault exemple", (progress) => this.downloadExampleVault(progress));
     });
   }
   /**

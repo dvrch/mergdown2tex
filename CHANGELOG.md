@@ -2,6 +2,17 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [2.2.3] — 2026-09-10
+
+### Corrigé
+- **« Failed to execute 'atob' on 'window' » à l'activation** (vieilles WebView) : le décodage base64 de secours appelait `atob()` sans protection — une entrée invalide faisait lever une exception au chargement. L'appel est maintenant **gardé par un `try/catch`** : si `atob` échoue, on bascule automatiquement sur le décodeur manuel local (aucun crash possible à l'activation).
+
+### Ajouté / Modifié
+- **Un seul vault téléchargeable** : le mini vault de test `vault_test` est **supprimé** (dossier, zip, commandes palette, ruban et réglage). Il ne reste que le **dossier d'exemple complet** (`example_vault`, avec sa config `.obsidian` : réglages, thèmes, plugins) — « le grand complet », comme demandé.
+- **Robuste : télécharger le dossier d'exemple** désormais via le **ruban** (icône ⬇ de la barre latérale gauche), en plus de la palette et des réglages.
+- **`Télécharger le dossier d'exemple` expliqué à sa vraie fonction** : il **remplace** la configuration Obsidian du vault actuel (`.obsidian` : thème actif, plugins, config…) **en plus** des fichiers de référence — le libellé ne dit plus « sans toucher à votre .obsidian local » (qui était faux) mais « met à jour les réglages et le thème », avec un rappel de redémarrer Obsidian si le thème ne se met pas à jour immédiatement.
+- Réglages : un seul bouton *Télécharger, remplacer & extraire*.
+
 ## [2.2.2] — 2026-09-10
 
 ### Corrigé (compatibilité universelle — PC Linux/Mac/Windows, Android, iOS, vieux appareils)

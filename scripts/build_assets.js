@@ -34,12 +34,6 @@ const TARGETS = [
     label: "vault exemple",
   },
   {
-    sources: [{ dir: "vault_test", prefix: "" }],
-    out: "docs/assets/vault_test.zip",
-    exclude: new Set(["data.json"]),
-    label: "vault de test",
-  },
-  {
     sources: [{ dir: "mergdowntotex", prefix: "" }],
     out: "docs/assets/mergdowntotex.zip",
     exclude: new Set(["data.json"]),

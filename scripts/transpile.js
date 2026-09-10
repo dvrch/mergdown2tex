@@ -30,7 +30,6 @@ const COPIES = [
   "main.js",
   "mergdowntotex/main.js",
   "example_vault/.obsidian/plugins/mergdowntotex/main.js",
-  "vault_test/.obsidian/plugins/mergdowntotex/main.js",
 ];
 
 const POLYFILLS = `// polyfills compat vieux WebView (ajout ligne unique = idempotent)
