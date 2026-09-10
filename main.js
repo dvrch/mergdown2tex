@@ -1805,6 +1805,19 @@ class Markdown2TexPlugin extends Plugin {
     return "https://github.com/dvrch/mergdown2tex/releases/download/bundle/" + zipName;
   }
 
+  // URL candidates pour un zip, essayées dans l'ordre :
+  // 1) release GitHub (CDN natif, marche sur PC via le https node) ;
+  // 2) jsDelivr (CDN public, CORS *) : SEUL chemin `fetch` possible sur mobile
+  //    (requestUrl y transfère les données en base64 → gros fichiers trop
+  //    lents/OOM), et souvent plus accessible sur mobile que le CDN GitHub.
+  //    Sert la copie d'origine commitée dans docs/assets/ (chaque zip < 20 Mo).
+  wasmZipCandidates(zipName) {
+    return [
+      this.wasmZipUrl(zipName),
+      "https://cdn.jsdelivr.net/gh/dvrch/mergdown2tex@main/docs/assets/" + zipName
+    ];
+  }
+
   // Tailles de référence (octets) des fichiers extraits du bundle publié dans
   // la release "bundle". Servent à ne jamais laisser passer un fichier "0
   // octet" ou tronqué qui ferait croire que la ressource est installée : un
@@ -1865,111 +1878,108 @@ class Markdown2TexPlugin extends Plugin {
   // native d'Obsidian qui fonctionne partout (PC et mobile), comme avant 2.1.3.
   async downloadBytes(url, progress) {
     if (progress) progress.setStatus("Connexion au serveur…");
-    this._dlLog("downloadBytes", url, "début");
+    // Accepte une URL OU une liste d'URL candidates (repli CDN) essayées dans
+    // l'ordre : la première qui rend un corps entier de bonne taille emporte.
+    const urls = Array.isArray(url) ? url : [url];
+    this._dlLog("downloadBytes", urls.join(" | "), "début");
     const errs = [];
     // 1) Node https natif (bureau) : même chemin réseau que le téléchargement
     //    manuel (curl). Contourne le netlayer Chromium d'Obsidian, parfois
     //    bloqué/timeout sur le CDN GitHub alors que le système, lui, marche.
     if (Platform.isDesktop && _nativeModules.https) {
-      try {
-        this._dlLog("downloadBytes", "tentative https node");
-        const buf = await this._nodeDownload(url, progress);
-        this._dlLog("downloadBytes", "https node OK", String(buf.length));
-        return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
-      } catch (e) {
-        errs.push("https node: " + ((e && e.message) || e));
-        this._dlLog("downloadBytes", "https node KO", (e && e.message) || e);
+      for (const url of urls) {
+        try {
+          this._dlLog("downloadBytes", url, "tentative https node");
+          const buf = await this._nodeDownload(url, progress);
+          this._dlLog("downloadBytes", url, "https node OK", String(buf.length));
+          return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
+        } catch (e) {
+          errs.push("https node (" + url + "): " + ((e && e.message) || e));
+          this._dlLog("downloadBytes", url, "https node KO", (e && e.message) || e);
+        }
       }
     }
-    // 2) requestUrl D'ABORD : API native d'Obsidian (réseau système), rapide
-    //    sur PC ET mobile ; 3 essais, timeouts durs. 3) fetch en repli : seule
-    //    variante à rapporter une vraie progression en octets quand requestUrl
-    //    échoue. On essayait auparavant fetch en premier, ce qui rendait les
-    //    téléchargements lents/instables sur mobile (le pont fetch y est
-    //    capricieux) alors que le PC, lui, passait par le https natif.
-    const viaRequest = async () => {
+    // 2) requestUrl (PC ET mobile) : API native d'Obsidian, réseau système et
+    //    sans CORS. Le pont requestUrl transfère les données en base64 sur
+    //    mobile (limite matérielle documentée) : un gros fichier comme
+    //    pandoc_wasm.zip (16 Mo) peut être LENT — on garde donc 5 min par
+    //    essai, jamais une coupure à 90 s. Chaque URL de la liste est tentée
+    //    `attempts` fois. 3) fetch en secours (même ordre) : seule variante à
+    //    rapporter une vraie progression en octets, mais elle exige le CORS *
+    //    (jsDelivr l'envoie, la release GitHub non).
+    const requestTimeout = 300000;
+    const attempts = 3;
+    for (const url of urls) {
+      if (typeof requestUrl !== "function") continue;
       let lastErr = null;
-      for (let attempt = 1; attempt <= 3; attempt++) {
+      for (let attempt = 1; attempt <= attempts; attempt++) {
         try {
-          const resp = await withTimeout(requestUrl({ url, throw: false, responseType: "arraybuffer" }), 90000, "timeout 90s");
+          if (progress) progress.setStatus("Connexion… (" + url.split("/").slice(3, 7).join("/") + ") — essai " + attempt + "/" + attempts + " (lent sur mobile, patience)");
+          const resp = await withTimeout(requestUrl({ url, throw: false, responseType: "arraybuffer" }), requestTimeout, "timeout " + Math.round(requestTimeout / 1000) + " s");
           if (resp.status < 200 || resp.status >= 300) throw new Error("HTTP " + resp.status);
-          // Garde anti-partiel : un body qui répond 200 mais n'a pas la taille du
-          // zip attendu est un téléchargement interrompu → échec pour réessayer.
+          // Garde anti-partiel : un body qui répond 200 mais n'a pas la taille
+          // du zip attendu est un téléchargement interrompu → échec, réessai.
           const ab = resp.arrayBuffer;
           const wantZip = this.wasmZipExpectedSize(url);
           if (wantZip !== null && (!ab || ab.byteLength !== wantZip)) {
             const got = ab && ab.byteLength ? ab.byteLength : 0;
             throw new Error("téléchargement partiel (" + got + "/" + wantZip + " octets)");
           }
-          this._dlLog("downloadBytes", "requestUrl OK", "essai", attempt, String(ab && ab.byteLength), "octets");
+          this._dlLog("downloadBytes", url, "requestUrl OK", "essai", attempt, String(ab && ab.byteLength), "octets");
           return ab;
         } catch (e) {
           lastErr = e;
-          this._dlLog("downloadBytes", "requestUrl essai", attempt, "KO", (e && e.message) || e);
-          if (attempt < 3) {
-            if (progress) progress.setStatus("Connexion… nouvelle tentative (" + attempt + "/3) — " + ((e && e.message) || e));
+          this._dlLog("downloadBytes", url, "requestUrl essai", attempt, "KO", (e && e.message) || e);
+          if (attempt < attempts) {
+            if (progress) progress.setStatus("Connexion… nouvelle tentative (" + attempt + "/" + attempts + ") — " + ((e && e.message) || e));
             await new Promise((r) => setTimeout(r, 800 * attempt));
           }
         }
       }
-      throw lastErr;
-    };
-    // 3) fetch : uniquement en secours si requestUrl a échoué (progression réelle).
-    const viaFetch = async () => {
-      if (typeof fetch !== "function" || !progress) return null;
-      try {
-        const resp = await withTimeout(fetch(url), 20000, "délai dépassé — repli");
-        if (!resp || !resp.ok) throw new Error("HTTP " + (resp && resp.status));
-        const total = Number(resp.headers.get("Content-Length")) || 0;
-        const reader = resp.body && resp.body.getReader ? resp.body.getReader() : null;
-        if (!reader) {
-          const ab = await withTimeout(resp.arrayBuffer(), 90000, "délai dépassé");
-          const wantZip = this.wasmZipExpectedSize(url);
-          if (wantZip !== null && (!ab || ab.byteLength !== wantZip)) throw new Error("téléchargement partiel (" + ((ab && ab.byteLength) || 0) + "/" + wantZip + " octets)");
-          if (progress && ab && ab.byteLength) progress.setProgress(1, "Téléchargement : " + Math.max(1, Math.round(ab.byteLength / 1048576)) + " Mo…");
-          return ab;
-        }
-        const chunks = [];
-        let received = 0;
-        for (;;) {
-          const { done, value } = await withTimeout(reader.read(), 20000, "flux suspendu — repli");
-          if (done) break;
-          if (value) { chunks.push(value); received += value.length; }
-          if (total > 0) {
-            const pct = Math.min(1, received / total);
-            progress.setProgress(pct, "Téléchargement : " + Math.round(pct * 100) + " % — " + Math.max(1, Math.round(received / 1048576)) + "/" + Math.max(1, Math.round(total / 1048576)) + " Mo…");
-          } else {
-            progress.setProgress(null, "Téléchargement : " + Math.max(1, Math.round(received / 1048576)) + " Mo…");
+      errs.push("requestUrl (" + url + "): " + ((lastErr && lastErr.message) || lastErr));
+    }
+    if (typeof fetch === "function" && progress) {
+      for (const url of urls) {
+        try {
+          const resp = await withTimeout(fetch(url), 20000, "délai dépassé — repli");
+          if (!resp || !resp.ok) throw new Error("HTTP " + (resp && resp.status));
+          const total = Number(resp.headers.get("Content-Length")) || 0;
+          const reader = resp.body && resp.body.getReader ? resp.body.getReader() : null;
+          if (!reader) {
+            const ab = await withTimeout(resp.arrayBuffer(), 90000, "délai dépassé");
+            const wantZip = this.wasmZipExpectedSize(url);
+            if (wantZip !== null && (!ab || ab.byteLength !== wantZip)) throw new Error("téléchargement partiel (" + ((ab && ab.byteLength) || 0) + "/" + wantZip + " octets)");
+            if (progress && ab && ab.byteLength) progress.setProgress(1, "Téléchargement : " + Math.max(1, Math.round(ab.byteLength / 1048576)) + " Mo…");
+            return ab;
           }
+          const chunks = [];
+          let received = 0;
+          for (;;) {
+            const { done, value } = await withTimeout(reader.read(), 20000, "flux suspendu — repli");
+            if (done) break;
+            if (value) { chunks.push(value); received += value.length; }
+            if (total > 0) {
+              const pct = Math.min(1, received / total);
+              progress.setProgress(pct, "Téléchargement : " + Math.round(pct * 100) + " % — " + Math.max(1, Math.round(received / 1048576)) + "/" + Math.max(1, Math.round(total / 1048576)) + " Mo…");
+            } else {
+              progress.setProgress(null, "Téléchargement : " + Math.max(1, Math.round(received / 1048576)) + " Mo…");
+            }
+          }
+          const out = new Uint8Array(received);
+          let off = 0;
+          for (const c of chunks) { out.set(c, off); off += c.length; }
+          const wantZipF = this.wasmZipExpectedSize(url);
+          if (wantZipF !== null && out.length !== wantZipF) throw new Error("téléchargement partiel (" + out.length + "/" + wantZipF + " octets)");
+          this._dlLog("downloadBytes", url, "fetch OK", String(out.length));
+          return out.buffer;
+        } catch (e) {
+          errs.push("fetch (" + url + "): " + ((e && e.message) || e));
+          this._dlLog("downloadBytes", url, "fetch KO", (e && e.message) || e);
         }
-        const out = new Uint8Array(received);
-        let off = 0;
-        for (const c of chunks) { out.set(c, off); off += c.length; }
-        const wantZipF = this.wasmZipExpectedSize(url);
-        if (wantZipF !== null && out.length !== wantZipF) throw new Error("téléchargement partiel (" + out.length + "/" + wantZipF + " octets)");
-        this._dlLog("downloadBytes", "fetch OK", String(out.length));
-        return out.buffer;
-      } catch (e) {
-        errs.push("fetch: " + ((e && e.message) || e));
-        return null;
-      }
-    };
-    if (typeof requestUrl !== "function") {
-      const f = await viaFetch();
-      if (f) return f;
-    } else {
-      try {
-        const l = await viaRequest();
-        return l;
-      } catch (e) {
-        errs.push("requestUrl: " + ((e && e.message) || e));
-        if (progress) progress.setStatus("requestUrl indisponible — tentative par fetch…");
-        const f = await viaFetch();
-        if (f) return f;
       }
     }
     this._dlLog("downloadBytes", "ÉCHEC total", errs.join(" | "));
-    throw new Error("Téléchargement impossible via Obsidian (" + errs.join(" ; ") + "). Réessayez, ou prenez les liens manuels ci-dessous puis déposez le zip à la RACINE du vault (téléchargement de la sélection le décompresse ensuite sans réseau).");
+    throw new Error("Téléchargement impossible via Obsidian (" + errs.join(" ; ") + "). Réessayez, ou déposez le zip à la RACINE du vault puis lancez « Télécharger la sélection » (décompression ensuite sans réseau).");
   }
 
   // Téléchargement via Node https (desktop, réseau système) : suit les
@@ -2059,7 +2069,7 @@ class Markdown2TexPlugin extends Plugin {
       if (progress) progress.setStatus("Zip déposé à la racine du vault — décompression…");
       this._dlLog("installWasmZip", zipName, "depuis vault racine/" + usedRel + " (hors-ligne)");
     } else {
-      const buf = new Uint8Array(await this.downloadBytes(this.wasmZipUrl(zipName), progress));
+      const buf = new Uint8Array(await this.downloadBytes(this.wasmZipCandidates(zipName), progress));
       try {
         await vaultWriteBinary(this.app, cacheRel, buf);
         this._dlLog("installWasmZip", zipName, "zip écrit à la racine du vault avant extraction");
@@ -2106,7 +2116,7 @@ class Markdown2TexPlugin extends Plugin {
       let buf = null;
       let dlErr = null;
       try {
-        buf = new Uint8Array(await this.downloadBytes(this.wasmZipUrl(zipName), progress));
+        buf = new Uint8Array(await this.downloadBytes(this.wasmZipCandidates(zipName), progress));
       } catch (e) {
         dlErr = e;
       }
