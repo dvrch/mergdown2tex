@@ -2440,6 +2440,13 @@ async function initWasmEmbedded() {
   __wbg_set_wasm(instance.exports);
   if (wasm.__wbindgen_start) wasm.__wbindgen_start();
 }
+async function initVlatexFromBytes(wasmBytes) {
+  if (wasm) return true;
+  const { instance } = await WebAssembly.instantiate(wasmBytes, __wbg_get_imports());
+  __wbg_set_wasm(instance.exports);
+  if (wasm.__wbindgen_start) wasm.__wbindgen_start();
+  return true;
+}
 const WEB_IMG_EXTS = [".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"];
 function getWebImageExt(url) {
   const low = url.toLowerCase();
@@ -2713,7 +2720,7 @@ class Markdown2TexSettingTab extends PluginSettingTab {
       })
     );
     section("Moteurs — téléchargements");
-    const want = { pandoc: true, typst: true, fonts: true };
+    const want = { pandoc: true, typst: true, fonts: true, vlatex: true };
     const cbSetting = new Setting(containerEl).setName("Téléchargements WASM").setDesc("Archives compressées séparées : pandoc_wasm.zip (~15 Mo, DOCX), typst_wasm.zip (~10 Mo, typst.wasm SEUL) et typst_fonts.zip (~8 Mo, les polices → PDF). Cochez ce qu'il faut, puis UN SEUL clic sur le bouton. Les 3 cases sont cochées par défaut = tout installer.");
     const cbBox = cbSetting.settingEl.createDiv({ cls: "mod-mergdown2tex-cb", attr: { style: "display:flex;flex-wrap:wrap;gap:10px;margin-top:6px" } });
     const mkCb = (key, label) => {
@@ -2728,15 +2735,22 @@ class Markdown2TexSettingTab extends PluginSettingTab {
     mkCb("pandoc", "pandoc_wasm.zip — DOCX");
     mkCb("typst", "typst_wasm.zip — typst.wasm (PDF)");
     mkCb("fonts", "typst_fonts.zip — polices (PDF)");
+    mkCb("vlatex", "vlatex_wasm.zip — vLaTeX (md→tex, DOCX, biblio, ~0,9 Mo)");
     cbSetting.addButton((btn) => {
       btn.setButtonText("Télécharger la sélection").setCta().onClick(async () => {
-        if (!want.pandoc && !want.typst && !want.fonts) {
+        if (!want.pandoc && !want.typst && !want.fonts && !want.vlatex) {
           new Notice("Cochez au moins un composant avant de télécharger.", 4e3);
           return;
         }
         await this.plugin.withProgressModal("Téléchargement WASM", async (progress) => {
           let ok = true, n2 = 0;
           try {
+            if (want.vlatex) {
+              progress.setTitle("vLaTeX (md→tex, DOCX, biblio)");
+              const d2 = await this.plugin.ensureVlatex(progress);
+              ok = ok && d2;
+              n2 += d2 ? 1 : 0;
+            }
             if (want.pandoc) {
               progress.setTitle("pandoc.wasm (DOCX)");
               const a2 = await this.plugin.ensurePandocWasmZip(progress);
@@ -2766,7 +2780,7 @@ class Markdown2TexSettingTab extends PluginSettingTab {
         this.display();
       });
     });
-    const dlLinksSetting = new Setting(containerEl).setName("Liens de téléchargement manuels (dépannage)").setDesc("Si l'installation automatique échoue (réseau d'Obsidian bloqué) : le moyen le plus sûr est de RETÉLÉCHARGER le zip ci-dessous, puis de le déposer SANS le décompresser à la RACINE de votre vault (typst_wasm.zip, pandoc_wasm.zip, typst_fonts.zip, visibles dans l'explorateur — glisser-déposer possible) ; « Télécharger la sélection » le décompressera ensuite au bon endroit sans repasser par le réseau. Sur mobile, si le système refuse d'écrire le gros fichier dézippé (err. « Écriture binaire impossible », limite connue du mobile), gardez simplement le zip à la racine : il sera re-dégainé en mémoire à chaque compilation — c'est la manière normale sur téléphone. Autre méthode : décompressez vous-même le contenu dans " + this.plugin.manifest.dir + "/wasm/ (pandoc_wasm.zip → pandoc.wasm ; typst_wasm.zip → typst.wasm ; typst_fonts.zip → sous-dossier fonts/). « Télécharger la sélection » détectera dans tous les cas les fichiers déjà présents.");
+    const dlLinksSetting = new Setting(containerEl).setName("Liens de téléchargement manuels (dépannage)").setDesc("Si l'installation automatique échoue (réseau d'Obsidian bloqué) : le moyen le plus sûr est de RETÉLÉCHARGER le zip ci-dessous, puis de le déposer SANS le décompresser à la RACINE de votre vault (typst_wasm.zip, pandoc_wasm.zip, typst_fonts.zip, vlatex_wasm.zip, visibles dans l'explorateur — glisser-déposer possible) ; « Télécharger la sélection » le décompressera ensuite au bon endroit sans repasser par le réseau. Sur mobile, si le système refuse d'écrire le gros fichier dézippé (err. « Écriture binaire impossible », limite connue du mobile), gardez simplement le zip à la racine : il sera re-dégainé en mémoire à chaque compilation — c'est la manière normale sur téléphone. Autre méthode : décompressez vous-même le contenu dans " + this.plugin.manifest.dir + "/wasm/ (pandoc_wasm.zip → pandoc.wasm ; typst_wasm.zip → typst.wasm ; vlatex_wasm.zip → vlatex.wasm ; typst_fonts.zip → sous-dossier fonts/). « Télécharger la sélection » détectera dans tous les cas les fichiers déjà présents.");
     const linkRow = dlLinksSetting.settingEl.createDiv({ attr: { style: "display:flex;flex-wrap:wrap;gap:8px;margin-top:6px" } });
     const mkLink = (label, url) => {
       const a2 = linkRow.createEl("a", { text: label, href: url, attr: { target: "_blank", rel: "noopener", style: "display:inline-block;border:1px solid var(--interactive-accent);border-radius:6px;padding:3px 10px;text-decoration:none;color:var(--interactive-accent)" } });
@@ -2786,6 +2800,7 @@ class Markdown2TexSettingTab extends PluginSettingTab {
     mkLink("pandoc_wasm.zip — DOCX", "https://github.com/dvrch/mergdown2tex/releases/download/bundle/pandoc_wasm.zip");
     mkLink("typst_wasm.zip — typst.wasm", "https://github.com/dvrch/mergdown2tex/releases/download/bundle/typst_wasm.zip");
     mkLink("typst_fonts.zip — polices", "https://github.com/dvrch/mergdown2tex/releases/download/bundle/typst_fonts.zip");
+    mkLink("vlatex_wasm.zip — vLaTeX", "https://github.com/dvrch/mergdown2tex/releases/download/bundle/vlatex_wasm.zip");
     new Setting(containerEl).setName("Moteur Mermaid (diagrammes)").setDesc("Rendu des blocs ```mermaid``` en PNG. Le module mermaid.min.js est téléchargé automatiquement depuis l'hébergeur du plugin puis mis en cache local. Cliquez pour vérifier/installer manuellement.").addButton((btn) => {
       btn.setButtonText("Statut & installer").onClick(async () => {
         await this.plugin.withProgressModal("Mermaid", (progress) => this.plugin.ensureMermaid(progress));
@@ -3060,6 +3075,64 @@ class Markdown2TexPlugin extends Plugin {
     if (await this.wasmFileComplete(rel, this.WASM_EXPECTED_BYTES()["typst.wasm"])) return true;
     return this.wasmZipUsable("typst_wasm.zip");
   }
+  vlatexWasmRel() {
+    return ".obsidian/plugins/" + this.manifest.id + "/wasm/vlatex.wasm";
+  }
+  async vlatexExists() {
+    const rel = this.vlatexWasmRel();
+    if (await this.wasmFileComplete(rel, this.WASM_EXPECTED_BYTES()["vlatex.wasm"])) return true;
+    return this.wasmZipUsable("vlatex_wasm.zip");
+  }
+  // Charge le moteur vLaTeX (transformations .md → .tex, DOCX, biblio…) qui
+  // avait disparu des releases : on le lit en MÉMOIRE (fichier wasm/vlatex.wasm
+  // du plugin OU zip vlatex_wasm.zip à la racine du vault), sinon on le
+  // télécharge automatiquement. Idempotent.
+  async ensureVlatex(progress) {
+    if (wasm) {
+      if (progress) progress.setStatus("vLaTeX déjà chargé ✅");
+      return true;
+    }
+    let vb = null;
+    if (await this.vlatexExists()) {
+      const a2 = adapterGet(this.app);
+      if (a2 && typeof a2.readBinary === "function") {
+        try {
+          const b2 = await a2.readBinary(this.vlatexWasmRel());
+          if (b2 && b2.byteLength === this.WASM_EXPECTED_BYTES()["vlatex.wasm"]) vb = new Uint8Array(b2);
+        } catch (e15) {
+          vb = null;
+        }
+      }
+      if (!vb) vb = await this.readZipEmbedded("vlatex_wasm.zip", "vlatex.wasm");
+      if (vb) {
+        try {
+          await initVlatexFromBytes(vb);
+          if (progress) progress.setStatus("vLaTeX chargé depuis la mémoire ✅");
+          return !!wasm;
+        } catch (e15) {
+          const msg = "Échec d'initialisation vLaTeX : " + (e15 && e15.message || e15);
+          if (progress) progress.setStatus(msg);
+          else new Notice(msg, 5e3);
+          return false;
+        }
+      }
+    }
+    if (progress) progress.setStatus("vLaTeX manquant — téléchargement automatique…");
+    else new Notice("vLaTeX manquant — téléchargement automatique…");
+    if (!await this.installWasmZip("vlatex_wasm.zip", "Téléchargement du moteur vLaTeX", progress)) return false;
+    vb = await this.readZipEmbedded("vlatex_wasm.zip", "vlatex.wasm");
+    if (!vb) return false;
+    try {
+      await initVlatexFromBytes(vb);
+      if (progress) progress.setStatus("vLaTeX chargé ✅");
+      return !!wasm;
+    } catch (e15) {
+      const msg2 = "Échec d'initialisation vLaTeX : " + (e15 && e15.message || e15);
+      if (progress) progress.setStatus(msg2);
+      else new Notice(msg2, 5e3);
+      return false;
+    }
+  }
   async ensureTypstWasm() {
     if (await this.typstWasmExists()) return true;
     try {
@@ -3172,14 +3245,14 @@ class Markdown2TexPlugin extends Plugin {
   // pandoc.wasm de 0 octet affiché comme téléchargé trompe l'utilisateur puis
   // fait échouer la compilation. À synchroniser avec les zips publiés.
   WASM_EXPECTED_BYTES() {
-    return { "pandoc.wasm": 59075382, "typst.wasm": 28325178, fontsTotal: 13419040 };
+    return { "pandoc.wasm": 59075382, "typst.wasm": 28325178, "vlatex.wasm": 2634305, fontsTotal: 13419040 };
   }
   // Tailles COMPRESSÉES (octets) des zips de la release "bundle" : un corps
   // HTTP qui répond 200 mais avec moins d'octets que prévu est un téléchargement
   // INTERROMPU (mobile surtout) → on le détecte et on le réessaie aussitôt au
   // lieu de faire croire à une réussite. À synchroniser avec les zips publiés.
   WASM_ZIP_EXPECTED_BYTES() {
-    return { "pandoc_wasm.zip": 16192580, "typst_wasm.zip": 10767745, "typst_fonts.zip": 8454680 };
+    return { "pandoc_wasm.zip": 16192580, "typst_wasm.zip": 10767745, "typst_fonts.zip": 8454680, "vlatex_wasm.zip": 874140 };
   }
   // Taille compressée attendue pour une URL de zip, sinon null.
   wasmZipExpectedSize(url) {
@@ -3442,8 +3515,8 @@ class Markdown2TexPlugin extends Plugin {
     const all = this.unzipAll(arrayBuffer);
     const validateZip = (entries2) => {
       const expected = this.WASM_EXPECTED_BYTES();
-      if (zipName === "pandoc_wasm.zip" || zipName === "typst_wasm.zip") {
-        const wantName = zipName === "pandoc_wasm.zip" ? "pandoc.wasm" : "typst.wasm";
+      if (zipName === "pandoc_wasm.zip" || zipName === "typst_wasm.zip" || zipName === "vlatex_wasm.zip") {
+        const wantName = zipName === "pandoc_wasm.zip" ? "pandoc.wasm" : zipName === "typst_wasm.zip" ? "typst.wasm" : "vlatex.wasm";
         const d = entries2[wantName];
         const got = d && d.length ? d.length : 0;
         if (got !== expected[wantName]) return wantName + " = " + got + " octets (attendu : " + expected[wantName] + ")";
@@ -3686,6 +3759,11 @@ class Markdown2TexPlugin extends Plugin {
     const want = new Set(kinds || []);
     const missing = [];
     try {
+      if (!await this.vlatexExists()) missing.push("vlatex.wasm");
+    } catch (e15) {
+      missing.push("vlatex.wasm");
+    }
+    try {
       if (want.has("pandoc") && !await this.pandocWasmExists()) missing.push("pandoc.wasm");
     } catch (e15) {
       missing.push("pandoc.wasm");
@@ -3702,6 +3780,7 @@ class Markdown2TexPlugin extends Plugin {
     if (typeof console !== "undefined" && console.log) console.log("[mergdown2tex] preflight : moteurs manquants → pré-téléchargement", missing.join(", "));
     new Notice("MergDown2TeX : moteurs manquants, pré-téléchargement (" + missing.join(", ") + ")…");
     const run = async (progress) => {
+      if (!await this.ensureVlatex(progress)) return false;
       if (want.has("pandoc") && !await this.ensurePandocWasmZip(progress)) return false;
       if (want.has("typst") && !await this.ensureTypstWasmZip(progress)) return false;
       return true;
@@ -4233,8 +4312,12 @@ class Markdown2TexPlugin extends Plugin {
         prepare_latex_for_docx_full,
         prepare_latex_for_docx_with_options
       };
-      await initWasmEmbedded();
-      new Notice("MergDown2TeX (WASM) chargé avec succès !");
+      this.ensureVlatex().then((ok) => {
+        if (ok) new Notice("MergDown2TeX (WASM) chargé avec succès !");
+        else console.warn("[mergdown2tex] vLaTeX pas encore prêt — pré-téléchargement automatique dès la 1re conversion");
+      }).catch((e15) => {
+        console.warn("[mergdown2tex] warm vLaTeX différé :", e15 && e15.message || e15);
+      });
     } catch (e15) {
       console.error("[mergdown2tex] FATAL:", e15);
       new Notice("Erreur MergDown2TeX : " + e15.message);
@@ -5214,6 +5297,13 @@ Convertissez d'abord en LaTeX.`);
       new Notice("vLaTeX WASM non initialisé.");
       return null;
     }
+    if (!wasm) {
+      const okE = await this.preflightEngines([]);
+      if (!okE || !wasm) {
+        new Notice("vLaTeX indisponible — conversion annulée.", 4e3);
+        return null;
+      }
+    }
     const fp2 = await this.getFilePaths();
     if (!fp2) return null;
     const { vaultRoot, mdPath, parentDir, fileStem, content: rawContent, activeFile } = fp2;
@@ -5350,6 +5440,13 @@ Convertissez d'abord en LaTeX.`);
     if (!this.vlatex) {
       new Notice("vLaTeX WASM non initialisé.");
       return null;
+    }
+    if (!wasm) {
+      const okE = await this.preflightEngines([]);
+      if (!okE || !wasm) {
+        new Notice("vLaTeX indisponible — conversion annulée.", 4e3);
+        return null;
+      }
     }
     const activeFile = this.app.workspace.getActiveFile();
     if (!activeFile || activeFile.extension !== "md") {

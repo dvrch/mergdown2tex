@@ -75,6 +75,15 @@ const TARGETS = [
     label: "bundle polices typst (compressé)",
     compress: true, // compression maximale pour réduire la taille du téléchargement
   },
+  {
+    // vlatex.wasm SEUL, COMPRESSÉ : le moteur vLaTeX (transformations md→tex,
+    // filtre DOCX, bibliographie) qui avait disparu des releases ; ~0,9 Mo.
+    sources: [{ dir: path.join("mergdowntotex", "wasm"), prefix: "", include: /^vlatex\.wasm$/ }],
+    out: "docs/assets/vlatex_wasm.zip",
+    exclude: new Set([]),
+    label: "bundle WASM vLaTeX seul (compressé)",
+    compress: true, // compression maximale pour réduire la taille du téléchargement
+  },
 ];
 
 // Vérifie si une entrée (chemin relatif, en incluant le préfixe éventuel) doit

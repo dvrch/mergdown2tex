@@ -2,6 +2,18 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [2.2.5] — 2026-09-10
+
+### Corrigé
+- **« Cannot read properties of undefined (reading '__wbindgen_free') » à chaque conversion PDF / Word (mobile ET PC)** : c'était le **moteur vLaTeX qui avait disparu des releases**. Le glue JavaScript (wasm-bindgen) est bien présent dans `main.js`, mais le binaire `vlatex.wasm` n'existait nulle part : `WASM_BASE64` était resté un texte d'exemple « non initialisé » et `initWasm()` pointait sur un fichier inexistant, alors que chaque transformation (wikiliens, .md → .tex, filtre DOCX, bibliographie…) appelle `wasm.__wbindgen_free`. Le binaire a été **récupéré depuis l'historique** (commit `df36ae7`) puis est de nouveau livré (~2,6 Mo) :
+  - **chargement en mémoire** (`initVlatexFromBytes`) depuis `wasm/vlatex.wasm` du plugin ou depuis `vlatex_wasm.zip` (~0,9 Mo) déposé à la racine du vault — même stratégie que pandoc/typst, fonctionne sur mobile sans grosse écriture disque ;
+  - le moteur est **pré-chargé au démarrage** (plus de popup d'erreur trompeuse « WASM non initialisé » à l'activation) et **garanti avant toute conversion** : le pré-téléchargement automatique inclut maintenant `vLaTeX` pour *toutes* les commandes (PDF, DOCX, TEX, TYP), y compris « Convertir la note active en LaTeX » ;
+  - la taille du binaire est validée (2 634 305 octets) comme pour pandoc/typst — un `vlatex.wasm` « 0 octet » ou tronqué ne passe plus.
+
+### Ajouté
+- Nouvelle case à cocher **`vlatex_wasm.zip`** dans Réglages → Moteurs (cochée par défaut), avec bouton de téléchargement et lien manuel.
+- Nouveau zip **`docs/assets/vlatex_wasm.zip`** (~0,9 Mo) dans la release `bundle` + miroir jsDelivr (CORS * sur mobile).
+
 ## [2.2.4] — 2026-09-10
 
 ### Corrigé

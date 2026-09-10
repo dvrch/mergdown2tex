@@ -11,8 +11,9 @@ site/
 # zips générés par le CI (scripts/build_assets.js) — jamais commités
 docs/assets/*.zip
 node_modules/
-# … sauf les 3 zips WASM : commités pour servir de miroir jsDelivr (CORS *)
+# … sauf les 4 zips WASM : commités pour servir de miroir jsDelivr (CORS *)
 # sur mobile (chaque fichier < 20 Mo, limite jsDelivr).
 !docs/assets/pandoc_wasm.zip
 !docs/assets/typst_wasm.zip
 !docs/assets/typst_fonts.zip
+!docs/assets/vlatex_wasm.zip
