@@ -2,6 +2,12 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [2.2.6] — 2026-09-10
+
+### Changé
+- **vLaTeX est de nouveau EMBARQUÉ dans `main.js`** (option 1) : le binaire `vlatex.wasm` (~2,6 Mo) est intégré en base64 directement dans le plugin, comme à l'origine. Plus aucun fichier ou téléchargement `vlatex_wasm.zip` requis — le moteur est chargé en mémoire au démarrage (`initWasmEmbedded`) et fonctionne hors-ligne sur PC comme sur mobile. Le mécanisme de repli automatique (fichier `wasm/vlatex.wasm` ou zip à la racine) reste actif en secours, mais n'est plus nécessaire. La case de téléchargement dédiée a été retirée des réglages.
+- `main.js` passe à ~7,4 Mo (base64 embarqué). Le script de transpile a été corrigé pour ne plus toucher aux chaînes littérales : le remplacement des BigInt `123n` → `BigInt(123)` se faisait jusque-là sur TOUT le fichier et corrompait le bloc base64 embarqué (motifs type « +1n/ » dans le wasm) — désormais les littéraux « ' », « " », « ` » et les commentaires sont ignorés. Le base64 est vérifié octet-pour-octet contre le binaire d'origine et instancié réellement en test.
+
 ## [2.2.5] — 2026-09-10
 
 ### Corrigé

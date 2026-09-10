@@ -56,8 +56,10 @@ var _GLB_ = typeof self !== "undefined" ? self : typeof window !== "undefined" ?
 
 function prePass(src) {
   let s = src;
-  // 1) littéraux BigInt ES2020 -> BigInt(n) ES2016 (constantes entières du glue WASM)
-  s = s.replace(/\b([0-9]+)n\b/g, "BigInt($1)");
+  // 1) littéraux BigInt ES2020 -> BigInt(n) ES2016 (constantes entières du glue WASM),
+  //    UNIQUEMENT dans le code : les chaînes littérales (dont le base64 du wasm vLaTeX
+  //    embarqué, qui contient des motifs type « +1n/ ») ne doivent jamais être touchées.
+  s = replaceInCode(s, /\b([0-9]+)n\b/g, (m, n) => "BigInt(" + n + ")");
   // 2) seul BigInt TOP-LEVEL (inode typst) : ne doit jamais bloquer l'activation
   s = s.replace(
     /gd\.next_ino=BigInt\(1\):/,
@@ -65,9 +67,64 @@ function prePass(src) {
   );
   // 3) globalThis -> _GLB_ (typeof globalThis est sûr sur vieux moteurs, mais on
   //    veut un résultat IDENTIQUE en relançant → donc plus aucun globalThis, même
-  //    dans la définition de l'alias).
-  s = s.replace(/globalThis/g, "_GLB_");
+  //    dans la définition de l'alias). Également hors des chaînes.
+  s = replaceInCode(s, /globalThis/g, "_GLB_");
   return s;
+}
+
+// Applique `re` / `fn` UNIQUEMENT sur les portions de CODE du fichier (hors
+// littéraux ', " et ` et hors commentaires // et */). Sans cette prudence, les
+// replacements BigInt/globalThis corrompent les chaînes littérales (le base64
+// embarqué de vlatex.wasm matche \b[0-9]+n\b avec des motifs comme « +1n/ »).
+function replaceInCode(src, re, fn) {
+  const out = [];
+  let codeStart = 0;
+  let i = 0;
+  const N = src.length;
+  const flushCode = (end) => {
+    out.push(src.slice(codeStart, end).replace(re, fn));
+  };
+  while (i < N) {
+    const c = src[i];
+    if (c === "'" || c === '"' || c === "`") {
+      flushCode(i);
+      const q = c;
+      let j = i + 1;
+      while (j < N) {
+        if (src[j] === "\\") { j += 2; continue; }
+        if (src[j] === q) { j++; break; }
+        // les chaînes `` avec ${...} sont traitées en bloc (le glue n'y place
+        // aucun BigInt littéral ; on ne veut surtout pas y toucher)
+        j++;
+      }
+      out.push(src.slice(i, j));
+      i = j;
+      codeStart = i;
+      continue;
+    }
+    if (c === "/" && src[i + 1] === "/") {
+      flushCode(i);
+      let j = i + 2;
+      while (j < N && src[j] !== "\n") j++;
+      out.push(src.slice(i, j));
+      i = j;
+      codeStart = i;
+      continue;
+    }
+    if (c === "/" && src[i + 1] === "*") {
+      flushCode(i);
+      let j = i + 2;
+      while (j < N && !(src[j] === "*" && src[j + 1] === "/")) j++;
+      j = Math.min(j + 2, N);
+      out.push(src.slice(i, j));
+      i = j;
+      codeStart = i;
+      continue;
+    }
+    i++;
+  }
+  flushCode(N);
+  return out.join("");
 }
 
 function main() {
