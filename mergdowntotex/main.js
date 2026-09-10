@@ -1814,6 +1814,20 @@ class Markdown2TexPlugin extends Plugin {
     return { "pandoc.wasm": 59075382, "typst.wasm": 28325178, fontsTotal: 13419040 };
   }
 
+  // Tailles COMPRESSÉES (octets) des zips de la release "bundle" : un corps
+  // HTTP qui répond 200 mais avec moins d'octets que prévu est un téléchargement
+  // INTERROMPU (mobile surtout) → on le détecte et on le réessaie aussitôt au
+  // lieu de faire croire à une réussite. À synchroniser avec les zips publiés.
+  WASM_ZIP_EXPECTED_BYTES() {
+    return { "pandoc_wasm.zip": 16192580, "typst_wasm.zip": 10767745, "typst_fonts.zip": 8454680 };
+  }
+
+  // Taille compressée attendue pour une URL de zip, sinon null.
+  wasmZipExpectedSize(url) {
+    const name = (url || "").split("/").pop();
+    return this.WASM_ZIP_EXPECTED_BYTES()[name] || null;
+  }
+
   // Taille réelle (octets) d'un fichier relatif au vault, via l'adapter
   // d'Obsidian (fiable PC et mobile). Retourne 0 si absent, null si
   // indéterminable (jamais fs.statSync seul sur mobile : le stub répond 0).
@@ -1879,8 +1893,16 @@ class Markdown2TexPlugin extends Plugin {
         try {
           const resp = await withTimeout(requestUrl({ url, throw: false, responseType: "arraybuffer" }), 90000, "timeout 90s");
           if (resp.status < 200 || resp.status >= 300) throw new Error("HTTP " + resp.status);
-          this._dlLog("downloadBytes", "requestUrl OK", "essai", attempt);
-          return resp.arrayBuffer;
+          // Garde anti-partiel : un body qui répond 200 mais n'a pas la taille du
+          // zip attendu est un téléchargement interrompu → échec pour réessayer.
+          const ab = resp.arrayBuffer;
+          const wantZip = this.wasmZipExpectedSize(url);
+          if (wantZip !== null && (!ab || ab.byteLength !== wantZip)) {
+            const got = ab && ab.byteLength ? ab.byteLength : 0;
+            throw new Error("téléchargement partiel (" + got + "/" + wantZip + " octets)");
+          }
+          this._dlLog("downloadBytes", "requestUrl OK", "essai", attempt, String(ab && ab.byteLength), "octets");
+          return ab;
         } catch (e) {
           lastErr = e;
           this._dlLog("downloadBytes", "requestUrl essai", attempt, "KO", (e && e.message) || e);
@@ -1902,6 +1924,8 @@ class Markdown2TexPlugin extends Plugin {
         const reader = resp.body && resp.body.getReader ? resp.body.getReader() : null;
         if (!reader) {
           const ab = await withTimeout(resp.arrayBuffer(), 90000, "délai dépassé");
+          const wantZip = this.wasmZipExpectedSize(url);
+          if (wantZip !== null && (!ab || ab.byteLength !== wantZip)) throw new Error("téléchargement partiel (" + ((ab && ab.byteLength) || 0) + "/" + wantZip + " octets)");
           if (progress && ab && ab.byteLength) progress.setProgress(1, "Téléchargement : " + Math.max(1, Math.round(ab.byteLength / 1048576)) + " Mo…");
           return ab;
         }
@@ -1921,6 +1945,8 @@ class Markdown2TexPlugin extends Plugin {
         const out = new Uint8Array(received);
         let off = 0;
         for (const c of chunks) { out.set(c, off); off += c.length; }
+        const wantZipF = this.wasmZipExpectedSize(url);
+        if (wantZipF !== null && out.length !== wantZipF) throw new Error("téléchargement partiel (" + out.length + "/" + wantZipF + " octets)");
         this._dlLog("downloadBytes", "fetch OK", String(out.length));
         return out.buffer;
       } catch (e) {
@@ -2049,28 +2075,68 @@ class Markdown2TexPlugin extends Plugin {
     // Validation des tailles extraites : un fichier "0 octet" ou tronqué issue
     // d'un téléchargement interrompu ne doit JAMAIS écraser une installation
     // correcte ni laisser croire qu'elle est faite.
-    const expected = this.WASM_EXPECTED_BYTES();
-    if (zipName === "pandoc_wasm.zip" || zipName === "typst_wasm.zip") {
-      const wantName = zipName === "pandoc_wasm.zip" ? "pandoc.wasm" : "typst.wasm";
-      const d = all[wantName];
-      const got = d && d.length ? d.length : 0;
-      if (got !== expected[wantName]) {
-        if (a && typeof a.remove === "function") { try { await a.remove(cacheRel); } catch (e) {} }
-        throw new Error("Archive " + zipName + " tronquée ou corrompue : " + wantName + " = " + got + " octets (attendu : " + expected[wantName] + "). Téléchargement incomplet — réessayez ou déposez le zip complet à la racine du vault.");
+    const validateZip = (entries) => {
+      const expected = this.WASM_EXPECTED_BYTES();
+      if (zipName === "pandoc_wasm.zip" || zipName === "typst_wasm.zip") {
+        const wantName = zipName === "pandoc_wasm.zip" ? "pandoc.wasm" : "typst.wasm";
+        const d = entries[wantName];
+        const got = d && d.length ? d.length : 0;
+        if (got !== expected[wantName]) return wantName + " = " + got + " octets (attendu : " + expected[wantName] + ")";
+      } else if (zipName === "typst_fonts.zip") {
+        let tot = 0;
+        for (const d of Object.values(entries)) if (d && d.length) tot += d.length;
+        if (tot < expected.fontsTotal) return "polices partielles (" + tot + " octets, attendu ≥ " + expected.fontsTotal + ")";
       }
-    } else if (zipName === "typst_fonts.zip") {
-      let tot = 0;
-      for (const d of Object.values(all)) if (d && d.length) tot += d.length;
-      if (tot < expected.fontsTotal) {
-        if (a && typeof a.remove === "function") { try { await a.remove(cacheRel); } catch (e) {} }
-        throw new Error("Archive typst_fonts.zip tronquée (" + tot + " octets, attendu " + expected.fontsTotal + "). Téléchargement incomplet — réessayez.");
+      return null;
+    };
+    // Zip déposé à la racine incompatible/partiel OU téléchargement encore
+    // partiel, malgré les retries : on supprime la source et on relance un
+    // téléchargement propre (jusqu'à 3 tentatives) plutôt que d'échouer sec.
+    let invalid = validateZip(all);
+    let dlAttempt = 0;
+    while (invalid && (fromCache || dlAttempt < 3)) {
+      fromCache = false;
+      if (a && typeof a.remove === "function") {
+        try { await a.remove(cacheRel); } catch (e) {}
+        try { await a.remove(usedRel); } catch (e) {}
       }
+      dlAttempt++;
+      if (progress) progress.setStatus((dlAttempt > 1 ? "Téléchargement encore partiel (" + invalid + ") — nouvelle tentative (" + dlAttempt + "/3)…" : "Zip déposé partiel/incompatible supprimé — téléchargement automatique…"));
+      this._dlLog("installWasmZip", zipName, "zip partiel/incompatible, téléchargement propre", dlAttempt, invalid);
+      let buf = null;
+      let dlErr = null;
+      try {
+        buf = new Uint8Array(await this.downloadBytes(this.wasmZipUrl(zipName), progress));
+      } catch (e) {
+        dlErr = e;
+      }
+      if (dlErr) {
+        this._dlLog("installWasmZip", zipName, "téléchargement KO", dlAttempt, (dlErr && dlErr.message) || dlErr);
+        if (dlAttempt < 3) continue;
+        throw new Error("Téléchargement partiel ou impossible (" + ((dlErr && dlErr.message) || dlErr) + "), après " + dlAttempt + " tentative(s). Réessayez encore, ou déposez le zip complet à la RACINE du vault.");
+      }
+      try {
+        await vaultWriteBinary(this.app, cacheRel, buf);
+        this._dlLog("installWasmZip", zipName, "zip écrit à la racine du vault (retry), extraction après libération mémoire");
+        buf.fill(0); // libère la mémoire du tampon téléchargé avant d'extraire
+        const reloaded = await vaultReadBinary(this.app, cacheRel);
+        arrayBuffer = reloaded.buffer.slice(reloaded.byteOffset, reloaded.byteOffset + reloaded.byteLength);
+      } catch (e) {
+        this._dlLog("installWasmZip", zipName, "cache disque indisponible (retry), extraction en mémoire", (e && e.message) || e);
+        arrayBuffer = buf.buffer;
+      }
+      invalid = validateZip(this.unzipAll(arrayBuffer));
     }
+    if (invalid) {
+      if (a && typeof a.remove === "function") { try { await a.remove(cacheRel); } catch (e) {} }
+      throw new Error("Téléchargement partiel (" + invalid + "), après " + dlAttempt + " tentative(s). Réessayez encore, ou déposez le zip complet à la RACINE du vault.");
+    }
+    const all2 = this.unzipAll(arrayBuffer);
     const base = this.wasmDir();
     let written = 0;
     const entries = [];
-    const totalWritable = Object.keys(all).filter((n) => !n.endsWith("/")).length;
-    for (const [name, data] of Object.entries(all)) {
+    const totalWritable = Object.keys(all2).filter((n) => !n.endsWith("/")).length;
+    for (const [name, data] of Object.entries(all2)) {
       if (name.endsWith("/")) continue; // dossier explicite
       const clean = name.replace(/^wasm\//, "").replace(/^\/+/, "");
       if (!clean) continue;
