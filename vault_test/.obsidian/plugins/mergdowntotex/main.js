@@ -167,20 +167,45 @@ async function vaultReadBinary(app, relPath) {
 
 async function vaultWriteBinary(app, relPath, data) {
   const bytes = (data instanceof Uint8Array) ? data : new Uint8Array(data);
+  // Signature documentée de writeBinary : un vrai ArrayBuffer. Sur mobile, un
+  // Uint8Array brut peut déclencher « Écriture binaire impossible » peu importe
+  // la taille — on passe donc toujours une vue ArrayBuffer propre.
+  const ab = (bytes.byteOffset === 0 && bytes.byteLength === bytes.buffer.byteLength)
+    ? bytes.buffer
+    : bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
   const a = adapterGet(app);
   if (a && typeof a.writeBinary === "function") {
-    try { await a.writeBinary(relPath, bytes); return; } catch (e) { /* fallback */ }
+    // Délai de garde + retry : sur Android, writeBinary de GROS fichiers est
+    // connu pour ne jamais se résoudre (le pont base64 plafonne). On ne laisse
+    // jamais un modal muet indéfiniment ; on signale via le retour false.
+    let lastErr = null;
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        await withTimeout(a.writeBinary(relPath, ab), 90000, "writeBinary suspendu (> 90 s)");
+        return true;
+      } catch (e) {
+        lastErr = e;
+        if (attempt === 2) break;
+        await new Promise((r) => setTimeout(r, 500));
+      }
+    }
+    // Échec réel : on laisse passer jusqu'au repli fs, en gardant la trace.
+    if (typeof console !== "undefined" && console.log && lastErr) {
+      try { console.log("[mergdown2tex] writeBinary KO", relPath, bytes.byteLength, "o :", (lastErr && lastErr.message) || lastErr); } catch (e) {}
+    }
   }
   const p = requirePathOrNull();
   const root = app && app.vault && app.vault.adapter && app.vault.adapter.getBasePath ? app.vault.adapter.getBasePath() : null;
   if (p && root) {
-    const abs = p.join(root, relPath);
-    const dir = p.dirname(abs);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-    fs.writeFileSync(abs, Buffer.from(bytes));
-    return;
+    try {
+      const abs = p.join(root, relPath);
+      const dir = p.dirname(abs);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(abs, Buffer.from(bytes));
+      return true;
+    } catch (e) {}
   }
-  throw new Error("Écriture binaire impossible: " + relPath);
+  return false;
 }
 
 async function vaultMkdir(app, relPath) {
@@ -1442,7 +1467,7 @@ class Markdown2TexSettingTab extends PluginSettingTab {
 
     const dlLinksSetting = new Setting(containerEl)
       .setName("Liens de téléchargement manuels (dépannage)")
-      .setDesc("Si l'installation automatique échoue (réseau d'Obsidian bloqué) : le moyen le plus sûr est de RETÉLÉCHARGER le zip ci-dessous, puis de le déposer SANS le décompresser à la RACINE de votre vault (typst_wasm.zip, pandoc_wasm.zip, typst_fonts.zip, visibles dans l'explorateur — glisser-déposer possible) ; « Télécharger la sélection » le décompressera ensuite au bon endroit sans repasser par le réseau. Autre méthode : décompressez vous-même le contenu dans " + this.plugin.manifest.dir + "/wasm/ (pandoc_wasm.zip → pandoc.wasm ; typst_wasm.zip → typst.wasm ; typst_fonts.zip → sous-dossier fonts/). « Télécharger la sélection » détectera dans tous les cas les fichiers déjà présents.");
+      .setDesc("Si l'installation automatique échoue (réseau d'Obsidian bloqué) : le moyen le plus sûr est de RETÉLÉCHARGER le zip ci-dessous, puis de le déposer SANS le décompresser à la RACINE de votre vault (typst_wasm.zip, pandoc_wasm.zip, typst_fonts.zip, visibles dans l'explorateur — glisser-déposer possible) ; « Télécharger la sélection » le décompressera ensuite au bon endroit sans repasser par le réseau. Sur mobile, si le système refuse d'écrire le gros fichier dézippé (err. « Écriture binaire impossible », limite connue du mobile), gardez simplement le zip à la racine : il sera re-dégainé en mémoire à chaque compilation — c'est la manière normale sur téléphone. Autre méthode : décompressez vous-même le contenu dans " + this.plugin.manifest.dir + "/wasm/ (pandoc_wasm.zip → pandoc.wasm ; typst_wasm.zip → typst.wasm ; typst_fonts.zip → sous-dossier fonts/). « Télécharger la sélection » détectera dans tous les cas les fichiers déjà présents.");
     const linkRow = dlLinksSetting.settingEl.createDiv({ attr: { style: "display:flex;flex-wrap:wrap;gap:8px;margin-top:6px" } });
     const mkLink = (label, url) => {
       const a = linkRow.createEl("a", { text: label, href: url, attr: { target: "_blank", rel: "noopener", style: "display:inline-block;border:1px solid var(--interactive-accent);border-radius:6px;padding:3px 10px;text-decoration:none;color:var(--interactive-accent)" } });
@@ -1740,7 +1765,10 @@ class Markdown2TexPlugin extends Plugin {
     const rel = this.pandocWasmRel();
     // Pleine taille exigée : un pandoc.wasm de 0 octet (tronqué/écriture
     // interrompue) ne doit PAS être considéré comme installé.
-    return this.wasmFileComplete(rel, this.WASM_EXPECTED_BYTES()["pandoc.wasm"]);
+    if (await this.wasmFileComplete(rel, this.WASM_EXPECTED_BYTES()["pandoc.wasm"])) return true;
+    // Repli mobile : si l'écriture du gros fichier a été refusée mais que le zip
+    // compact est complet et présent, la ressource reste utilisable (à la volée).
+    return this.wasmZipUsable("pandoc_wasm.zip");
   }
 
   typstWasmRel() {
@@ -1750,7 +1778,8 @@ class Markdown2TexPlugin extends Plugin {
 
   async typstWasmExists() {
     const rel = this.typstWasmRel();
-    return this.wasmFileComplete(rel, this.WASM_EXPECTED_BYTES()["typst.wasm"]);
+    if (await this.wasmFileComplete(rel, this.WASM_EXPECTED_BYTES()["typst.wasm"])) return true;
+    return this.wasmZipUsable("typst_wasm.zip");
   }
 
   async ensureTypstWasm() {
@@ -1816,6 +1845,56 @@ class Markdown2TexPlugin extends Plugin {
       this.wasmZipUrl(zipName),
       "https://cdn.jsdelivr.net/gh/dvrch/mergdown2tex@main/docs/assets/" + zipName
     ];
+  }
+
+  // Emplacements où l'on accepte un zip d'origine (hors-ligne) : la racine du
+  // vault (dépôt glisser-déposer, demande de l'utilisateur) PUIS l'ancien
+  // mergdown2tex_cache/ (repli lecture seule). Retourne la taille o ou null.
+  async wasmZipSizeOnDisk(zipName) {
+    for (const rel of [zipName, "mergdown2tex_cache/" + zipName]) {
+      try {
+        if (await vaultExists(this.app, rel)) {
+          const sz = await this.vaultFileSize(rel);
+          if (typeof sz === "number") return sz;
+        }
+      } catch (e) {}
+    }
+    return null;
+  }
+
+  // Vrai si un zip COMPLET de la bonne taille est présent hors-ligne (racine du
+  // vault ou mergdown2tex_cache/). Sur mobile, l'écriture du gros fichier dézippé
+  // (28/59 Mo) peut être refusée par le système : tant que le zip d'origine est
+  // là, la ressource reste utilisable (dégainée en mémoire à la compilation).
+  async wasmZipUsable(zipName) {
+    const wantZip = this.WASM_ZIP_EXPECTED_BYTES()[zipName];
+    if (typeof wantZip !== "number") return false;
+    const sz = await this.wasmZipSizeOnDisk(zipName);
+    return sz === wantZip;
+  }
+
+  // Lit le zip COMPRESSÉ hors-ligne et renvoie le Uint8Array du fichier cible
+  // (pandoc.wasm / typst.wasm / etc.) extrait EN MÉMOIRE. Chemin de substitution
+  // mobile : on ne dépend jamais de l'écriture du fichier dézippé (16-59 Mo).
+  // La taille du zip est contrôlée (partiel refusé) ; la taille extraite l'est
+  // par l'appelant.
+  async readZipEmbedded(zipName, wantName) {
+    const wantZip = this.WASM_ZIP_EXPECTED_BYTES()[zipName];
+    for (const rel of [zipName, "mergdown2tex_cache/" + zipName]) {
+      try {
+        if (!(await vaultExists(this.app, rel))) continue;
+        if (wantZip && (await this.vaultFileSize(rel)) !== wantZip) continue; // zip partiel → ignore
+        const raw = await vaultReadBinary(this.app, rel);
+        if (!raw || raw.byteLength === 0) continue;
+        const ab = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
+        const all = this.unzipAll(ab);
+        const d = all[wantName];
+        if (!(d && d.length > 0)) continue;
+        this._dlLog("readZipEmbedded", zipName, "->", wantName, "en mémoire depuis", rel, String(d.length));
+        return new Uint8Array(d);
+      } catch (e) { this._dlLog("readZipEmbedded", zipName, "repli", rel, "KO", (e && e.message) || e); }
+    }
+    return null;
   }
 
   // Tailles de référence (octets) des fichiers extraits du bundle publié dans
@@ -2070,14 +2149,14 @@ class Markdown2TexPlugin extends Plugin {
       this._dlLog("installWasmZip", zipName, "depuis vault racine/" + usedRel + " (hors-ligne)");
     } else {
       const buf = new Uint8Array(await this.downloadBytes(this.wasmZipCandidates(zipName), progress));
-      try {
-        await vaultWriteBinary(this.app, cacheRel, buf);
+      const okZ = await vaultWriteBinary(this.app, cacheRel, buf);
+      if (okZ) {
         this._dlLog("installWasmZip", zipName, "zip écrit à la racine du vault avant extraction");
         buf.fill(0); // libère la mémoire du tampon téléchargé avant d'extraire
         const reloaded = await vaultReadBinary(this.app, cacheRel);
         arrayBuffer = reloaded.buffer.slice(reloaded.byteOffset, reloaded.byteOffset + reloaded.byteLength);
-      } catch (e) {
-        this._dlLog("installWasmZip", zipName, "cache disque indisponible, extraction en mémoire", (e && e.message) || e);
+      } else {
+        this._dlLog("installWasmZip", zipName, "cache disque indisponible, extraction en mémoire", "write KO");
         arrayBuffer = buf.buffer;
       }
     }
@@ -2126,11 +2205,16 @@ class Markdown2TexPlugin extends Plugin {
         throw new Error("Téléchargement partiel ou impossible (" + ((dlErr && dlErr.message) || dlErr) + "), après " + dlAttempt + " tentative(s). Réessayez encore, ou déposez le zip complet à la RACINE du vault.");
       }
       try {
-        await vaultWriteBinary(this.app, cacheRel, buf);
+        const okZ = await vaultWriteBinary(this.app, cacheRel, buf);
+      if (okZ) {
         this._dlLog("installWasmZip", zipName, "zip écrit à la racine du vault (retry), extraction après libération mémoire");
         buf.fill(0); // libère la mémoire du tampon téléchargé avant d'extraire
         const reloaded = await vaultReadBinary(this.app, cacheRel);
         arrayBuffer = reloaded.buffer.slice(reloaded.byteOffset, reloaded.byteOffset + reloaded.byteLength);
+      } else {
+        this._dlLog("installWasmZip", zipName, "cache disque indisponible, extraction en mémoire", "write KO");
+        arrayBuffer = buf.buffer;
+      }
       } catch (e) {
         this._dlLog("installWasmZip", zipName, "cache disque indisponible (retry), extraction en mémoire", (e && e.message) || e);
         arrayBuffer = buf.buffer;
@@ -2143,7 +2227,9 @@ class Markdown2TexPlugin extends Plugin {
     }
     const all2 = this.unzipAll(arrayBuffer);
     const base = this.wasmDir();
+    const expectedWasm = this.WASM_EXPECTED_BYTES();
     let written = 0;
+    let heldInMemory = false; // gros fichier (wasm 28/59 Mo) non écritrable sur mobile
     const entries = [];
     const totalWritable = Object.keys(all2).filter((n) => !n.endsWith("/")).length;
     for (const [name, data] of Object.entries(all2)) {
@@ -2168,12 +2254,22 @@ class Markdown2TexPlugin extends Plugin {
           try { await a.mkdir(cur); } catch (e) { /* déjà présent */ }
         }
       }
-      await vaultWriteBinary(this.app, rel, data);
+      const wrote = await vaultWriteBinary(this.app, rel, data);
       written++;
       // Vérifie que le fichier a bien été écrit à pleine taille : une écriture
       // interrompue à 0 octet est détectée et signalée, jamais affichée installée.
-      const szWritten = await this.vaultFileSize(rel);
-      if (szWritten === null || szWritten === 0) {
+      const szWritten = wrote ? await this.vaultFileSize(rel) : null;
+      const isBigWasm = (clean === "pandoc.wasm" || clean === "typst.wasm") &&
+        data.length === (clean === "pandoc.wasm" ? expectedWasm["pandoc.wasm"] : expectedWasm["typst.wasm"]);
+      if (!wrote || szWritten === null || szWritten === 0) {
+        // Le gros wasm refusé (bug Capacitor writeBinary mobile) n'est PAS une
+        // faute : il restera COMPRESSÉ et sera dégainé en mémoire à la compile.
+        if (isBigWasm) {
+          heldInMemory = true;
+          this._dlLog("installWasmZip", zipName, "écriture", rel, "refusée par le système — résidence mémoire/zip", data.length);
+          if (progress) progress.setStatus("Le système refuse l'écriture du gros fichier " + clean + " (" + Math.round(data.length / 1048576) + " Mo) — il restera compressé et sera dégainé à la compilation (normal sur mobile).");
+          continue;
+        }
         if (a && typeof a.remove === "function") { try { await a.remove(rel); } catch (e) {} }
         throw new Error("Écriture incomplète de " + rel + " (" + (szWritten === null ? "taille indéterminable" : "0 octet") + "). Réessayez.");
       }
@@ -2184,10 +2280,14 @@ class Markdown2TexPlugin extends Plugin {
       }
       await new Promise((r) => setTimeout(r, 0));
     }
-    if (a && typeof a.remove === "function") { try { await a.remove(usedRel); } catch (e) {} }
-    this._dlLog("installWasmZip", zipName, "terminé", String(written), "fichiers");
-    if (progress) { progress.setProgress(1, "Installé : " + written + " fichiers"); }
-    else new Notice("Installé : " + written + " fichiers (" + base + ")");
+    // En cas de gros fichier gardé en mémoire, ON GARDE le zip d'origine à la
+    // racine : c'est lui qui servira à re-dégainer à chaque compilation.
+    if (!heldInMemory && a && typeof a.remove === "function") {
+      try { await a.remove(usedRel); } catch (e) {}
+    }
+    this._dlLog("installWasmZip", zipName, "terminé", String(written), "fichiers", heldInMemory ? "(wasm en mémoire/zip conservé)" : "");
+    if (progress) { progress.setProgress(1, "Installé : " + written + " fichiers" + (heldInMemory ? " (wasm gardé compressé)" : "")); }
+    else new Notice("Installé : " + written + " fichiers (" + base + ")" + (heldInMemory ? " — typst/pandoc.wasm réside compressé, compilé à la volée" : ""));
     return { written, files: entries };
   }
 
@@ -2344,7 +2444,8 @@ class Markdown2TexPlugin extends Plugin {
     if (a && typeof a.mkdir === "function") {
       try { await a.mkdir(parent); } catch (e) { /* parent existant */ }
     }
-    await vaultWriteBinary(this.app, relPath, bytes);
+    const ok = await vaultWriteBinary(this.app, relPath, bytes);
+    if (!ok) throw new Error("Écriture binaire impossible : " + relPath);
   }
 
   async downloadMermaid(progress) {
@@ -2687,6 +2788,16 @@ class Markdown2TexPlugin extends Plugin {
         return this.pandocWasmEngine;
       }
     }
+    // Repli mobile : si l'écriture du gros pandoc.wasm a été refusée par le
+    // système, on dégaine directement depuis le zip compressé (racine/cache).
+    if (!wasmBytes) {
+      const zb = await this.readZipEmbedded("pandoc_wasm.zip", "pandoc.wasm");
+      if (zb && zb.length === this.WASM_EXPECTED_BYTES()["pandoc.wasm"]) {
+        this.pandocWasmEngine = await PandocWasmEngine.load(zb);
+        new Notice("Pandoc WASM initialisé depuis le zip (mémoire) !");
+        return this.pandocWasmEngine;
+      }
+    }
     // Fallback : pandoc.wasm absent du vault → télécharger (adapter-first, identique
     // sur PC et mobile — jamais de chemins fs absolus ici, car sur mobile le stub
     // path/fs lèverait « Module natif fs/path indisponible »).
@@ -2700,7 +2811,10 @@ class Markdown2TexPlugin extends Plugin {
         );
       }
       if (a && typeof a.readBinary === "function") {
-        wasmBytes = await a.readBinary(rel);
+        try { wasmBytes = await a.readBinary(rel); } catch (e) { wasmBytes = null; }
+      }
+      if (!(wasmBytes && typeof wasmBytes.byteLength === "number" && wasmBytes.byteLength > 0)) {
+        wasmBytes = await this.readZipEmbedded("pandoc_wasm.zip", "pandoc.wasm");
       }
     }
     new Notice("Chargement de Pandoc WASM...");
@@ -4133,6 +4247,12 @@ class Markdown2TexPlugin extends Plugin {
           wasmBytes = new Uint8Array(await vaultReadBinary(this.app, wasmRel));
         }
       } catch (e) { console.warn("[mergdown2tex] ensureTypstWasmZip failed:", e && e.message); }
+      // Repli mobile : écriture du gros typst.wasm refusée → on dégaine depuis
+      // le zip compressé (racine du vault/cache), validé pleine taille.
+      if (!wasmBytes || wasmBytes.length === 0) {
+        const zb = await this.readZipEmbedded("typst_wasm.zip", "typst.wasm");
+        if (zb && zb.length === this.WASM_EXPECTED_BYTES()["typst.wasm"]) wasmBytes = zb;
+      }
       if (!wasmBytes || wasmBytes.length === 0) {
         new Notice("Téléchargement de typst.wasm dans le plugin...");
         const resp = await requestUrl({ url: mp, throw: false, responseType: "arraybuffer" });
