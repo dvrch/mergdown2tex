@@ -2,6 +2,22 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [2.2.1] — 2026-09-10
+
+### Corrigé (mobile — durable)
+- **« Écriture binaire impossible »** : sur Android, `adapter.writeBinary` encode en base64 ; sur les gros fichiers (`typst.wasm` 28 Mo, `pandoc.wasm` 59 Mo) il est refusé ou ne se résout jamais (bug Capacitor documenté). Le zip déposé à la main était bien lu, mais la réécriture du fichier dézippé échouait → « téléchargement manuel échec ».
+- **Le plugin ne dépend plus de l'écriture du gros wasm** : la compilation lit le wasm **en mémoire** ; l'écriture disque n'est qu'un cache. Si le système refuse d'écrire le gros fichier, il **garde le zip compressé à la racine du vault** et « dégaine » le fichier en mémoire à chaque compilation.
+- `vaultWriteBinary` blindé : vrai `ArrayBuffer` (signature documentée — un `Uint8Array` brut déclenche l'erreur sur mobile), délai de garde 90 s + retry, retourne `false` au lieu d'une erreur trompeuse, vraie cause journalisée.
+- **Un zip complet de bonne taille présent au dépôt vaut ressource installée** : `wasmZipUsable()`/`readZipEmbedded()` → fini les fausses erreurs quand on dépose `pandoc_wasm.zip` / `typst_wasm.zip` à la main, et plus de re-téléchargement inutile.
+- Repli dans les deux compilateurs (`getPandocWasmEngine`, `getTypstCompiler`) : lecture du zip + extraction en mémoire + **validation pleine taille**.
+- `_writePluginResource` (mermaid) : un échec d'écriture est désormais une erreur explicite, jamais un faux « installé ».
+
+### Corporé (téléchargements réseau — mobile)
+- `downloadBytes` accepte une **liste d'URL candidates** essayées dans l'ordre ; un zip partiel (HTTP 200, taille courte) est détecté et retenté **immédiatement** (avant : il n'échouait qu'à l'extraction).
+- **requestUrl : 5 minutes par essai** (avant 90 s — le pont base64 peut être très lent), 3 essais/source + backoff.
+- **Miroir jsDelivr** en 2e position (CDN public, `Access-Control-Allow-Origin: *`) : unique chemin `fetch`-stream possible sur mobile (les assets GitHub n'envoient pas CORS), avec **vraie progression** en % et Mo. Sert la copie d'origine commitée dans `docs/assets/` (chaque zip < 20 Mo, limite jsDelivr).
+- GitHub Pages s'est avéré injoignable sur certains réseaux (testé) : ce n'est pas utilisé comme miroir.
+
 ## [2.2.0] — 2026-09-10
 
 ### Corrigé (mobile)
