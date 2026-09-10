@@ -2,6 +2,16 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [2.2.0] — 2026-09-10
+
+### Corrigé (mobile)
+- **« Échec, téléchargement partiel »** : un corps HTTP qui répond 200 mais avec un zip **trop court** (interruption réseau — très fréquent sur Android) passait l'étape de téléchargement et n'échouait qu'à l'extraction. Chaque téléchargement vérifie désormais la **taille compressée complète** (`pandoc_wasm.zip` 16,19 Mo, `typst_wasm.zip` 10,77 Mo, `typst_fonts.zip` 8,45 Mo) : un partiel est détecté aussitôt et **retenté** (jusqu'à 3 essais par étape, 3 tentatives complètes au besoin).
+- Un zip **déposé à la racine du vault** qui s'avère tronqué/incompatible est **automatiquement supprimé** puis re-téléchargé proprement (plus d'échec « sec » si un zip partiel traînait).
+- `requestUrl` (API native d'Obsidian, réseau système) est essayé **avant** `fetch` sur mobile : ce pont était essayé en premier et rendait les téléchargements lents/instables alors que le PC passait par le https natif de Node (quasi instantané).
+- **Jamais de fichier « 0 octet » qui fait croire que c'est installé** : `pandoc.wasm` (59,1 Mo), `typst.wasm` (28,3 Mo) et `typst_fonts.zip` (≥ 13,4 Mo) sont validés à la **pleine taille** (adapter.stat, pas le stub `statSync` mobile qui répondait 0). Un fichier partiel est rejeté, jamais écrit, source effacée.
+- Vérification après écriture dans l'extraction : un fichier revenu à 0 octet est signalé, jamais affiché comme installé.
+- Choix demandé : les zips sont cherchés/déposés **à la racine du vault** (plus de sous-dossier nécessité), l'ancien `mergdown2tex_cache/` restant accepté en repli.
+
 ## [2.1.9] — 2026-09-09
 
 ### Renforcé (téléchargements — PC ET mobile)

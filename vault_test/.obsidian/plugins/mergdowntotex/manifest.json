@@ -1,7 +1,7 @@
 {
   "id": "mergdowntotex",
   "name": "MergDown2TeX",
-  "version": "2.1.9",
+  "version": "2.2.0",
   "minAppVersion": "1.4.0",
   "description": "vault de test — plugin MergDown2TeX pré-installé.",
   "author": "dvrch",
