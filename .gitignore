@@ -1,4 +1,7 @@
 data.json
+# ... sauf le data.json pré-configuré du vault D'EXEMPLE, requis par le CI
+# (scripts/build_assets.js) pour pré-configurer un nouveau vault.
+!example_vault/.obsidian/plugins/mergdowntotex/data.json
 node_modules/
 *.log
 .DS_Store

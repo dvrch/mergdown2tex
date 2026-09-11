@@ -30,7 +30,11 @@ const TARGETS = [
   {
     sources: [{ dir: "example_vault", prefix: "" }],
     out: "docs/assets/full_manual_repport_exp.zip",
-    exclude: new Set(["data.json"]),
+    // data.json du plugin D'EXEMPLE est un fichier de config PROPRE (valeurs
+    // par défaut + pipeline WASM typst) : il doit être inclus pour qu'un NOUVEAU
+    // vault soit pré-configuré. Le déploiement « dans le vault actuel » le
+    // remplace aussi désormais (bouton « Télécharger le dossier d'exemple »).
+    exclude: new Set([]),
     label: "vault exemple",
   },
   {
@@ -45,7 +49,10 @@ const TARGETS = [
       { dir: "mergdowntotex", prefix: "mergdowntotex" },
     ],
     out: "docs/assets/mergdowntotex_bundle.zip",
-    exclude: new Set(["data.json"]),
+    // data.json inclus (pré-configuration du vault exemple dans le bundle) ;
+    // la source mergdowntotex/ n'en contient pas, l'installation « plugin seul »
+    // reste donc en réglages par défaut.
+    exclude: new Set([]),
     label: "bundle plugin + vault exemple",
   },
   {

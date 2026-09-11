@@ -1,0 +1,20 @@
+{
+  "bibliographyPath": "",
+  "documentTitle": "",
+  "authorName": "",
+  "pandocPath": "pandoc",
+  "latexEngine": "pdflatex",
+  "pcUseTypstPdf": true,
+  "pcRenderMermaid": true,
+  "keepNavArrows": true,
+  "cslPath": "",
+  "preamblePath": "",
+  "defaultTableWidth": "0.95",
+  "enableDocxNumbering": true,
+  "headerContent": "\\thetitle",
+  "footerContent": "Page \\thepage",
+  "enableHeader": true,
+  "enableFooter": true,
+  "useWasmPandoc": true,
+  "zipIncludeObsidian": false
+}

@@ -126,7 +126,7 @@ Chargement de Pandoc WASM...
 Chargement de Typst WASM...
 ```
 
-Un **téléchargement manuel** est également possible dans les réglages : la rubrique *Export ZIP* (tout en haut) permet de récupérer le **dossier d'exemple complet** (fichiers de référence + réglages Obsidian `.obsidian` + thème, qui **remplace** la configuration du vault actuel), puis la rubrique *Moteurs — téléchargements* propose **3 cases à cocher** (`pandoc_wasm.zip`, `typst_wasm.zip`, `typst_fonts.zip`) et **un seul bouton** « Télécharger la sélection » pour lancer tous les zips cochés d'un coup.
+Un **téléchargement manuel** est également possible dans les réglages : la rubrique *Export ZIP* (tout en haut) permet de récupérer le **dossier d'exemple complet** — fichiers de référence + réglages Obsidian `.obsidian` **complets** (thème, plugins, workspace) + **réglages du plugin (`data.json` du vault exemple, propre et pré-configuré : pipeline WASM Typst partout)**. Le bouton « Télécharger, remplacer & extraire » **remplace la configuration du vault actuel** et applique le thème **immédiatement** (plus de redémarrage nécessaire). La rubrique *Moteurs — téléchargements* propose ensuite **3 cases à cocher** (`pandoc_wasm.zip`, `typst_wasm.zip`, `typst_fonts.zip`) et **un seul bouton** « Télécharger la sélection » pour lancer tous les zips cochés d'un coup.
 
 > **💡 Raccourcis** : le **dossier d'exemple** est aussi accessible via la **palette de commandes** (*Télécharger le dossier d'exemple (réglages + thème + fichiers)*) et via le **ruban** (icône ⬇ dans la barre latérale gauche). Idéal pour reproduire l'environnement MergDown2TeX (fichiers de référence, réglages Obsidian et thème) sur n'importe quel appareil.
 

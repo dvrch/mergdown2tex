@@ -2,6 +2,14 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [2.2.9] — 2026-09-12
+
+### Changé
+- **Le dossier d'exemple déploie désormais TOUT, en FORCÉ** : le bouton « Télécharger, remplacer & extraire » (rubrique *Export ZIP*, palette de commandes, ruban) remplace maintenant la configuration **complète** du vault actuel — fichiers de référence, `.obsidian` entier (thème, plugins, workspace, hotkeys…) **et** `data.json` du plugin du vault d'exemple. Plus aucune configuration n'est épargnée.
+- **Thème appliqué immédiatement** : après extraction, le plugin lit `.obsidian/appearance.json` restauré et appelle `app.customCss.setTheme(...)` (et recharge les extraits CSS éventuels). Fini le redémarrage d'Obsidian nécessaire pour voir le thème.
+- **Les réglages du plugin sont rechargés sur-le-champ** depuis le `data.json` ainsi restauré (appel `loadSettings()` après déploiement) — pas besoin de relancer Obsidian pour que la nouvelle configuration prenne effet.
+- **Nouveau `data.json` d'exemple propre et pré-configuré** : les valeurs de test sans pertinence (« dkdfmdmfmdlf », « iheiah », « hdhs »…) sont remplacées par des valeurs saines (titre/variables vides, `pcUseTypstPdf: true` → pipeline Pandoc WASM + Typst partout, `zipIncludeObsidian: false`). Ce `data.json` est maintenant **inclus dans les zips** (vault d'exemple `full_manual_repport_exp.zip` et bundle `mergdowntotex_bundle.zip`) afin qu'un **nouveau vault soit créé pré-configuré**.
+
 ## [2.2.8] — 2026-09-11
 
 ### Ajouté

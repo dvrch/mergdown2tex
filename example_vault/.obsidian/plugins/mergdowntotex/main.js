@@ -2707,7 +2707,7 @@ class Markdown2TexSettingTab extends PluginSettingTab {
     containerEl.createEl("h2", { text: "MergDown2TeX Settings" });
     const section = (title) => containerEl.createEl("h3", { text: title, attr: { style: "border-bottom:1px solid var(--background-modifier-border);padding-bottom:4px;margin-top:22px" } });
     section("Export ZIP");
-    new Setting(containerEl).setName("Télécharger le dossier d'exemple (vault complet)").setDesc("Met à jour le vault actuel : il copie les fichiers de référence ET remplace vos réglages Obsidian (.obsidian : thème actif, plugins, config…) ainsi que le thème. Si le thème ne se met pas à jour immédiatement, redémarrez Obsidian.").addButton((btn) => {
+    new Setting(containerEl).setName("Télécharger le dossier d'exemple (vault complet)").setDesc("REMONTE TOUT le vault actuel : fichiers de référence, réglages Obsidian (.obsidian : thème actif, plugins, config, workspace…) et réglages du plugin (data.json du vault exemple). Le thème est appliqué immédiatement, sans redémarrage. ATTENTION : vos réglages.obsidian actuels et les réglages du plugin sont remplacés.").addButton((btn) => {
       btn.setButtonText("Télécharger, remplacer & extraire").onClick(async () => {
         await this.plugin.withProgressModal("Vault exemple", (progress) => this.plugin.downloadExampleVault(progress));
         this.display();
@@ -4068,17 +4068,63 @@ class Markdown2TexPlugin extends Plugin {
     }
     return out;
   }
-  // Télécharge le dossier d'exemple déjà présent dans le dépôt et l'extrait
-  // dans la racine du vault actuel, EN INCLUANT le thème/les réglages Obsidian
-  // (.obsidian/) pour reproduire l'environnement de travail fourni dans le
-  // bundle. On évite uniquement d'écraser l'état local data.json (le thème actif
-  // et les réglages json sont bien restaurés, comme dans le bundle de référence).
+  // Télécharge le dossier d'exemple (bundle) et l'extrait à la racine du vault
+  // ACTUEL en REMPLAÇANT TOUT : fichiers de référence + .obsidian complet
+  // (thème actif, plugins, config, workspace… qui devient celui du vault
+  // exemple) + le data.json du plugin (pré-configuré). Le thème est ensuite
+  // appliqué immédiatement (plus de redémarrage nécessaire) et les réglages du
+  // plugin sont rechargés depuis le data.json ainsi restauré.
   downloadExampleVault(progress) {
     const url = "https://github.com/dvrch/mergdown2tex/releases/download/bundle/full_manual_repport_exp.zip";
-    return this._downloadAndExtract(url, /* @__PURE__ */ new Set(["data.json"]), "Dossier d'exemple (fichiers + .obsidian + thème)", progress).then((ok) => {
-      if (ok) new Notice("Réglages, thème et fichiers du vault restaurés. Si le thème ne change pas immédiatement, redémarrez Obsidian.", 8e3);
+    return this._downloadAndExtract(url, /* @__PURE__ */ new Set(), "Dossier d'exemple (fichiers + .obsidian + thème + réglages)", progress).then(async (ok) => {
+      if (ok) {
+        await this.applyExampleAppearance();
+        try {
+          await this.loadSettings();
+        } catch (e15) {
+          console.warn("[mergdown2tex] rechargement des réglages:", e15 && e15.message);
+        }
+        new Notice("Vault d'exemple déployé : thème, plugins, config .obsidian et réglages du plugin (data.json) remplacés. Moteurs WASM intacts.", 8e3);
+      }
       return ok;
     });
+  }
+  // Applique immédiatement le thème (et les extraits CSS) définis dans le
+  // .obsidian/appearance.json tout juste restauré, sans redémarrer Obsidian.
+  async applyExampleAppearance() {
+    let cssTheme = null;
+    let snippets = [];
+    const a2 = adapterGet(this.app);
+    if (a2 && typeof a2.read === "function") {
+      try {
+        const txt = await a2.read(".obsidian/appearance.json");
+        const js = txt ? JSON.parse(txt) : null;
+        if (js && js.cssTheme) cssTheme = js.cssTheme;
+        if (js && Array.isArray(js.enabledCssSnippets)) snippets = js.enabledCssSnippets;
+      } catch (e15) {
+      }
+    }
+    const cc2 = this.app && this.app.customCss;
+    if (cssTheme && cc2 && typeof cc2.setTheme === "function") {
+      try {
+        await cc2.setTheme(cssTheme);
+        new Notice("Thème appliqué immédiatement : " + cssTheme);
+      } catch (e15) {
+        console.warn("[mergdown2tex] setTheme:", e15 && e15.message);
+      }
+    }
+    if (snippets.length > 0 && cc2 && typeof cc2.setCssEnabledState === "function") {
+      for (const s2 of snippets) {
+        try {
+          await cc2.setCssEnabledState(s2, true);
+        } catch (e15) {
+        }
+      }
+      try {
+        await cc2.loadSnippets();
+      } catch (e15) {
+      }
+    }
   }
   async _downloadAndExtract(url, skipPrefixes, label, progress) {
     if (progress) {
