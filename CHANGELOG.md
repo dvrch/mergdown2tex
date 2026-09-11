@@ -2,6 +2,11 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [2.2.7] — 2026-09-10
+
+### Ajouté
+- **Au premier lancement d'une commande, tous les moteurs WASM sont vérifiés et téléchargés d'un coup** : la toute première conversion (PDF, DOCX, TEX ou TYP) déclenche le contrôle complet — vLaTeX (embarqué), `pandoc.wasm`, `typst.wasm` et les polices typst — et **pré-télécharge ce qui manque via les mêmes liens et canaux que les téléchargements des réglages** (release `bundle` puis miroir jsDelivr), avec la même fenêtre de progression « Moteurs requis ». Après cette première passe, seules les ressources réellement manquantes sont redemandées (contrôle ciblé par commande). Cette passe ne démarre pas automatiquement en aperçu « live ». Le rendu en direct (aperçu PDF pendant la frappe) reste insensible à cette logique pour éviter tout téléchargement surprise.
+
 ## [2.2.6] — 2026-09-10
 
 ### Changé

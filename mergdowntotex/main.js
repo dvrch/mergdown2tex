@@ -3780,6 +3780,19 @@ class Markdown2TexPlugin extends Plugin {
     };
     return await this.withProgressModal("Moteurs requis", run);
   }
+  // AU PREMIER lancement d'une commande (conversion/compilation), vérifie TOUS
+  // les moteurs et ressources (vLaTeX embarqué, pandoc.wasm, typst.wasm,
+  // polices typst) et pré-télécharge ce qui manque via les MÊMES liens et
+  // canaux que les téléchargements des réglages (release "bundle" puis miroir
+  // jsDelivr). Après cette première passe, seules les ressources réellement
+  // manquantes sont redemandées par le pré-vol ciblé de chaque commande.
+  async ensureAllEnginesOnFirstUse() {
+    if (this._allEnginesFirstUseDone) return true;
+    this._allEnginesFirstUseDone = true;
+    const ok = await this.preflightEngines(["pandoc", "typst"]);
+    if (!ok) this._allEnginesFirstUseDone = false;
+    return ok;
+  }
   // Version individuelle : télécharge uniquement typst_wasm.zip (sans les polices).
   async ensureTypstWasmOnlyZip(progress) {
     this._dlLog("ensureTypstWasmOnlyZip", "début");
@@ -5279,6 +5292,7 @@ Convertissez d'abord en LaTeX.`);
     };
   }
   async convertToTex() {
+    if (!await this.ensureAllEnginesOnFirstUse()) return null;
     if (!Platform.isDesktop) {
       return this.convertToTexMobile();
     }
@@ -7359,6 +7373,7 @@ ${ind}#figure(${img}, kind: image)`);
   }
   async compilePdf() {
     console.log("[mergdown2tex] compilePdf() appelé | desktop=" + Platform.isDesktop + " | pcUseTypstPdf=" + this.settings.pcUseTypstPdf);
+    if (!await this.ensureAllEnginesOnFirstUse()) return;
     if (!Platform.isDesktop || this.settings.pcUseTypstPdf) {
       return this.compilePdfMobile();
     }
@@ -7502,6 +7517,7 @@ ${ind}#figure(${img}, kind: image)`);
   // du Markdown : on reprend exactement le fichier .tex (que l'utilisateur a pu
   // ajuster à la main) et on lance Pandoc WASM (+ Typst pour le PDF).
   async compileFromLatex(format) {
+    if (!await this.ensureAllEnginesOnFirstUse()) return;
     const tw = this._resolveTwinPath(".tex");
     if (!tw) return;
     const texSrc = await this._readVaultText(tw.rel);
@@ -7563,6 +7579,7 @@ ${ind}#figure(${img}, kind: image)`);
   // Compile le .typ jumeau de la note active vers PDF, sans repartir du Markdown :
   // on reprend exactement le fichier .typ (ajusté à la main) et on lance Typst.
   async compileTypstToPdf() {
+    if (!await this.ensureAllEnginesOnFirstUse()) return;
     const tw = this._resolveTwinPath(".typ");
     if (!tw) return;
     const typSrc = await this._readVaultText(tw.rel);
@@ -8058,6 +8075,7 @@ ${ind}#figure(${img}, kind: image)`);
     }
   }
   async compileDocx() {
+    if (!await this.ensureAllEnginesOnFirstUse()) return;
     if (!Platform.isDesktop) {
       return this.compileDocxMobile();
     }
