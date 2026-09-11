@@ -2,6 +2,15 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [2.2.8] — 2026-09-11
+
+### Ajouté
+- **Mobile (Android/iPhone) — les moteurs sont désormais installés DÉCOMPRESSÉS sur disque** : certains systèmes mobiles refusent l'écriture d'un gros fichier unique via `writeBinary` (`pandoc.wasm` ~59 Mo, `typst.wasm` ~28 Mo) alors que de petits fichiers passent. Le plugin détecte ce refus, découpe alors le moteur en **pièces de 8 Mo** écrites une par une dans `wasm/.parts/` (ex. `pandoc.wasm.000`, `.001`…), puis **supprime le zip à la racine** devenu inutile. À la compilation, les pièces sont réassemblées en mémoire (comme le fichier unique sur PC) — plus besoin de garder un zip et de le re-décompresser à chaque compilation. La logique de pré-vol est ainsi identique sur PC, Android et iPhone : le fichier est « prêt sur disque » et seule la compilation l'assemble.
+- Les contrôles d'existence (`wasmFileComplete`) tiennent compte de ce mode : un moteur présent en pièces est considéré installé (pas de re-téléchargement). Repli sûr conservé : si même les pièces sont refusées, le zip à la racine reste et est dégainé en mémoire à la compilation.
+
+### Corrigé
+- Message des réglages (« Liens de téléchargement manuels ») mis à jour : l'ancienne limite « Écriture binaire impossible » n'implique plus de garder un zip — le plugin installe automatiquement en pièces.
+
 ## [2.2.7] — 2026-09-10
 
 ### Ajouté

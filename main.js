@@ -2773,7 +2773,7 @@ class Markdown2TexSettingTab extends PluginSettingTab {
         this.display();
       });
     });
-    const dlLinksSetting = new Setting(containerEl).setName("Liens de téléchargement manuels (dépannage)").setDesc("Si l'installation automatique échoue (réseau d'Obsidian bloqué) : le moyen le plus sûr est de RETÉLÉCHARGER le zip ci-dessous, puis de le déposer SANS le décompresser à la RACINE de votre vault (typst_wasm.zip, pandoc_wasm.zip, typst_fonts.zip, visibles dans l'explorateur — glisser-déposer possible) ; « Télécharger la sélection » le décompressera ensuite au bon endroit sans repasser par le réseau. Sur mobile, si le système refuse d'écrire le gros fichier dézippé (err. « Écriture binaire impossible », limite connue du mobile), gardez simplement le zip à la racine : il sera re-dégainé en mémoire à chaque compilation — c'est la manière normale sur téléphone. Autre méthode : décompressez vous-même le contenu dans " + this.plugin.manifest.dir + "/wasm/ (pandoc_wasm.zip → pandoc.wasm ; typst_wasm.zip → typst.wasm ; typst_fonts.zip → sous-dossier fonts/). « Télécharger la sélection » détectera dans tous les cas les fichiers déjà présents.");
+    const dlLinksSetting = new Setting(containerEl).setName("Liens de téléchargement manuels (dépannage)").setDesc("Si l'installation automatique échoue (réseau d'Obsidian bloqué) : le moyen le plus sûr est de RETÉLÉCHARGER le zip ci-dessous, puis de le déposer SANS le décompresser à la RACINE de votre vault (typst_wasm.zip, pandoc_wasm.zip, typst_fonts.zip, visibles dans l'explorateur — glisser-déposer possible) ; « Télécharger la sélection » le décompressera ensuite au bon endroit sans repasser par le réseau. Sur mobile, si le système refuse d'écrire le gros fichier décompressé d'un bloc, le plugin l'installe automatiquement en pièces décompressées sur disque (wasm/.parts/) et le réassemble à la compilation — c'est la manière normale sur téléphone. Autre méthode : décompressez vous-même le contenu dans " + this.plugin.manifest.dir + "/wasm/ (pandoc_wasm.zip → pandoc.wasm ; typst_wasm.zip → typst.wasm ; typst_fonts.zip → sous-dossier fonts/). « Télécharger la sélection » détectera dans tous les cas les fichiers déjà présents.");
     const linkRow = dlLinksSetting.settingEl.createDiv({ attr: { style: "display:flex;flex-wrap:wrap;gap:8px;margin-top:6px" } });
     const mkLink = (label, url) => {
       const a2 = linkRow.createEl("a", { text: label, href: url, attr: { target: "_blank", rel: "noopener", style: "display:inline-block;border:1px solid var(--interactive-accent);border-radius:6px;padding:3px 10px;text-decoration:none;color:var(--interactive-accent)" } });
@@ -3276,7 +3276,113 @@ class Markdown2TexPlugin extends Plugin {
   // JAMAIS considéré comme installé → le moteur le retélécharge/réinstalle.
   async wasmFileComplete(rel, expectedBytes) {
     const size = await this.vaultFileSize(rel);
-    return size === expectedBytes;
+    if (size === expectedBytes) return true;
+    const clean = rel.split("/").pop();
+    if ((clean === "pandoc.wasm" || clean === "typst.wasm") && expectedBytes > 0) {
+      return await this.wasmPartsComplete(clean, expectedBytes);
+    }
+    return false;
+  }
+  // Persistance disque « décompressé en PIÈCES » (Android/iPhone) : certains
+  // mobiles refusent l'écriture d'un GROS fichier unique (pandoc.wasm ~59 Mo,
+  // typst.wasm ~28 Mo) via writeBinary, alors que de PETITS fichiers passent.
+  // On stocke donc le moteur décompressé en morceaux de 8 Mo dans
+  // wasm/.parts/, réassemblé en mémoire au moment de la compilation — le
+  // zip à la racine du vault n'est plus nécessaire et le wasm n'est pas
+  // constamment résident. Même logique que sur PC (fichier prêt sur disque).
+  WASM_PARTS_DIR() {
+    return this.wasmDir() + "/.parts";
+  }
+  async wasmPartsComplete(clean, expectedBytes) {
+    const dir = this.WASM_PARTS_DIR();
+    const a2 = adapterGet(this.app);
+    if (!a2 || typeof a2.list !== "function") return false;
+    let names = [];
+    try {
+      names = (await a2.list(dir)).files;
+    } catch (e15) {
+      return false;
+    }
+    const parts = names.filter((n2) => n2.indexOf(clean + ".") === 0);
+    if (parts.length === 0) return false;
+    let total = 0;
+    for (const n2 of parts) {
+      if (a2.stat && typeof a2.stat === "function") {
+        try {
+          const st = await a2.stat(dir + "/" + n2);
+          if (st && st.type === "file" && typeof st.size === "number") {
+            total += st.size;
+            continue;
+          }
+        } catch (e15) {
+        }
+      }
+      try {
+        const d2 = await a2.readBinary(dir + "/" + n2);
+        if (!d2) return false;
+        total += d2.byteLength;
+      } catch (e15) {
+        return false;
+      }
+    }
+    return total === expectedBytes;
+  }
+  // Réassemble en mémoire les pièces DISQUE de `clean` (liste + lecture +
+  // concaténation). Retourne un Uint8Array complet, ou null si indisponible.
+  async readPartsWasm(clean) {
+    const dir = this.WASM_PARTS_DIR();
+    const a2 = adapterGet(this.app);
+    if (!a2 || typeof a2.list !== "function" || typeof a2.readBinary !== "function") return null;
+    let names = [];
+    try {
+      names = (await a2.list(dir)).files;
+    } catch (e15) {
+      return null;
+    }
+    const parts = names.filter((n2) => n2.indexOf(clean + ".") === 0).sort();
+    if (parts.length === 0) return null;
+    const segs = [];
+    for (const n2 of parts) {
+      try {
+        const d2 = await a2.readBinary(dir + "/" + n2);
+        if (!d2) return null;
+        segs.push(new Uint8Array(d2));
+      } catch (e15) {
+        return null;
+      }
+    }
+    let total = 0;
+    for (const s2 of segs) total += s2.length;
+    const out = new Uint8Array(total);
+    let off = 0;
+    for (const s2 of segs) {
+      out.set(s2, off);
+      off += s2.length;
+    }
+    return out;
+  }
+  // Découpe `data` en morceaux de 8 Mo, écrits UN PAR UN (petits fichiers
+  // acceptés même quand un gros fichier unique est refusé sur mobile).
+  // Retourne le nombre de pièces écrites, ou 0 si l'une des écritures échoue.
+  async writeWasmParts(clean, data) {
+    const dir = this.WASM_PARTS_DIR();
+    if (!(data && data.length > 0)) return 0;
+    try {
+      await vaultMkdirRecursive(this.app, dir);
+    } catch (e15) {
+    }
+    const segBytes = 8388608;
+    const n2 = Math.ceil(data.length / segBytes);
+    let wrote = 0;
+    for (let i2 = 0; i2 < n2; i2++) {
+      const rel = dir + "/" + clean + "." + String(i2).padStart(3, "0");
+      const part = data.slice(i2 * segBytes, Math.min((i2 + 1) * segBytes, data.length));
+      if (await vaultWriteBinary(this.app, rel, part)) {
+        wrote++;
+        await new Promise((r2) => setTimeout(r2, 0));
+      }
+    }
+    return wrote === n2 ? n2 : 0;
   }
   // Télécharge une ressource binaire. Retourne un ArrayBuffer (ou lance une
   // erreur). Si `progress` est fourni ET que `fetch` est disponible, on
@@ -3580,6 +3686,7 @@ class Markdown2TexPlugin extends Plugin {
     const expectedWasm = this.WASM_EXPECTED_BYTES();
     let written = 0;
     let heldInMemory = false;
+    let storedParts = false;
     const entries = [];
     const totalWritable = Object.keys(all2).filter((n2) => !n2.endsWith("/")).length;
     for (const [name, data] of Object.entries(all2)) {
@@ -3616,6 +3723,13 @@ class Markdown2TexPlugin extends Plugin {
       const isBigWasm = (clean === "pandoc.wasm" || clean === "typst.wasm") && data.length === (clean === "pandoc.wasm" ? expectedWasm["pandoc.wasm"] : expectedWasm["typst.wasm"]);
       if (!wrote || szWritten === null || szWritten === 0) {
         if (isBigWasm) {
+          const nParts = await this.writeWasmParts(clean, data);
+          if (nParts > 0) {
+            storedParts = true;
+            this._dlLog("installWasmZip", zipName, "gros fichier refusé en une pièce → installé DÉCOMPRESSÉ en pièces", rel, String(nParts), "× 8 Mo");
+            if (progress) progress.setStatus(clean + " installé décompressé sur disque en " + nParts + " pièces (système refusant le fichier unique) ✅");
+            continue;
+          }
           heldInMemory = true;
           this._dlLog("installWasmZip", zipName, "écriture", rel, "refusée par le système — résidence mémoire/zip", data.length);
           if (progress) progress.setStatus("Le système refuse l'écriture du gros fichier " + clean + " (" + Math.round(data.length / 1048576) + " Mo) — il restera compressé et sera dégainé à la compilation (normal sur mobile).");
@@ -3640,10 +3754,12 @@ class Markdown2TexPlugin extends Plugin {
       } catch (e15) {
       }
     }
-    this._dlLog("installWasmZip", zipName, "terminé", String(written), "fichiers", heldInMemory ? "(wasm en mémoire/zip conservé)" : "");
+    const partsNote = storedParts ? " (gros fichiers décompressés en pièces sur disque)" : "";
+    const memNote = heldInMemory ? " (wasm en mémoire/zip conservé)" : "";
+    this._dlLog("installWasmZip", zipName, "terminé", String(written), "fichiers" + partsNote + memNote);
     if (progress) {
-      progress.setProgress(1, "Installé : " + written + " fichiers" + (heldInMemory ? " (wasm gardé compressé)" : ""));
-    } else new Notice("Installé : " + written + " fichiers (" + base + ")" + (heldInMemory ? " — typst/pandoc.wasm réside compressé, compilé à la volée" : ""));
+      progress.setProgress(1, "Installé : " + written + " fichiers" + (storedParts ? " (décompressé en pièces sur disque)" : heldInMemory ? " (wasm gardé compressé)" : ""));
+    } else new Notice("Installé : " + written + " fichiers (" + base + ")" + (storedParts ? " — gros fichiers décompressés en pièces sur disque" : heldInMemory ? " — typst/pandoc.wasm réside compressé, compilé à la volée" : ""));
     return { written, files: entries };
   }
   // Ouvre le modal de progression et exécute `fn(progress)`. Le modal reste
@@ -4231,6 +4347,14 @@ class Markdown2TexPlugin extends Plugin {
       if (wasmBytes && typeof wasmBytes.byteLength === "number" && wasmBytes.byteLength > 0) {
         this.pandocWasmEngine = await PandocWasmEngine.load(new Uint8Array(wasmBytes));
         new Notice("Pandoc WASM initialisé !");
+        return this.pandocWasmEngine;
+      }
+    }
+    if (!wasmBytes) {
+      const pr = await this.readPartsWasm("pandoc.wasm");
+      if (pr && pr.length === this.WASM_EXPECTED_BYTES()["pandoc.wasm"]) {
+        this.pandocWasmEngine = await PandocWasmEngine.load(pr);
+        new Notice("Pandoc WASM initialisé depuis le disque (décompressé) !");
         return this.pandocWasmEngine;
       }
     }
@@ -5560,6 +5684,11 @@ Convertissez d'abord en LaTeX.`);
         wasmBytes = new Uint8Array(await vaultReadBinary(this.app, wasmRel));
       }
     } catch (e15) {
+    }
+    if (!wasmBytes || wasmBytes.length === 0) {
+      wasmBytes = await this.readPartsWasm("typst.wasm");
+      if (wasmBytes && wasmBytes.length === this.WASM_EXPECTED_BYTES()["typst.wasm"]) {
+      }
     }
     if (!wasmBytes || wasmBytes.length === 0) {
       try {
