@@ -2,6 +2,18 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [3.0.0] — 2026-09-12
+
+### Changé
+- **Un zip n'est JAMAIS plus utilisé en mémoire pour compiler** : l'ancien repli « garder le zip et le dégainer à la compilation » est supprimé. Les moteurs (`pandoc`, `typst`, `vLaTeX`) ne lisent plus que des fichiers **décompressés au bon endroit** : `wasm/pandoc.wasm`, `wasm/typst.wasm`, `wasm/vlatex.wasm` ou, sur mobile quand l'écriture d'un gros fichier unique est refusée, les **pièces décompressées** `wasm/.parts/` (réassemblées à la compilation). Un zip à la racine du vault (ou dans `mergdown2tex_cache/`) n'est qu'une **source d'installation** : il est décompressé au bon endroit (en pièces si besoin) puis supprimé.
+- **Échec franc si même les pièces sont refusées** : si un moteur ne peut être écrit ni en fichier unique ni en pièces sur disque, le plugin s'arrête avec un message clair (jamais de repli en mémoire) — le zip reste alors à la racine pour que vous puissiez déposer le fichier décompressé ou décompresser le zip à la main, puis relancer.
+- **Les contrôles d'existence ne considèrent plus un zip seul comme une installation** : `pandoc.wasm`/`typst.wasm`/`vlatex.wasm` ne sont « présents » que s'ils existent décompressés (`wasm/` ou `wasm/.parts/`). Un zip complet déposé hors-ligne déclenche une **installation locale** (décompression, sans réseau), pas une erreur, et sans être mis en mémoire.
+- **Sur mobile, le téléchargement passe par le CDN jsDelivr en premier** (`fetch` en streaming, CORS `*`, ordre des candidats inversé) — plus rapide et plus fiable que le canal `requestUrl` (base64 en mémoire, lent/OOM sur les gros fichiers). `requestUrl` ne sert plus que de secours. Le fichier réellement téléchargé reste vérifié à l'octet près.
+
+### Ajouté
+- **Boutons de téléchargement direct sur la fenêtre de progression** : quatre petits boutons discrets et compacts (pandoc / typst / polices / vLaTeX), avec au survol une infobulle expliquant ce que contient chaque lien (format, taille). Si un téléchargement traîne, cliquez : le navigateur ouvre le lien direct, téléchargez le zip, déposez-le à la racine du vault puis relancez « Télécharger la sélection » — le plugin le décompresse au bon endroit sans repasser par le réseau.
+- **Suppression du repli `typst.wasm` caché vers le paquet npm `@myriaddreamin/typst-ts-web-compiler`** : sa taille (9 Mo) ne correspondait pas au `typst.wasm` attendu (28 Mo), le chemin était en réalité inutilisable — il est remplacé par une erreur explicite qui renvoie vers les réglages.
+
 ## [2.2.9] — 2026-09-12
 
 ### Changé

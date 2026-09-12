@@ -2639,7 +2639,55 @@ class DownloadProgressModal extends Modal {
       cls: "mergdown2tex-dl-status",
       attr: { style: "margin-top:10px;font-size:0.88em;color:var(--text-muted);white-space:pre-wrap" }
     });
+    this._linkHint = contentEl.createEl("div", {
+      text: "Téléchargement lent ? Téléchargez vous-même le zip, déposez-le à la racine du vault, puis relancez :",
+      attr: { style: "margin-top:12px;font-size:0.75em;color:var(--text-faint)" }
+    });
+    const linksRow = contentEl.createEl("div", {
+      attr: { style: "display:flex;flex-wrap:wrap;gap:6px;margin-top:6px" }
+    });
+    this._links = [
+      { key: "pandoc_wasm.zip", label: "pandoc", tip: "pandoc.wasm — DOCX/ODT/… (~16 Mo), lien direct" },
+      { key: "typst_wasm.zip", label: "typst", tip: "typst.wasm (~11 Mo), lien direct" },
+      { key: "typst_fonts.zip", label: "polices", tip: "polices typst (~8 Mo), lien direct" },
+      { key: "vlatex_wasm.zip", label: "vLaTeX", tip: "moteur vLaTeX .md→.tex (~0,9 Mo), lien direct" }
+    ];
+    for (const d of this._links) {
+      const b2 = linksRow.createEl("button", {
+        text: "⤓ " + d.label,
+        cls: "mergdown2tex-dl-btn",
+        attr: {
+          style: "padding:2px 8px;font-size:0.75em;border-radius:5px;color:var(--text-muted);background:var(--background-secondary);border:1px solid var(--background-modifier-border);cursor:pointer",
+          title: d.tip
+        }
+      });
+      const key = d.key;
+      b2.addEventListener("click", (e15) => {
+        e15.preventDefault();
+        e15.stopPropagation();
+        this._openZip(key);
+      });
+    }
     this._setMode("indet");
+  }
+  _openZip(zipName) {
+    const url = "https://github.com/dvrch/mergdown2tex/releases/download/bundle/" + zipName;
+    try {
+      const w = window;
+      if (w && w.require && w.require("electron") && w.require("electron").shell && typeof w.require("electron").shell.openExternal === "function") {
+        w.require("electron").shell.openExternal(url);
+        return;
+      }
+      if (w && typeof w.open === "function") {
+        w.open(url, "_blank");
+        return;
+      }
+    } catch (e15) {
+    }
+    try {
+      new Notice("Ouvrez vous-même le lien : " + url, 8e3);
+    } catch (e16) {
+    }
   }
   _setMode(mode) {
     this._mode = mode;
@@ -2773,7 +2821,7 @@ class Markdown2TexSettingTab extends PluginSettingTab {
         this.display();
       });
     });
-    const dlLinksSetting = new Setting(containerEl).setName("Liens de téléchargement manuels (dépannage)").setDesc("Si l'installation automatique échoue (réseau d'Obsidian bloqué) : le moyen le plus sûr est de RETÉLÉCHARGER le zip ci-dessous, puis de le déposer SANS le décompresser à la RACINE de votre vault (typst_wasm.zip, pandoc_wasm.zip, typst_fonts.zip, visibles dans l'explorateur — glisser-déposer possible) ; « Télécharger la sélection » le décompressera ensuite au bon endroit sans repasser par le réseau. Sur mobile, si le système refuse d'écrire le gros fichier décompressé d'un bloc, le plugin l'installe automatiquement en pièces décompressées sur disque (wasm/.parts/) et le réassemble à la compilation — c'est la manière normale sur téléphone. Autre méthode : décompressez vous-même le contenu dans " + this.plugin.manifest.dir + "/wasm/ (pandoc_wasm.zip → pandoc.wasm ; typst_wasm.zip → typst.wasm ; typst_fonts.zip → sous-dossier fonts/). « Télécharger la sélection » détectera dans tous les cas les fichiers déjà présents.");
+    const dlLinksSetting = new Setting(containerEl).setName("Liens de téléchargement manuels (dépannage)").setDesc("Si l'installation automatique échoue (réseau d'Obsidian bloqué) : le moyen le plus sûr est de RETÉLÉCHARGER le zip ci-dessous, puis de le déposer SANS le décompresser à la RACINE de votre vault (typst_wasm.zip, pandoc_wasm.zip, typst_fonts.zip, visibles dans l'explorateur — glisser-déposer possible) ; « Télécharger la sélection » le décompressera ensuite au bon endroit sans repasser par le réseau. Sur mobile, si le système refuse d'écrire le gros fichier décompressé d'un bloc, le plugin l'installe automatiquement en pièces décompressées sur disque (wasm/.parts/) et le réassemble à la compilation — c'est la manière normale sur téléphone. Autre méthode : décompressez vous-même le contenu dans " + this.plugin.manifest.dir + "/wasm/ (pandoc_wasm.zip → pandoc.wasm ; typst_wasm.zip → typst.wasm ; typst_fonts.zip → sous-dossier fonts/). « Télécharger la sélection » détectera dans tous les cas les fichiers déjà présents. Les moteurs ne sont JAMAIS utilisés depuis un zip en mémoire : le wasm est toujours décompressé au bon endroit (wasm/ ou wasm/.parts/) avant compilation.");
     const linkRow = dlLinksSetting.settingEl.createDiv({ attr: { style: "display:flex;flex-wrap:wrap;gap:8px;margin-top:6px" } });
     const mkLink = (label, url) => {
       const a2 = linkRow.createEl("a", { text: label, href: url, attr: { target: "_blank", rel: "noopener", style: "display:inline-block;border:1px solid var(--interactive-accent);border-radius:6px;padding:3px 10px;text-decoration:none;color:var(--interactive-accent)" } });
@@ -3056,16 +3104,14 @@ class Markdown2TexPlugin extends Plugin {
   }
   async pandocWasmExists() {
     const rel = this.pandocWasmRel();
-    if (await this.wasmFileComplete(rel, this.WASM_EXPECTED_BYTES()["pandoc.wasm"])) return true;
-    return this.wasmZipUsable("pandoc_wasm.zip");
+    return await this.wasmFileComplete(rel, this.WASM_EXPECTED_BYTES()["pandoc.wasm"]);
   }
   typstWasmRel() {
     return ".obsidian/plugins/" + this.manifest.id + "/wasm/typst.wasm";
   }
   async typstWasmExists() {
     const rel = this.typstWasmRel();
-    if (await this.wasmFileComplete(rel, this.WASM_EXPECTED_BYTES()["typst.wasm"])) return true;
-    return this.wasmZipUsable("typst_wasm.zip");
+    return await this.wasmFileComplete(rel, this.WASM_EXPECTED_BYTES()["typst.wasm"]);
   }
   vlatexWasmRel() {
     return ".obsidian/plugins/" + this.manifest.id + "/wasm/vlatex.wasm";
@@ -3073,13 +3119,12 @@ class Markdown2TexPlugin extends Plugin {
   async vlatexExists() {
     if (wasm) return true;
     const rel = this.vlatexWasmRel();
-    if (await this.wasmFileComplete(rel, this.WASM_EXPECTED_BYTES()["vlatex.wasm"])) return true;
-    return this.wasmZipUsable("vlatex_wasm.zip");
+    return await this.wasmFileComplete(rel, this.WASM_EXPECTED_BYTES()["vlatex.wasm"]);
   }
-  // Charge le moteur vLaTeX (transformations .md → .tex, DOCX, biblio…) qui
-  // avait disparu des releases : on le lit en MÉMOIRE (fichier wasm/vlatex.wasm
-  // du plugin OU zip vlatex_wasm.zip à la racine du vault), sinon on le
-  // télécharge automatiquement. Idempotent.
+  // Charge le moteur vLaTeX (transformations .md → .tex, DOCX, biblio…) :
+  // uniquement depuis le binaire EMBARQUÉ (base64 dans main.js) ou le fichier
+  // décompressé wasm/vlatex.wasm — jamais depuis un zip conservé en mémoire.
+  // Idempotent.
   async ensureVlatex(progress) {
     if (wasm) {
       if (progress) progress.setStatus("vLaTeX déjà chargé ✅");
@@ -3096,11 +3141,10 @@ class Markdown2TexPlugin extends Plugin {
           vb = null;
         }
       }
-      if (!vb) vb = await this.readZipEmbedded("vlatex_wasm.zip", "vlatex.wasm");
       if (vb) {
         try {
           await initVlatexFromBytes(vb);
-          if (progress) progress.setStatus("vLaTeX chargé depuis la mémoire ✅");
+          if (progress) progress.setStatus("vLaTeX chargé depuis le disque ✅");
           return !!wasm;
         } catch (e15) {
           const msg = "Échec d'initialisation vLaTeX : " + (e15 && e15.message || e15);
@@ -3113,7 +3157,12 @@ class Markdown2TexPlugin extends Plugin {
     if (progress) progress.setStatus("vLaTeX manquant — téléchargement automatique…");
     else new Notice("vLaTeX manquant — téléchargement automatique…");
     if (!await this.installWasmZip("vlatex_wasm.zip", "Téléchargement du moteur vLaTeX", progress)) return false;
-    vb = await this.readZipEmbedded("vlatex_wasm.zip", "vlatex.wasm");
+    try {
+      const b2 = await this.app.vault.adapter.readBinary(this.vlatexWasmRel());
+      if (b2 && b2.byteLength === this.WASM_EXPECTED_BYTES()["vlatex.wasm"]) vb = new Uint8Array(b2);
+    } catch (e15) {
+      vb = null;
+    }
     if (!vb) return false;
     try {
       await initVlatexFromBytes(vb);
@@ -3177,61 +3226,11 @@ class Markdown2TexPlugin extends Plugin {
   //    lents/OOM), et souvent plus accessible sur mobile que le CDN GitHub.
   //    Sert la copie d'origine commitée dans docs/assets/ (chaque zip < 20 Mo).
   wasmZipCandidates(zipName) {
-    return [
-      this.wasmZipUrl(zipName),
-      "https://cdn.jsdelivr.net/gh/dvrch/mergdown2tex@main/docs/assets/" + zipName
-    ];
+    const gh = this.wasmZipUrl(zipName);
+    const cdn = "https://cdn.jsdelivr.net/gh/dvrch/mergdown2tex@main/docs/assets/" + zipName;
+    return Platform.isDesktop ? [gh, cdn] : [cdn, gh];
   }
   // Emplacements où l'on accepte un zip d'origine (hors-ligne) : la racine du
-  // vault (dépôt glisser-déposer, demande de l'utilisateur) PUIS l'ancien
-  // mergdown2tex_cache/ (repli lecture seule). Retourne la taille o ou null.
-  async wasmZipSizeOnDisk(zipName) {
-    for (const rel of [zipName, "mergdown2tex_cache/" + zipName]) {
-      try {
-        if (await vaultExists(this.app, rel)) {
-          const sz = await this.vaultFileSize(rel);
-          if (typeof sz === "number") return sz;
-        }
-      } catch (e15) {
-      }
-    }
-    return null;
-  }
-  // Vrai si un zip COMPLET de la bonne taille est présent hors-ligne (racine du
-  // vault ou mergdown2tex_cache/). Sur mobile, l'écriture du gros fichier dézippé
-  // (28/59 Mo) peut être refusée par le système : tant que le zip d'origine est
-  // là, la ressource reste utilisable (dégainée en mémoire à la compilation).
-  async wasmZipUsable(zipName) {
-    const wantZip = this.WASM_ZIP_EXPECTED_BYTES()[zipName];
-    if (typeof wantZip !== "number") return false;
-    const sz = await this.wasmZipSizeOnDisk(zipName);
-    return sz === wantZip;
-  }
-  // Lit le zip COMPRESSÉ hors-ligne et renvoie le Uint8Array du fichier cible
-  // (pandoc.wasm / typst.wasm / etc.) extrait EN MÉMOIRE. Chemin de substitution
-  // mobile : on ne dépend jamais de l'écriture du fichier dézippé (16-59 Mo).
-  // La taille du zip est contrôlée (partiel refusé) ; la taille extraite l'est
-  // par l'appelant.
-  async readZipEmbedded(zipName, wantName) {
-    const wantZip = this.WASM_ZIP_EXPECTED_BYTES()[zipName];
-    for (const rel of [zipName, "mergdown2tex_cache/" + zipName]) {
-      try {
-        if (!await vaultExists(this.app, rel)) continue;
-        if (wantZip && await this.vaultFileSize(rel) !== wantZip) continue;
-        const raw = await vaultReadBinary(this.app, rel);
-        if (!raw || raw.byteLength === 0) continue;
-        const ab = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
-        const all = this.unzipAll(ab);
-        const d = all[wantName];
-        if (!(d && d.length > 0)) continue;
-        this._dlLog("readZipEmbedded", zipName, "->", wantName, "en mémoire depuis", rel, String(d.length));
-        return new Uint8Array(d);
-      } catch (e15) {
-        this._dlLog("readZipEmbedded", zipName, "repli", rel, "KO", e15 && e15.message || e15);
-      }
-    }
-    return null;
-  }
   // Tailles de référence (octets) des fichiers extraits du bundle publié dans
   // la release "bundle". Servent à ne jamais laisser passer un fichier "0
   // octet" ou tronqué qui ferait croire que la ressource est installée : un
@@ -3412,34 +3411,38 @@ class Markdown2TexPlugin extends Plugin {
     }
     const requestTimeout = 3e5;
     const attempts = 3;
-    for (const url2 of urls) {
-      if (typeof requestUrl !== "function") continue;
-      let lastErr = null;
-      for (let attempt = 1; attempt <= attempts; attempt++) {
-        try {
-          if (progress) progress.setStatus("Connexion… (" + url2.split("/").slice(3, 7).join("/") + ") — essai " + attempt + "/" + attempts + " (lent sur mobile, patience)");
-          const resp = await withTimeout(requestUrl({ url: url2, throw: false, responseType: "arraybuffer" }), requestTimeout, "timeout " + Math.round(requestTimeout / 1e3) + " s");
-          if (resp.status < 200 || resp.status >= 300) throw new Error("HTTP " + resp.status);
-          const ab = resp.arrayBuffer;
-          const wantZip = this.wasmZipExpectedSize(url2);
-          if (wantZip !== null && (!ab || ab.byteLength !== wantZip)) {
-            const got = ab && ab.byteLength ? ab.byteLength : 0;
-            throw new Error("téléchargement partiel (" + got + "/" + wantZip + " octets)");
-          }
-          this._dlLog("downloadBytes", url2, "requestUrl OK", "essai", attempt, String(ab && ab.byteLength), "octets");
-          return ab;
-        } catch (e15) {
-          lastErr = e15;
-          this._dlLog("downloadBytes", url2, "requestUrl essai", attempt, "KO", e15 && e15.message || e15);
-          if (attempt < attempts) {
-            if (progress) progress.setStatus("Connexion… nouvelle tentative (" + attempt + "/" + attempts + ") — " + (e15 && e15.message || e15));
-            await new Promise((r2) => setTimeout(r2, 800 * attempt));
+    const wantFetchFirst = !Platform.isDesktop && typeof fetch === "function" && !!progress;
+    const requestUrlLoop = async () => {
+      for (const url2 of urls) {
+        if (typeof requestUrl !== "function") continue;
+        let lastErr = null;
+        for (let attempt = 1; attempt <= attempts; attempt++) {
+          try {
+            if (progress) progress.setStatus("Connexion… (" + url2.split("/").slice(3, 7).join("/") + ") — essai " + attempt + "/" + attempts + (wantFetchFirst ? "" : " (lent sur mobile, patience)"));
+            const resp = await withTimeout(requestUrl({ url: url2, throw: false, responseType: "arraybuffer" }), requestTimeout, "timeout " + Math.round(requestTimeout / 1e3) + " s");
+            if (resp.status < 200 || resp.status >= 300) throw new Error("HTTP " + resp.status);
+            const ab = resp.arrayBuffer;
+            const wantZip = this.wasmZipExpectedSize(url2);
+            if (wantZip !== null && (!ab || ab.byteLength !== wantZip)) {
+              const got = ab && ab.byteLength ? ab.byteLength : 0;
+              throw new Error("téléchargement partiel (" + got + "/" + wantZip + " octets)");
+            }
+            this._dlLog("downloadBytes", url2, "requestUrl OK", "essai", attempt, String(ab && ab.byteLength), "octets");
+            return ab;
+          } catch (e15) {
+            lastErr = e15;
+            this._dlLog("downloadBytes", url2, "requestUrl essai", attempt, "KO", e15 && e15.message || e15);
+            if (attempt < attempts) {
+              if (progress) progress.setStatus("Connexion… nouvelle tentative (" + attempt + "/" + attempts + ") — " + (e15 && e15.message || e15));
+              await new Promise((r2) => setTimeout(r2, 800 * attempt));
+            }
           }
         }
+        errs.push("requestUrl (" + url2 + "): " + (lastErr && lastErr.message || lastErr));
       }
-      errs.push("requestUrl (" + url2 + "): " + (lastErr && lastErr.message || lastErr));
-    }
-    if (typeof fetch === "function" && progress) {
+    };
+    const fetchLoop = async () => {
+      if (typeof fetch !== "function" || !progress) return;
       for (const url2 of urls) {
         try {
           const resp = await withTimeout(fetch(url2), 2e4, "délai dépassé — repli");
@@ -3451,6 +3454,7 @@ class Markdown2TexPlugin extends Plugin {
             const wantZip = this.wasmZipExpectedSize(url2);
             if (wantZip !== null && (!ab || ab.byteLength !== wantZip)) throw new Error("téléchargement partiel (" + (ab && ab.byteLength || 0) + "/" + wantZip + " octets)");
             if (progress && ab && ab.byteLength) progress.setProgress(1, "Téléchargement : " + Math.max(1, Math.round(ab.byteLength / 1048576)) + " Mo…");
+            this._dlLog("downloadBytes", url2, "fetch OK (brut)", String(ab && ab.byteLength));
             return ab;
           }
           const chunks = [];
@@ -3484,6 +3488,16 @@ class Markdown2TexPlugin extends Plugin {
           this._dlLog("downloadBytes", url2, "fetch KO", e15 && e15.message || e15);
         }
       }
+    };
+    if (wantFetchFirst) {
+      const viaFetch = await fetchLoop();
+      if (viaFetch) return viaFetch;
+    }
+    const viaReq = await requestUrlLoop();
+    if (viaReq) return viaReq;
+    if (!wantFetchFirst) {
+      const viaF = await fetchLoop();
+      if (viaF) return viaF;
     }
     this._dlLog("downloadBytes", "ÉCHEC total", errs.join(" | "));
     throw new Error("Téléchargement impossible via Obsidian (" + errs.join(" ; ") + "). Réessayez, ou déposez le zip à la RACINE du vault puis lancez « Télécharger la sélection » (décompression ensuite sans réseau).");
@@ -3685,7 +3699,6 @@ class Markdown2TexPlugin extends Plugin {
     const base = this.wasmDir();
     const expectedWasm = this.WASM_EXPECTED_BYTES();
     let written = 0;
-    let heldInMemory = false;
     let storedParts = false;
     const entries = [];
     const totalWritable = Object.keys(all2).filter((n2) => !n2.endsWith("/")).length;
@@ -3730,10 +3743,9 @@ class Markdown2TexPlugin extends Plugin {
             if (progress) progress.setStatus(clean + " installé décompressé sur disque en " + nParts + " pièces (système refusant le fichier unique) ✅");
             continue;
           }
-          heldInMemory = true;
-          this._dlLog("installWasmZip", zipName, "écriture", rel, "refusée par le système — résidence mémoire/zip", data.length);
-          if (progress) progress.setStatus("Le système refuse l'écriture du gros fichier " + clean + " (" + Math.round(data.length / 1048576) + " Mo) — il restera compressé et sera dégainé à la compilation (normal sur mobile).");
-          continue;
+          this._dlLog("installWasmZip", zipName, "écriture", rel, "refusée par le système, MÊME en pièces — échec (jamais de repli mémoire)", data.length);
+          if (progress) progress.setStatus("Le système a refusé l'écriture de " + clean + " (" + Math.round(data.length / 1048576) + " Mo) en fichier unique ET en pièces (wasm/.parts/). Le wasm est TOUJOURS décompressé au bon endroit : déposez manuellement le fichier décompressé dans " + base + " (ou décompressez vous-même le zip à la racine), puis relancez.");
+          throw new Error("Le système a refusé l'écriture décompressée de " + clean + " (" + Math.round(data.length / 1048576) + " Mo) — ni en fichier unique, ni en pièces sur disque. Aucun repli mémoire n'est utilisé : déposez le fichier décompressé dans " + base + " (ou décompressez le zip à la racine vous-même), puis relancez.");
         }
         if (a2 && typeof a2.remove === "function") {
           try {
@@ -3748,18 +3760,17 @@ class Markdown2TexPlugin extends Plugin {
       }
       await new Promise((r2) => setTimeout(r2, 0));
     }
-    if (!heldInMemory && a2 && typeof a2.remove === "function") {
+    if (a2 && typeof a2.remove === "function") {
       try {
         await a2.remove(usedRel);
       } catch (e15) {
       }
     }
     const partsNote = storedParts ? " (gros fichiers décompressés en pièces sur disque)" : "";
-    const memNote = heldInMemory ? " (wasm en mémoire/zip conservé)" : "";
-    this._dlLog("installWasmZip", zipName, "terminé", String(written), "fichiers" + partsNote + memNote);
+    this._dlLog("installWasmZip", zipName, "terminé", String(written), "fichiers" + partsNote);
     if (progress) {
-      progress.setProgress(1, "Installé : " + written + " fichiers" + (storedParts ? " (décompressé en pièces sur disque)" : heldInMemory ? " (wasm gardé compressé)" : ""));
-    } else new Notice("Installé : " + written + " fichiers (" + base + ")" + (storedParts ? " — gros fichiers décompressés en pièces sur disque" : heldInMemory ? " — typst/pandoc.wasm réside compressé, compilé à la volée" : ""));
+      progress.setProgress(1, "Installé : " + written + " fichiers" + (storedParts ? " (décompressé en pièces sur disque)" : ""));
+    } else new Notice("Installé : " + written + " fichiers (" + base + ")" + (storedParts ? " — gros fichiers décompressés en pièces sur disque" : ""));
     return { written, files: entries };
   }
   // Ouvre le modal de progression et exécute `fn(progress)`. Le modal reste
@@ -4405,14 +4416,6 @@ class Markdown2TexPlugin extends Plugin {
       }
     }
     if (!wasmBytes) {
-      const zb = await this.readZipEmbedded("pandoc_wasm.zip", "pandoc.wasm");
-      if (zb && zb.length === this.WASM_EXPECTED_BYTES()["pandoc.wasm"]) {
-        this.pandocWasmEngine = await PandocWasmEngine.load(zb);
-        new Notice("Pandoc WASM initialisé depuis le zip (mémoire) !");
-        return this.pandocWasmEngine;
-      }
-    }
-    if (!wasmBytes) {
       new Notice("pandoc.wasm absent — téléchargement automatique en cours...", 5e3);
       const ok = await this.ensurePandocWasm();
       if (!ok) {
@@ -4428,7 +4431,11 @@ class Markdown2TexPlugin extends Plugin {
         }
       }
       if (!(wasmBytes && typeof wasmBytes.byteLength === "number" && wasmBytes.byteLength > 0)) {
-        wasmBytes = await this.readZipEmbedded("pandoc_wasm.zip", "pandoc.wasm");
+        const pr3 = await this.readPartsWasm("pandoc.wasm");
+        if (pr3 && pr3.length === this.WASM_EXPECTED_BYTES()["pandoc.wasm"]) wasmBytes = pr3;
+      }
+      if (!(wasmBytes && typeof wasmBytes.byteLength === "number" && wasmBytes.byteLength > 0)) {
+        throw new Error("pandoc.wasm toujours introuvable sur disque après réinstallation (wasm/pandoc.wasm ou wasm/.parts/). Aucun repli mémoire : réinstallez depuis « Statut & installer » dans les réglages.");
       }
     }
     new Notice("Chargement de Pandoc WASM...");
@@ -5739,32 +5746,18 @@ Convertissez d'abord en LaTeX.`);
     if (!wasmBytes || wasmBytes.length === 0) {
       try {
         const ok = await this.ensureTypstWasmZip();
-        if (ok && await vaultExists(this.app, wasmRel)) {
-          wasmBytes = new Uint8Array(await vaultReadBinary(this.app, wasmRel));
+        if (ok) {
+          if (await vaultExists(this.app, wasmRel)) wasmBytes = new Uint8Array(await vaultReadBinary(this.app, wasmRel));
+          if (!wasmBytes || wasmBytes.length === 0) {
+            const pr2 = await this.readPartsWasm("typst.wasm");
+            if (pr2 && pr2.length === this.WASM_EXPECTED_BYTES()["typst.wasm"]) wasmBytes = pr2;
+          }
         }
       } catch (e15) {
         console.warn("[mergdown2tex] ensureTypstWasmZip failed:", e15 && e15.message);
       }
       if (!wasmBytes || wasmBytes.length === 0) {
-        const zb = await this.readZipEmbedded("typst_wasm.zip", "typst.wasm");
-        if (zb && zb.length === this.WASM_EXPECTED_BYTES()["typst.wasm"]) wasmBytes = zb;
-      }
-      if (!wasmBytes || wasmBytes.length === 0) {
-        new Notice("Téléchargement de typst.wasm dans le plugin...");
-        const resp = await requestUrl({ url: mp, throw: false, responseType: "arraybuffer" });
-        if (resp.status < 200 || resp.status >= 300) throw new Error("Téléchargement typst.wasm échoué (HTTP " + resp.status + ")");
-        wasmBytes = new Uint8Array(resp.arrayBuffer);
-        if (wasmBytes.length !== this.WASM_EXPECTED_BYTES()["typst.wasm"]) {
-          throw new Error("typst.wasm téléchargé tronqué (" + wasmBytes.length + " octets, attendu " + this.WASM_EXPECTED_BYTES()["typst.wasm"] + ").");
-        }
-        try {
-          await vaultMkdir(this.app, wasmRel.split("/").slice(0, -1).join("/"));
-        } catch (e15) {
-        }
-        try {
-          await vaultWriteBinary(this.app, wasmRel, wasmBytes);
-        } catch (e15) {
-        }
+        throw new Error("typst.wasm introuvable DÉCOMPRESSÉ sur disque (wasm/typst.wasm ou wasm/.parts/). Aucun repli mémoire : réinstallez depuis « Statut & installer » dans les réglages.");
       }
     }
     let fonts = [];
