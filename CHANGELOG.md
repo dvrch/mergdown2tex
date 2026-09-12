@@ -2,6 +2,19 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [3.0.2] — 2026-09-12
+
+### Ajouté
+- **Message d'erreur clair quand le navigateur ne peut pas compiler les moteurs WebAssembly** : auparavant, sur iPhone avec un iOS trop ancien, on n'obtenait qu'une seule erreur énigmatique au démarrage (`Compiling function #1 failed: opcode 31`). Désormais le plugin détecte quelles instructions WebAssembly manquent — via de mini-modules de test de 37 à 53 octets (`signExt`, saturation, volume mémoire, types de référence, SIMD) — puis affiche la marche à suivre :
+  - **vLaTeX** : iOS 15+ requis (opérations de volume `memory.copy`/`memory.fill` + types de référence `ref.null`) ;
+  - **typst** : iOS 15+ requis (opérations de volume + saturations) ;
+  - **pandoc** : iOS 16.4+ requis (le binaire `pandoc.wasm` contient des instructions SIMD).
+  Le message conseille « Mettez à jour l'iPhone : Réglages → Général → Mise à jour logicielle » puis détaille techniquement le motif, au lieu du seul « opcode 31 ».
+- **Nouvelles fonctions internes d'introspection wasm** : `wasmProbe` (compile des mini-modules d'une seule instruction), `wasmFeatureSupport` (résultat mis en cache), `wasmEngineCompat` (moteur → fonctionnalités requises + iOS minimal), `wasmCompileError` (erreur d'origine inchangée si tout est supporté).
+
+### Corrigé
+- **vLaTeX pouvait rester silencieusement non initialisé** : `WebAssembly.instantiate` renvoie `{ module, instance }` et non l'instance directement ; `*.exports` était donc `undefined`, donc `wasm` restait vide après le chargement embarqué — la première compilation vLaTeX « tombait » alors sans message utile. Corrigé avec `.instance.exports` aux deux endroits (chargement embarqué base64 et `initVlatexFromBytes`). Le harnais `vlatex_test.js` couvre maintenant ce cas.
+
 ## [3.0.1] — 2026-09-12
 
 ### Ajouté

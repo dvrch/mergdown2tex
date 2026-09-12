@@ -1086,6 +1086,51 @@ function __wbg_get_imports() {
     "./vlatex_bg.js": import0
   };
 }
+var _WASM_FEATURES = null;
+function wasmProbe(feature) {
+  var tabs = {
+    signExt: [0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 127, 3, 2, 1, 0, 7, 8, 1, 4, 109, 97, 105, 110, 0, 0, 10, 7, 1, 5, 0, 65, 0, 192, 11],
+    sat: [0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 127, 3, 2, 1, 0, 7, 8, 1, 4, 109, 97, 105, 110, 0, 0, 10, 11, 1, 9, 0, 67, 0, 0, 128, 63, 252, 0, 11],
+    bulk: [0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 3, 2, 1, 0, 5, 3, 1, 0, 1, 7, 8, 1, 4, 109, 97, 105, 110, 0, 0, 10, 14, 1, 12, 0, 65, 0, 65, 0, 65, 0, 252, 10, 0, 0, 11],
+    ref: [0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 111, 3, 2, 1, 0, 7, 8, 1, 4, 109, 97, 105, 110, 0, 0, 10, 6, 1, 4, 0, 208, 111, 11],
+    simd: [0, 97, 115, 109, 1, 0, 0, 0, 1, 5, 1, 96, 0, 1, 123, 3, 2, 1, 0, 7, 8, 1, 4, 109, 97, 105, 110, 0, 0, 10, 22, 1, 20, 0, 253, 12, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 11]
+  };
+  var bytes = tabs[feature];
+  if (!bytes) return false;
+  try {
+    new WebAssembly.Module(new Uint8Array(bytes));
+    return true;
+  } catch (e15) {
+    return false;
+  }
+}
+function wasmFeatureSupport() {
+  if (!_WASM_FEATURES) {
+    _WASM_FEATURES = {
+      signExt: wasmProbe("signExt"),
+      sat: wasmProbe("sat"),
+      bulk: wasmProbe("bulk"),
+      ref: wasmProbe("ref"),
+      simd: wasmProbe("simd")
+    };
+  }
+  return _WASM_FEATURES;
+}
+function wasmEngineCompat(engine) {
+  var s2 = wasmFeatureSupport();
+  var needs = engine === "pandoc" ? ["signExt", "sat", "bulk", "simd"] : engine === "vlatex" ? ["signExt", "bulk", "ref"] : ["signExt", "sat", "bulk"];
+  var missing = [];
+  for (var i2 = 0; i2 < needs.length; i2++) if (!s2[needs[i2]]) missing.push(needs[i2]);
+  if (missing.length === 0) return null;
+  var minIos = { vlatex: "15", typst: "15", pandoc: "16.4" }[engine];
+  return { missing, minIos };
+}
+function wasmCompileError(engine, err) {
+  var compat = wasmEngineCompat(engine);
+  if (!compat) return err;
+  var detail = err && err.message ? String(err.message) : String(err);
+  return new Error("MergDown2TeX : le moteur WebAssembly « " + engine + " » n'est pas compilable sur ce navigateur — instruction(s) wasm non supportée(s) : " + compat.missing.join(", ") + ". Niveau minimal requis : iOS " + compat.minIos + " (Safari). Mettez à jour l'iPhone : Réglages → Général → Mise à jour logicielle. Détail technique : " + detail);
+}
 function __wbg_set_wasm(val) {
   wasm = val;
 }
@@ -2233,7 +2278,13 @@ const _PandocWasmEngine = class _PandocWasmEngine2 {
   static async load(t2) {
     var _a2;
     let n2 = [`pandoc.wasm`, `+RTS`, `-H64m`, `-RTS`], r2 = /* @__PURE__ */ new Map(), i2 = new yd(`/`, r2), a2 = new md(n2, [], [new _d(new bd(new Uint8Array(), { readonly: true })), Cd.lineBuffered(() => {
-    }), Cd.lineBuffered((e15) => console.warn(e15)), i2], { debug: false }), o2 = await WebAssembly.instantiate(t2, { wasi_snapshot_preview1: a2.wasiImport });
+    }), Cd.lineBuffered((e15) => console.warn(e15)), i2], { debug: false });
+    let o2;
+    try {
+      o2 = await WebAssembly.instantiate(t2, { wasi_snapshot_preview1: a2.wasiImport });
+    } catch (e15) {
+      throw wasmCompileError("pandoc", e15);
+    }
     o2 = (_a2 = o2.instance) != null ? _a2 : o2;
     a2.initialize(o2);
     let s2 = o2.exports;
@@ -2436,14 +2487,24 @@ async function initWasmEmbedded() {
     throw new Error("WASM_BASE64 non initialisé — utiliser initWasm(path) en développement");
   }
   const wasmBytes = Buffer.from(WASM_BASE64, "base64");
-  const { instance } = await WebAssembly.instantiate(wasmBytes, __wbg_get_imports());
-  __wbg_set_wasm(instance.exports);
+  let embeddedInstance;
+  try {
+    embeddedInstance = await WebAssembly.instantiate(wasmBytes, __wbg_get_imports());
+  } catch (e15) {
+    throw wasmCompileError("vlatex", e15);
+  }
+  __wbg_set_wasm(embeddedInstance.instance.exports);
   if (wasm.__wbindgen_start) wasm.__wbindgen_start();
 }
 async function initVlatexFromBytes(wasmBytes) {
   if (wasm) return true;
-  const { instance } = await WebAssembly.instantiate(wasmBytes, __wbg_get_imports());
-  __wbg_set_wasm(instance.exports);
+  let vlatexInstance;
+  try {
+    vlatexInstance = await WebAssembly.instantiate(wasmBytes, __wbg_get_imports());
+  } catch (e15) {
+    throw wasmCompileError("vlatex", e15);
+  }
+  __wbg_set_wasm(vlatexInstance.instance.exports);
   if (wasm.__wbindgen_start) wasm.__wbindgen_start();
   return true;
 }
@@ -9503,19 +9564,23 @@ function tp(e15) {
 }
 var np = /* @__PURE__ */ new Set([`basic`, `cors`, `default`]);
 async function rp(e15, t2) {
-  if (typeof Response == `function` && e15 instanceof Response) {
-    if (typeof WebAssembly.instantiateStreaming == `function`) try {
-      return await WebAssembly.instantiateStreaming(e15, t2);
-    } catch (t3) {
-      if (e15.ok && np.has(e15.type) && e15.headers.get(`Content-Type`) !== `application/wasm`) console.warn("`WebAssembly.instantiateStreaming` failed because your server does not serve Wasm with `application/wasm` MIME type. Falling back to `WebAssembly.instantiate` which is slower. Original error:\n", t3);
-      else throw t3;
+  try {
+    if (typeof Response == `function` && e15 instanceof Response) {
+      if (typeof WebAssembly.instantiateStreaming == `function`) try {
+        return await WebAssembly.instantiateStreaming(e15, t2);
+      } catch (t3) {
+        if (e15.ok && np.has(e15.type) && e15.headers.get(`Content-Type`) !== `application/wasm`) console.warn("`WebAssembly.instantiateStreaming` failed because your server does not serve Wasm with `application/wasm` MIME type. Falling back to `WebAssembly.instantiate` which is slower. Original error:\n", t3);
+        throw t3;
+      }
+      let n2 = await e15.arrayBuffer();
+      return await WebAssembly.instantiate(n2, t2);
     }
-    let n2 = await e15.arrayBuffer();
-    return await WebAssembly.instantiate(n2, t2);
-  }
-  {
-    let n2 = await WebAssembly.instantiate(e15, t2);
-    return n2 instanceof WebAssembly.Instance ? { instance: n2, module: e15 } : n2;
+    {
+      let n2 = await WebAssembly.instantiate(e15, t2);
+      return n2 instanceof WebAssembly.Instance ? { instance: n2, module: e15 } : n2;
+    }
+  } catch (t3) {
+    throw typeof t3 !== `object` || t3 && t3.name !== `CompileError` ? t3 : wasmCompileError("typst", t3);
   }
 }
 function ip() {
