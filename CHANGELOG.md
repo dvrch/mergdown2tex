@@ -2,6 +2,13 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [3.0.4] — 2026-09-12
+
+### Corrigé (mobile)
+- **Sur mobile (iPhone/Android), le déploiement du dossier d'exemple n'appliquait pas le thème ni les réglages** : les fichiers (`.obsidian/themes/…`, `.obsidian/snippets/…`) étaient bien extraits sur disque, mais Obsidian, déjà lancé, ne connaît que l'état des thèmes/extraits CSS chargés au démarrage — `customCss.themes`/`snippets` restaient vides pour les nouveaux éléments, donc `setTheme` échouait silencieusement.
+- **Correction** : nouvelle méthode `_registerExampleThemesSnippets()` appelée au début de `applyExampleAppearance()` — elle **rescanne `.obsidian/themes/` et `.obsidian/snippets/` sur le disque** et **re-registre dans `customCss.themes`/`snippets`** (remplacer/ajouter/fusionner) les thèmes et extraits CSS fraîchement déployés, puis applique le thème (`vault.setConfig("cssTheme")` + `customCss.setTheme`) et active les extraits (`setCssEnabledState` + `requestLoadSnippets`). Fonctionne à la fois sur PC et mobile.
+- **Nouveau test E5** dans le harnais `test_example.js` : Obsidian mémoire-customCss vide + disque contenant les thèmes/snippets → vérifie la registration et l'application effective (thème + extraits CSS activés) ; E1/E2/E3/E4 inchangés, tous OK.
+
 ## [3.0.3] — 2026-09-12
 
 ### Changé

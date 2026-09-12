@@ -4205,6 +4205,7 @@ class Markdown2TexPlugin extends Plugin {
   // Mobile : passe par app.vault.setConfig("cssTheme", ...) — le canal officiel
   // qu'emprunte Réglages → Apparence — puis customCss.setTheme en secours.
   async applyExampleAppearance() {
+    await this._registerExampleThemesSnippets();
     let cssTheme = null;
     let snippets = [];
     const a2 = adapterGet(this.app);
@@ -4256,6 +4257,56 @@ class Markdown2TexPlugin extends Plugin {
       new Notice("Thème appliqué immédiatement : " + cssTheme, 8e3);
     } else {
       new Notice("Dossier d'exemple déployé — activez le thème dans Réglages → Apparence (" + cssTheme + ")", 8e3);
+    }
+  }
+  // Mobile : Obsidian déjà lancé n'a PAS en mémoire les thèmes/extraits CSS
+  // qui viennent d'être extraits sur disque (customCss.themes/snippets ne
+  // contient que l'état du démarrage). On les re-registre depuis .obsidian/
+  // pour que setTheme / setCssEnabledState les trouvent vraiment.
+  async _registerExampleThemesSnippets() {
+    const cc2 = this.app && this.app.customCss;
+    const a2 = adapterGet(this.app);
+    if (!cc2 || !a2 || typeof a2.list !== "function") return;
+    const themesDir = ".obsidian/themes";
+    const snippetsDir = ".obsidian/snippets";
+    try {
+      const tl = await a2.list(themesDir);
+      for (const folder of tl && tl.folders || []) {
+        const id2 = String(folder).split(/[\\/]/).filter(Boolean).pop();
+        if (!id2) continue;
+        if (cc2.themes && !cc2.themes.has(id2)) {
+          let manifest = { name: id2, version: "1.0.0", author: "?" };
+          try {
+            const mRaw = await a2.read(themesDir + "/" + id2 + "/manifest.json");
+            if (mRaw) manifest = Object.assign(manifest, JSON.parse(mRaw));
+          } catch (e15) {
+          }
+          try {
+            cc2.themes.set(id2, Object.assign(manifest, { path: themesDir + "/" + id2 }));
+            this._dlLog("_registerExampleThemesSnippets", "theme registré:", id2);
+          } catch (e15) {
+          }
+        }
+      }
+    } catch (e15) {
+      this._dlLog("_registerExampleThemesSnippets", "list themes KO", e15 && e15.message || e15);
+    }
+    try {
+      const sl = await a2.list(snippetsDir);
+      for (const file of sl && sl.files || []) {
+        const base = String(file).split(/[\\/]/).pop();
+        if (!/\.css$/i.test(base)) continue;
+        const id2 = base.replace(/\.css$/i, "");
+        if (cc2.snippets && !cc2.snippets.has(id2)) {
+          try {
+            cc2.snippets.set(id2, snippetsDir + "/" + base);
+            this._dlLog("_registerExampleThemesSnippets", "snippet registré:", id2);
+          } catch (e15) {
+          }
+        }
+      }
+    } catch (e15) {
+      this._dlLog("_registerExampleThemesSnippets", "list snippets KO", e15 && e15.message || e15);
     }
   }
   async _downloadAndExtract(url, skipPrefixes2, label, progress, saveZipToVaultRoot) {

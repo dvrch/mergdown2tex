@@ -13,8 +13,9 @@
  * (scripts/build_assets.js) so nothing heavy is ever uploaded by hand.
  *
  * Usage:
- *   node scripts/build_assets.js          # -> all zips
- *   node scripts/build_assets.js --check  # verify each source folder and zip are in sync
+ *   node scripts/build_assets.js                  # -> all zips
+ *   node scripts/build_assets.js --only vlatex    # -> only the zip matching 'vlatex'
+ *   node scripts/build_assets.js --check           # verify each source folder and zip are in sync
  */
 const { execFileSync } = require("child_process");
 const fs = require("fs");
@@ -243,7 +244,10 @@ function checkTarget(target) {
 }
 
 const mode = process.argv.includes("--check") ? "check" : "build";
+const onlyIdx = process.argv.indexOf("--only");
+const only = onlyIdx >= 0 ? process.argv[onlyIdx + 1] : null;
 for (const target of TARGETS) {
+  if (only && !target.out.includes(only) && target.label.indexOf(only) < 0) continue;
   if (mode === "build") buildTarget(target);
   else checkTarget(target);
 }

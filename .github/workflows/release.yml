@@ -28,6 +28,18 @@ jobs:
       - name: Install dependencies
         run: npm ci --no-audit --no-fund
 
+      - name: Embed latest vLaTeX wasm (dvrch/vlatex) into main.js
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -e
+          VLTAG=$(gh release list -R dvrch/vlatex --limit 1 --json tagName --jq '.[0].tagName' || true)
+          if [ -n "$VLTAG" ] && gh release download "$VLTAG" -R dvrch/vlatex -p 'vlatex_wasm.zip' -D .vltmp --clobber 2>/dev/null && [ -s .vltmp/vlatex_wasm.zip ]; then
+            node scripts/embed-wasm.js .vltmp/vlatex_wasm.zip
+          else
+            echo "Aucune release vLaTeX dispo (tag '$VLTAG'), on garde le wasm committé."
+          fi
+
       - name: "Transpile to ES2017 (max compat : vieux WebView Android/iOS)"
         run: node scripts/transpile.js
 
