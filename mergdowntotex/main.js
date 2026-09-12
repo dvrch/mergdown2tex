@@ -2816,7 +2816,7 @@ class Markdown2TexSettingTab extends PluginSettingTab {
     containerEl.createEl("h2", { text: "MergDown2TeX Settings" });
     const section = (title) => containerEl.createEl("h3", { text: title, attr: { style: "border-bottom:1px solid var(--background-modifier-border);padding-bottom:4px;margin-top:22px" } });
     section("Export ZIP");
-    new Setting(containerEl).setName("Télécharger le dossier d'exemple (vault complet)").setDesc("REMONTE TOUT le vault actuel : fichiers de référence, réglages Obsidian (.obsidian : thème actif, plugins, config, workspace…) et réglages du plugin (data.json du vault exemple). Le thème est appliqué immédiatement, sans redémarrage. ATTENTION : vos réglages.obsidian actuels et les réglages du plugin sont remplacés. Le fichier full_manual_repport_exp.zip n'est téléchargé que la première fois puis CONSERVÉ dans le vault : les fois suivantes il est réutilisé (déploiement + thème appliqué instantanément, sans réseau).").addButton((btn) => {
+    new Setting(containerEl).setName("Télécharger le dossier d'exemple (vault complet)").setDesc("REMONTE TOUT le vault actuel : fichiers de référence, réglages Obsidian (.obsidian : thème actif, plugins, config, workspace…) et réglages du plugin (data.json du vault exemple). Le thème est appliqué immédiatement et FORCÉ depuis le zip, sans redémarrage. ATTENTION : vos réglages .obsidian actuels et les réglages du plugin sont remplacés. Le fichier full_manual_repport_exp.zip est CONSERVÉ EN PERMANENCE à la racine du vault : chaque action force la ré-extraction des dossiers et fichiers depuis ce zip (sans réseau si présent) ; s'il a disparu, il est re-téléchargé puis laissé à la racine.").addButton((btn) => {
       btn.setButtonText("Télécharger, remplacer & extraire").onClick(async () => {
         await this.plugin.withProgressModal("Vault exemple", (progress) => this.plugin.downloadExampleVault(progress));
         this.display();
@@ -4149,11 +4149,12 @@ class Markdown2TexPlugin extends Plugin {
   //
   // Sans re-téléchargement inutile :
   //  1) le zip d'exemple est DÉJÀ dans le vault (racine, dépôt manuel ou cache
-  //     de la dernière installation) → extraction locale, aucun réseau ;
-  //  2) sinon un premier déploiement existe déjà (.obsidian/appearance.json
-  //     présent) → on ré-applique simplement le thème et les réglages ;
-  //  3) sinon téléchargement + extraction, et le zip est CONSERVÉ à la racine
-  //     du vault pour les prochaines fois.
+  //     de la dernière installation) → extraction locale FORCÉE (re-fait tous
+  //     les dossiers/fichiers), aucun réseau, puis thème appliqué ;
+  //  2) sinon téléchargement + extraction FORCÉE, et le zip est CONSERVÉ en
+  //     permanence à la racine du vault ; si le réseau échoue mais qu'un premier
+  //     déploiement existe déjà (.obsidian/appearance.json) → repli : simple
+  //     ré-application du thème et des réglages.
   async downloadExampleVault(progress) {
     const label = "Dossier d'exemple (fichiers + .obsidian + thème + réglages)";
     const zipName = "full_manual_repport_exp.zip";
@@ -4162,26 +4163,28 @@ class Markdown2TexPlugin extends Plugin {
       if (await vaultExists(this.app, zipName)) {
         const raw = await vaultReadBinary(this.app, zipName);
         if (raw && raw.byteLength > 1e3) {
-          this._dlLog("downloadExampleVault", "zip présent dans le vault — extraction locale sans réseau");
+          this._dlLog("downloadExampleVault", "zip présent dans le vault — extraction locale (ré-extraction forcée des dossiers/fichiers)");
           const ab = raw.buffer ? raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) : raw;
           const ok2 = await this._unzipAndExtract(ab, label, progress);
-          if (ok2) return await this._afterExampleDeploy(progress, "Dossier d'exemple déployé depuis le zip présent dans le vault (aucun téléchargement) — thème + réglages appliqués.");
+          if (ok2) return await this._afterExampleDeploy(progress, "Dossier d'exemple ré-déployé depuis le zip du vault (fichiers/dossiers ré-extraits, thème forcé) — aucun réseau.");
+        } else {
+          this._dlLog("downloadExampleVault", "zip local trop petit/corrompu", raw && raw.byteLength);
         }
       }
     } catch (e15) {
       this._dlLog("downloadExampleVault", "zip local inexploitable", e15 && e15.message || e15);
     }
+    const url = "https://github.com/dvrch/mergdown2tex/releases/download/bundle/" + zipName;
+    const ok = await this._downloadAndExtract(url, /* @__PURE__ */ new Set(), label, progress, true);
+    if (ok) return await this._afterExampleDeploy(progress, "Dossier d'exemple déployé — zip CONSERVÉ en permanence à la racine du vault (prochains re-déploiements sans réseau) ; thème + réglages forcés.");
     try {
       if (await vaultExists(this.app, ".obsidian/appearance.json")) {
-        this._dlLog("downloadExampleVault", "déploiement déjà présent — reprise sans téléchargement");
-        return await this._afterExampleDeploy(progress, "Dossier d'exemple déjà présent dans le vault (aucun téléchargement) — thème + réglages réappliqués.");
+        this._dlLog("downloadExampleVault", "repli réseau KO : déjà déployé — ré-application thème");
+        return await this._afterExampleDeploy(progress, "Réseau indisponible ; dossier d'exemple déjà en place — thème + réglages réappliqués.");
       }
     } catch (e15) {
     }
-    const url = "https://github.com/dvrch/mergdown2tex/releases/download/bundle/" + zipName;
-    const ok = await this._downloadAndExtract(url, /* @__PURE__ */ new Set(), label, progress, true);
-    if (!ok) return false;
-    return await this._afterExampleDeploy(progress, "Dossier d'exemple déployé (zip conservé dans le vault pour la prochaine fois) — thème + réglages appliqués.");
+    return false;
   }
   async _afterExampleDeploy(progress, msg) {
     try {

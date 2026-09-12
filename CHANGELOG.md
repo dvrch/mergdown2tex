@@ -2,6 +2,15 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [3.0.3] — 2026-09-12
+
+### Changé
+- **Le zip d'exemple est désormais conservé en permanence à la racine du vault** : les trois chemins de `downloadExampleVault` ont été fusionnés en deux :
+  1. le zip est présent → ré-extraction **forcée** (écrase/ajoute dossiers et fichiers) + thème forcé (aucun réseau) ;
+  2. le zip est absent → **re-téléchargement** + conservation à la racine ; si le réseau est indisponible, repli sur simple ré-application du thème si déjà déployé (`.obsidian/appearance.json`).
+  L'ancien « déjà déployé, aucun téléchargement » (sans zip) a été supprimé : le zip est désormais systématiquement obtenu puis conservé, afin qu'il soit toujours réutilisable. La description du bouton « Télécharger, remplacer & extraire » reflète ce nouveau comportement.
+- **Nouveau test E4** : réseau KO + déjà déployé → repli vérifié ; harnais `test_example.js` adapté (E2 = zip absent + réseau OK → re-téléchargement et conservation ; E4 = réseau KO → repli thème).
+
 ## [3.0.2] — 2026-09-12
 
 ### Ajouté

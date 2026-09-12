@@ -1,6 +1,6 @@
 {
   "name": "mergdowntotex",
-  "version": "3.0.2",
+  "version": "3.0.3",
   "private": true,
   "description": "Merge & doc. export everything — embeds, Zotero/Pandoc citations, Mermaid, equations, cross-refs — into a unique .tex file. WASM engine.",
   "scripts": {
