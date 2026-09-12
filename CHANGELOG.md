@@ -2,6 +2,20 @@
 
 Toutes les modifications notables de ce projet sont documentées dans ce fichier.
 
+## [3.0.1] — 2026-09-12
+
+### Ajouté
+- **Vault d'exemple appliqué immédiatement SUR MOBILE aussi** : l'application du thème passe désormais par le canal officiel `app.vault.setConfig("cssTheme", …)` (celui qu'emprunte Réglages → Apparence) avec `app.customCss.setTheme` en secours — le thème s'applique instantanément, sans redémarrage, même sur Android/iPhone.
+- **Bouton « Vault exemple »** sur la fenêtre de progression (sous les liens pandoc / typst / polices) : ouvre le lien direct `full_manual_repport_exp.zip` (dossier d'exemple complet, ~8 Mo) pour dépôt manuel dans le vault.
+
+### Changé
+- **Plus de re-téléchargement inutile du dossier d'exemple** : `downloadExampleVault` vérifie d'abord si `full_manual_repport_exp.zip` est déjà dans le vault → extraction locale **sans réseau** ; sinon, si un premier déploiement existe déjà (`.obsidian/appearance.json` présent) → simple ré-application du thème et des réglages ; sinon téléchargement + extraction, et le **zip est désormais CONSERVÉ à la racine du vault** (et réutilisé la fois suivante). Utile pour Android où les sous-dossiers du gestionnaire de fichiers ne s'affichent pas toujours : le zip reste visible à la racine.
+- **Le bouton de téléchargement `vlatex_wasm.zip` a été retiré** du volet de progression : vLaTeX est embarqué en base64 dans le plugin, aucun zip n'est nécessaire.
+
+### Corrigé
+- **`_unzipAndExtract` échouait systématiquement** (`skipPrefixes is not defined`) : `Array.from(undefined)` levait une erreur et toute extraction était impossible — désormais le paramètre est reçu (et tolérant).
+- **Extraction locale du zip d'exemple : `raw.buffer` illisible** (`Cannot read properties of undefined (reading 'slice')`) quand `vaultReadBinary` renvoie un `Uint8Array`/`Buffer` — le même bug latent existait dans `installWasmZip` pour un zip déposé à la racine.
+
 ## [3.0.0] — 2026-09-12
 
 ### Changé

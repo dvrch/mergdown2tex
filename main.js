@@ -2650,7 +2650,7 @@ class DownloadProgressModal extends Modal {
       { key: "pandoc_wasm.zip", label: "pandoc", tip: "pandoc.wasm — DOCX/ODT/… (~16 Mo), lien direct" },
       { key: "typst_wasm.zip", label: "typst", tip: "typst.wasm (~11 Mo), lien direct" },
       { key: "typst_fonts.zip", label: "polices", tip: "polices typst (~8 Mo), lien direct" },
-      { key: "vlatex_wasm.zip", label: "vLaTeX", tip: "moteur vLaTeX .md→.tex (~0,9 Mo), lien direct" }
+      { key: "full_manual_repport_exp.zip", label: "exemple", tip: "dossier d'exemple (vault complet : fichiers + .obsidian + thème + réglages, ~8 Mo), lien direct — déposez le zip dans le vault puis « Télécharger le dossier d'exemple »" }
     ];
     for (const d of this._links) {
       const b2 = linksRow.createEl("button", {
@@ -2755,7 +2755,7 @@ class Markdown2TexSettingTab extends PluginSettingTab {
     containerEl.createEl("h2", { text: "MergDown2TeX Settings" });
     const section = (title) => containerEl.createEl("h3", { text: title, attr: { style: "border-bottom:1px solid var(--background-modifier-border);padding-bottom:4px;margin-top:22px" } });
     section("Export ZIP");
-    new Setting(containerEl).setName("Télécharger le dossier d'exemple (vault complet)").setDesc("REMONTE TOUT le vault actuel : fichiers de référence, réglages Obsidian (.obsidian : thème actif, plugins, config, workspace…) et réglages du plugin (data.json du vault exemple). Le thème est appliqué immédiatement, sans redémarrage. ATTENTION : vos réglages.obsidian actuels et les réglages du plugin sont remplacés.").addButton((btn) => {
+    new Setting(containerEl).setName("Télécharger le dossier d'exemple (vault complet)").setDesc("REMONTE TOUT le vault actuel : fichiers de référence, réglages Obsidian (.obsidian : thème actif, plugins, config, workspace…) et réglages du plugin (data.json du vault exemple). Le thème est appliqué immédiatement, sans redémarrage. ATTENTION : vos réglages.obsidian actuels et les réglages du plugin sont remplacés. Le fichier full_manual_repport_exp.zip n'est téléchargé que la première fois puis CONSERVÉ dans le vault : les fois suivantes il est réutilisé (déploiement + thème appliqué instantanément, sans réseau).").addButton((btn) => {
       btn.setButtonText("Télécharger, remplacer & extraire").onClick(async () => {
         await this.plugin.withProgressModal("Vault exemple", (progress) => this.plugin.downloadExampleVault(progress));
         this.display();
@@ -3589,7 +3589,7 @@ class Markdown2TexPlugin extends Plugin {
           const raw = await vaultReadBinary(this.app, rel);
           if (raw && raw.length > 4 && raw[0] === 80 && raw[1] === 75) {
             try {
-              const ab = raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength);
+              const ab = raw.buffer ? raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) : raw;
               const chk = this.unzipAll(ab);
               if (Object.keys(chk).length > 0) {
                 arrayBuffer = ab;
@@ -4085,23 +4085,61 @@ class Markdown2TexPlugin extends Plugin {
   // exemple) + le data.json du plugin (pré-configuré). Le thème est ensuite
   // appliqué immédiatement (plus de redémarrage nécessaire) et les réglages du
   // plugin sont rechargés depuis le data.json ainsi restauré.
-  downloadExampleVault(progress) {
-    const url = "https://github.com/dvrch/mergdown2tex/releases/download/bundle/full_manual_repport_exp.zip";
-    return this._downloadAndExtract(url, /* @__PURE__ */ new Set(), "Dossier d'exemple (fichiers + .obsidian + thème + réglages)", progress).then(async (ok) => {
-      if (ok) {
-        await this.applyExampleAppearance();
-        try {
-          await this.loadSettings();
-        } catch (e15) {
-          console.warn("[mergdown2tex] rechargement des réglages:", e15 && e15.message);
+  //
+  // Sans re-téléchargement inutile :
+  //  1) le zip d'exemple est DÉJÀ dans le vault (racine, dépôt manuel ou cache
+  //     de la dernière installation) → extraction locale, aucun réseau ;
+  //  2) sinon un premier déploiement existe déjà (.obsidian/appearance.json
+  //     présent) → on ré-applique simplement le thème et les réglages ;
+  //  3) sinon téléchargement + extraction, et le zip est CONSERVÉ à la racine
+  //     du vault pour les prochaines fois.
+  async downloadExampleVault(progress) {
+    const label = "Dossier d'exemple (fichiers + .obsidian + thème + réglages)";
+    const zipName = "full_manual_repport_exp.zip";
+    this._dlLog("downloadExampleVault", "début");
+    try {
+      if (await vaultExists(this.app, zipName)) {
+        const raw = await vaultReadBinary(this.app, zipName);
+        if (raw && raw.byteLength > 1e3) {
+          this._dlLog("downloadExampleVault", "zip présent dans le vault — extraction locale sans réseau");
+          const ab = raw.buffer ? raw.buffer.slice(raw.byteOffset, raw.byteOffset + raw.byteLength) : raw;
+          const ok2 = await this._unzipAndExtract(ab, label, progress);
+          if (ok2) return await this._afterExampleDeploy(progress, "Dossier d'exemple déployé depuis le zip présent dans le vault (aucun téléchargement) — thème + réglages appliqués.");
         }
-        new Notice("Vault d'exemple déployé : thème, plugins, config .obsidian et réglages du plugin (data.json) remplacés. Moteurs WASM intacts.", 8e3);
       }
-      return ok;
-    });
+    } catch (e15) {
+      this._dlLog("downloadExampleVault", "zip local inexploitable", e15 && e15.message || e15);
+    }
+    try {
+      if (await vaultExists(this.app, ".obsidian/appearance.json")) {
+        this._dlLog("downloadExampleVault", "déploiement déjà présent — reprise sans téléchargement");
+        return await this._afterExampleDeploy(progress, "Dossier d'exemple déjà présent dans le vault (aucun téléchargement) — thème + réglages réappliqués.");
+      }
+    } catch (e15) {
+    }
+    const url = "https://github.com/dvrch/mergdown2tex/releases/download/bundle/" + zipName;
+    const ok = await this._downloadAndExtract(url, /* @__PURE__ */ new Set(), label, progress, true);
+    if (!ok) return false;
+    return await this._afterExampleDeploy(progress, "Dossier d'exemple déployé (zip conservé dans le vault pour la prochaine fois) — thème + réglages appliqués.");
+  }
+  async _afterExampleDeploy(progress, msg) {
+    try {
+      if (progress) progress.setStatus("Application du thème…");
+    } catch (e15) {
+    }
+    await this.applyExampleAppearance();
+    try {
+      await this.loadSettings();
+    } catch (e15) {
+      console.warn("[mergdown2tex] rechargement des réglages:", e15 && e15.message);
+    }
+    new Notice(msg, 8e3);
+    return true;
   }
   // Applique immédiatement le thème (et les extraits CSS) définis dans le
   // .obsidian/appearance.json tout juste restauré, sans redémarrer Obsidian.
+  // Mobile : passe par app.vault.setConfig("cssTheme", ...) — le canal officiel
+  // qu'emprunte Réglages → Apparence — puis customCss.setTheme en secours.
   async applyExampleAppearance() {
     let cssTheme = null;
     let snippets = [];
@@ -4116,12 +4154,23 @@ class Markdown2TexPlugin extends Plugin {
       }
     }
     const cc2 = this.app && this.app.customCss;
-    if (cssTheme && cc2 && typeof cc2.setTheme === "function") {
-      try {
-        await cc2.setTheme(cssTheme);
-        new Notice("Thème appliqué immédiatement : " + cssTheme);
-      } catch (e15) {
-        console.warn("[mergdown2tex] setTheme:", e15 && e15.message);
+    const applied = [];
+    if (cssTheme) {
+      if (this.app && this.app.vault && typeof this.app.vault.setConfig === "function") {
+        try {
+          await this.app.vault.setConfig("cssTheme", cssTheme);
+          applied.push("config");
+        } catch (e15) {
+          console.warn("[mergdown2tex] vault.setConfig cssTheme:", e15 && e15.message);
+        }
+      }
+      if (cc2 && typeof cc2.setTheme === "function") {
+        try {
+          await cc2.setTheme(cssTheme);
+          if (applied.indexOf("config") < 0) applied.push("customCss");
+        } catch (e15) {
+          console.warn("[mergdown2tex] customCss.setTheme:", e15 && e15.message);
+        }
       }
     }
     if (snippets.length > 0 && cc2 && typeof cc2.setCssEnabledState === "function") {
@@ -4131,57 +4180,85 @@ class Markdown2TexPlugin extends Plugin {
         } catch (e15) {
         }
       }
+    }
+    if (cc2 && typeof cc2.requestLoadSnippets === "function") {
       try {
-        await cc2.loadSnippets();
+        await cc2.requestLoadSnippets();
       } catch (e15) {
       }
     }
+    this._dlLog("applyExampleAppearance", "cssTheme:", cssTheme, "| appliqué via:", applied.join(",") || "aucune", "| snippets:", snippets.join(","));
+    if (applied.length > 0) {
+      new Notice("Thème appliqué immédiatement : " + cssTheme, 8e3);
+    } else {
+      new Notice("Dossier d'exemple déployé — activez le thème dans Réglages → Apparence (" + cssTheme + ")", 8e3);
+    }
   }
-  async _downloadAndExtract(url, skipPrefixes, label, progress) {
+  async _downloadAndExtract(url, skipPrefixes2, label, progress, saveZipToVaultRoot) {
     if (progress) {
       progress.setTitle(label);
       progress.setStatus("Connexion au serveur…");
     } else new Notice("Téléchargement du " + label + "…");
     try {
       const arrayBuffer = await this.downloadBytes(url, progress);
-      const all = this.unzipAll(arrayBuffer);
-      const totalFiles = Object.keys(all).filter((n2) => !n2.endsWith("/")).length;
-      let written = 0, ignored = 0;
-      for (const [name, data] of Object.entries(all)) {
-        if (name.endsWith("/")) continue;
-        if (Array.from(skipPrefixes).some((p) => name === p || name.startsWith(p))) {
-          ignored++;
-          continue;
-        }
-        if (progress && totalFiles) {
-          progress.setProgress(0.05 + 0.95 * (written / totalFiles), "Extraction : " + written + " / " + totalFiles + " fichiers…");
-        }
-        try {
-          await vaultWriteBinary(this.app, name, data);
-          written++;
-        } catch (e15) {
-          const slashIdx = name.lastIndexOf("/");
-          const parent = slashIdx > 0 ? name.slice(0, slashIdx) : "";
-          if (parent) await vaultMkdirRecursive(this.app, parent);
+      if (saveZipToVaultRoot) {
+        const zipName = (url.split("/").pop() || "").split("?")[0];
+        if (zipName) {
           try {
-            await vaultWriteBinary(this.app, name, data);
-            written++;
-            continue;
-          } catch (e32) {
+            await vaultWriteBinary(this.app, zipName, new Uint8Array(arrayBuffer));
+            this._dlLog("_downloadAndExtract", zipName, "zip conservé à la racine du vault");
+          } catch (e15) {
+            this._dlLog("_downloadAndExtract", zipName, "échec conservation zip", e15 && e15.message || e15);
           }
-          console.warn("[mergdown2tex] " + label + " : écriture impossible pour " + name);
         }
       }
-      const msg = label + " : " + written + " fichiers extraits à la racine du vault" + (ignored ? " (" + ignored + " ignorés)" : "");
-      if (progress) progress.setProgress(1, msg);
-      else new Notice(msg);
-      return true;
+      return await this._unzipAndExtract(arrayBuffer, label, progress, skipPrefixes2);
     } catch (e15) {
       const errMsg = "Échec du téléchargement du " + label + " : " + (e15 && e15.message || e15);
       if (progress) progress.setStatus(errMsg);
       else new Notice(errMsg, 5e3);
       return false;
     }
+  }
+  async _unzipAndExtract(arrayBuffer, label, progress, skipPrefixes) {
+    const all = this.unzipAll(arrayBuffer);
+    const totalFiles = Object.keys(all).filter((n2) => !n2.endsWith("/")).length;
+    if (totalFiles === 0) {
+      const errMsg = label + " : archive invalide ou vide — re-téléchargez-la.";
+      if (progress) progress.setStatus(errMsg);
+      else new Notice(errMsg, 5e3);
+      return false;
+    }
+    let written = 0, ignored = 0;
+    for (const [name, data] of Object.entries(all)) {
+      if (name.endsWith("/")) continue;
+      if (Array.from(skipPrefixes || []).some((p) => name === p || name.startsWith(p))) {
+        ignored++;
+        continue;
+      }
+      if (progress) {
+        progress.setProgress(0.05 + 0.95 * (written / totalFiles), "Extraction : " + written + " / " + totalFiles + " fichiers…");
+      }
+      try {
+        await vaultWriteBinary(this.app, name, data);
+        written++;
+      } catch (e15) {
+        const slashIdx = name.lastIndexOf("/");
+        const parent = slashIdx > 0 ? name.slice(0, slashIdx) : "";
+        if (parent) await vaultMkdirRecursive(this.app, parent);
+        try {
+          await vaultWriteBinary(this.app, name, data);
+          written++;
+          continue;
+        } catch (e32) {
+        }
+        console.warn("[mergdown2tex] " + label + " : écriture impossible pour " + name);
+      }
+    }
+    const msg = label + " : " + written + " fichiers extraits à la racine du vault" + (ignored ? " (" + ignored + " ignorés)" : "");
+    if (progress) progress.setProgress(1, msg);
+    else new Notice(msg);
+    return true;
   }
   inflateRawPortable(input) {
     const out = [];
